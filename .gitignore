@@ -1,7 +1,9 @@
-# Downloaded assets: fetch them again as described in PROJECT_BRIEF.md ("Assets and where to get them")
+# Local model downloads from before the game moved to CDNs. The game no longer uses them;
+# they stay ignored so they are never committed (Polyfork files must not be redistributed).
 /kit/
 /vendor/
-/halloween/
-/models/
+/railway/
+/openplan/
+/basement/
 
 .DS_Store

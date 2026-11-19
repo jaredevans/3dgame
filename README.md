@@ -1,103 +1,57 @@
-# Candy Dash
+# Basement Empire
 
-A small 3D browser game built with [three.js](https://threejs.org) and free low-poly models from [Polyfork](https://polyfork.dev). You're a kid in a caped hero costume, out trick-or-treating at dusk: collect candy from all 8 front doors before the 90-second timer runs out, while a ghost drifts after you.
+A small model railway simulator for the browser, built with [three.js](https://threejs.org) and free low-poly models from [Polyfork](https://polyfork.dev). A basement holds a big table layout with three loops of track, a station, an engine shed and a little town. Three trains run on it, and you drive them. The whole room is seen as a tilt-shift diorama, so it reads as something small on a table.
 
-The game was built by an AI coding agent from [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md) as a classroom demo of writing a detailed brief before development starts.
+The whole game is one file, `index.html`. three.js comes from jsDelivr and every model comes from Polyfork's free CDN, so there is nothing to install or download. It needs an internet connection.
+
+What the game is and the decisions behind it are in [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md).
 
 ## Controls
 
-| Key | Action |
+| Input | Action |
 |---|---|
-| `W` / `S` or `↑` / `↓` | Walk forward / back |
-| `A` / `D` or `←` / `→` | Turn left / right |
-| `Shift` | Run |
-| `Enter` | Start, or play again |
+| `1` `2` `3`, or click a train | Pick a train |
+| `W` / `S` or `↑` / `↓` | Throttle up / down (below zero is reverse) |
+| `Space` | Stop the picked train |
+| `H` | Whistle or horn |
+| `C` | Ride along with the picked train (again, or `Esc`, to step back) |
+| `T` | Tilt-shift blur on/off |
+| Drag / scroll | Orbit / zoom (right-drag pans) |
 
-Walk up to a neighbour (under the pink marker) to collect their candy. The ghost passes through walls; each touch costs one of your 3 hearts.
+Each train also has a card at the bottom of the screen with a throttle slider and Stop, Whistle and Ride buttons.
 
-## Setup
+## Run it locally
 
-The repo holds only the game's own code. three.js and the 3D models (about 55 MB) are downloaded once into four folders that git ignores. You need `curl`, `tar`, `unzip` and Python 3, and a free Polyfork account for step 2.
-
-Run every command from the repo root.
-
-### 1. three.js
-
-```sh
-mkdir -p vendor/three
-curl -sL https://registry.npmjs.org/three/-/three-0.180.0.tgz \
-  | tar -xz --strip-components=1 -C vendor/three \
-      package/build/three.module.js package/build/three.core.js package/examples/jsm
-```
-
-### 2. The neighbourhood kit
-
-The streets, houses and ground come from Polyfork's Neighborhood Pathways kit, which downloads as one zip and needs a free Polyfork account. Get `kit.zip` one of these ways:
-
-- **With an AI agent that has the Polyfork MCP server connected:** ask it to call `get_kit` for `neighborhood-pathways-kit-a992cf`. The reply contains a `curl` command with a signed link that lasts 15 minutes. This is how the kit was downloaded for this project.
-- **With a Polyfork API key:** Polyfork's documentation says the zip at `https://polyfork.dev/dl/kit-neighborhood-pathways-kit-a992cf.zip` accepts a free account's key as a Bearer token. This route has not been tested for this project.
-
-Then unpack it into `kit/`:
-
-```sh
-unzip -q -o kit.zip -d kit && rm kit.zip
-```
-
-### 3. Characters, decorations and the ghost
-
-These are free downloads that need no account.
-
-```sh
-mkdir -p halloween models
-for id in kid-in-a-caped-663f11 neighbour-handing-out-candy-2c1159 jack-o-lantern-0b1ddb \
-          foam-yard-gravestone-d64ffc giant-yard-skeleton-770f04 giant-yard-spider-70ddce; do
-  curl -sfL -o "halloween/$id.mjs" "https://polyfork.dev/cdn/$id.mjs"
-done
-curl -sfL -o models/sea-ghost.glb https://polyfork.dev/cdn/sea-ghost-base.glb
-```
-
-### 4. Animation clips
-
-```sh
-mkdir -p kit/clips
-for c in idle walk run; do
-  curl -sfL -o "kit/clips/anim-$c.json" "https://polyfork.dev/cdn/anim-$c.json"
-done
-```
-
-The kit loads animation clips from polyfork.dev by default. This one-line change points it at the local copies, so the game runs with no internet connection:
-
-```sh
-sed -i.bak "s#'https://polyfork.dev/cdn/'#new URL('../clips/', import.meta.url).href#" kit/_internal/clips.mjs \
-  && rm kit/_internal/clips.mjs.bak
-```
-
-## Run
-
-The game uses JavaScript modules, so it needs a local web server; opening `index.html` straight from the file system will not work.
+Serve the folder with any static web server and open the page:
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-Then open <http://127.0.0.1:8765/index.html> in a desktop browser and press `Enter`.
+Then open <http://127.0.0.1:8765/> in a desktop browser. The first load downloads about 15 MB of models; the browser caches them after that.
+
+## Publish on GitHub Pages
+
+1. Push the repo to GitHub.
+2. In the repo, go to **Settings → Pages**, set **Source** to "Deploy from a branch", pick `main` and `/ (root)`, and save.
+3. After a minute the game is live at `https://<your-user>.github.io/<repo-name>/`.
+
+Every push to `main` republishes it. No build step is needed.
 
 ## Troubleshooting
 
-- **Stuck on "Loading the neighbourhood…":** a file is missing. Open the browser's developer console; the first error names the file, which tells you which setup step to redo.
-- **Changes to the code don't show up:** the browser cached the old module. Do a hard reload (`Cmd+Shift+R` on macOS, `Ctrl+Shift+R` elsewhere).
+- **The loading screen says "Could not load: …":** a file from a CDN didn't arrive. The message names it. Check the internet connection and reload. If a Polyfork model name in the message ends without a six-character id (for example `…/cdn/lineside-tree.mjs`), that part is missing from the `IDS` map near the top of the script.
+- **Changes to the code don't show up:** the browser cached the old page. Do a hard reload (`Cmd+Shift+R` on macOS, `Ctrl+Shift+R` elsewhere).
 
-## Project layout
+## Changing the game
 
-| Path | In git | What it is |
-|---|---|---|
-| `index.html` | yes | The page: HUD, start and end screens, import map |
-| `src/main.js` | yes | All game code; the tunable numbers (timer, speeds, hearts) are at the top |
-| `PROJECT_BRIEF.md` | yes | The brief the game was built from, including asset sources |
-| `vendor/three/` | no | three.js 0.180.0 |
-| `kit/` | no | The Neighborhood Pathways kit and animation clips |
-| `halloween/`, `models/` | no | The individual Polyfork models |
+Everything is in the `<script type="module">` inside `index.html`:
+
+- The tunable numbers (scale, table and room size, top speed, acceleration, tilt-shift strength) are at the top.
+- `IDS` maps each part's kit name to its Polyfork asset id. To use another Polyfork model, add its id there, or pass the id straight to `part()`.
+- `TRAINS` lists each train's vehicles and their colours. The part options (liveries, loads, lengths) are listed on each model's Polyfork page.
+- `scenery()` places the buildings, trees, signals and people on the layout; the block after "the basement" furnishes the room.
 
 ## Credits and licence of the assets
 
-All 3D models and the kit's helper modules are from [Polyfork](https://polyfork.dev) and are used under its licence (<https://polyfork.dev/licensing>), which is why they are downloaded rather than redistributed in this repo. three.js is MIT licensed.
+All 3D models and the `stage.mjs` and `clips.mjs` helpers are from [Polyfork](https://polyfork.dev) and are loaded from its CDN under its licence (<https://polyfork.dev/licensing>); none of them are copied into this repo. The models come from three of its kits: Countryside Railway, Open Plan and Neighborhood Pathways. three.js is MIT licensed.

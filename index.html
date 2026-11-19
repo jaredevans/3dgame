@@ -3,56 +3,691 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Candy Dash</title>
+<title>Basement Empire</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff;
-    font-family: "Trebuchet MS", "Avenir Next", system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1714; color: #f4ead8;
+    font-family: "Avenir Next", "Trebuchet MS", system-ui, sans-serif; }
   canvas { display: block; }
-  #hud { position: fixed; top: 0; left: 0; right: 0; display: none; justify-content: space-between;
-    padding: 14px 22px; font-size: 26px; font-weight: 700; text-shadow: 0 2px 6px #000c; pointer-events: none; }
-  #hud span { min-width: 6em; }
-  #hud #candy { text-align: center; }
-  #hud #hearts { text-align: right; letter-spacing: 3px; }
-  #time.low { color: #ff6b4a; }
-  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; text-align: center; background: #120c1fcc; padding: 24px; }
-  .screen h1 { font-size: clamp(48px, 9vw, 110px); margin: 0 0 8px; color: #ff9a2e;
-    text-shadow: 0 4px 0 #7a2d00, 0 8px 24px #000; letter-spacing: 2px; }
-  .screen p { font-size: 22px; margin: 8px 0; max-width: 34em; line-height: 1.4; }
-  .screen kbd { background: #fff2; border: 1px solid #fff5; border-radius: 6px; padding: 2px 8px; font-family: inherit; }
-  .screen .go { margin-top: 26px; font-size: 26px; color: #ffd27a; animation: pulse 1.2s infinite alternate; }
-  @keyframes pulse { from { opacity: .45; } to { opacity: 1; } }
-  #end { display: none; }
-  #hit { position: fixed; inset: 0; background: #b0101088; opacity: 0; pointer-events: none; transition: opacity .5s; }
+  #title { position: fixed; top: 14px; left: 18px; pointer-events: none; text-shadow: 0 2px 6px #000a; }
+  #title h1 { margin: 0; font-size: 26px; letter-spacing: 1px; color: #ffd98a; }
+  #title p { margin: 2px 0 0; font-size: 13px; opacity: .85; }
+  #help { position: fixed; top: 14px; right: 18px; font-size: 13px; line-height: 1.55; text-align: right;
+    background: #0008; padding: 8px 12px; border-radius: 8px; }
+  #help kbd { background: #fff2; border: 1px solid #fff4; border-radius: 4px; padding: 0 5px; font-family: inherit; font-size: 12px; }
+  #panel { position: fixed; left: 16px; right: 16px; bottom: 12px; display: flex; gap: 8px;
+    flex-wrap: wrap; justify-content: center; pointer-events: none; }
+  .cab { pointer-events: auto; background: #201a15d9; border: 2px solid #4a3d31; border-radius: 10px; padding: 6px 10px 8px; width: 190px;
+    cursor: pointer; transition: border-color .15s, transform .15s; }
+  .cab.sel { border-color: #ffc95a; transform: translateY(-3px); }
+  .cab .row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+  .cab .name { font-weight: 700; font-size: 15px; }
+  .cab .key { font-size: 11px; opacity: .7; }
+  .cab .spd { font-variant-numeric: tabular-nums; font-size: 13px; opacity: .9; }
+  .cab .sub { font-size: 11px; opacity: .65; margin-top: 1px; }
+  .cab input { width: 100%; margin: 6px 0 1px; accent-color: #ffc95a; }
+  @media (max-height: 700px) { .cab .sub { display: none; } .cab input { margin: 4px 0 0; } }
+  .cab .btns { display: flex; gap: 6px; }
+  .cab button { flex: 1; background: #3a2f25; color: inherit; border: 1px solid #5c4b3b; border-radius: 6px;
+    font: inherit; font-size: 12px; padding: 3px 0; cursor: pointer; }
+  .cab button:hover { background: #4b3d30; }
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
+    background: #1b1714; font-size: 20px; gap: 8px; }
+  #loading small { opacity: .6; font-size: 14px; }
 </style>
 <script type="importmap">
 { "imports": {
-    "three": "./vendor/three/build/three.module.js",
-    "three/addons/": "./vendor/three/examples/jsm/"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
 } }
 </script>
 </head>
 <body>
-<div id="hud">
-  <span id="time">⏱ 90</span>
-  <span id="candy">🍬 0 / 0</span>
-  <span id="hearts">♥♥♥</span>
+<div id="title"><h1>Basement Empire</h1><p id="mode">Overview · drag to orbit, scroll to zoom</p></div>
+<div id="help">
+  <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> or click a train: pick it<br>
+  <kbd>W</kbd> <kbd>S</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> throttle · <kbd>Space</kbd> stop<br>
+  <kbd>H</kbd> whistle · <kbd>C</kbd> ride along · <kbd>T</kbd> tilt-shift on/off
 </div>
-<div id="hit"></div>
+<div id="panel"></div>
+<div id="loading">Laying track in the basement…<small id="loadStep"></small></div>
+<script type="module">
+// Basement Empire: a model railway in a basement, seen as a tilt-shift diorama.
+// Everything loads from CDNs: three.js from jsDelivr, every model and the stage/clips helpers from Polyfork's free CDN.
+// The layout is built in the railway kit's own metres. The basement room is built in real metres and scaled
+// up by MODEL_SCALE around it, so the railway parts, their grid and the stage() lighting stay at their native size.
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { HorizontalTiltShiftShader } from 'three/addons/shaders/HorizontalTiltShiftShader.js';
+import { VerticalTiltShiftShader } from 'three/addons/shaders/VerticalTiltShiftShader.js';
+import { HueSaturationShader } from 'three/addons/shaders/HueSaturationShader.js';
+import { stage } from 'https://polyfork.dev/cdn/stage.mjs';
+import { animate } from 'https://polyfork.dev/cdn/clips.mjs';
 
-<div id="start" class="screen">
-  <h1>Candy Dash</h1>
-  <p>Grab candy from every neighbour before time runs out. Don't let the ghost catch you!</p>
-  <p><kbd>W</kbd> <kbd>S</kbd> or <kbd>↑</kbd> <kbd>↓</kbd> walk &nbsp;·&nbsp; <kbd>A</kbd> <kbd>D</kbd> or <kbd>←</kbd> <kbd>→</kbd> turn &nbsp;·&nbsp; <kbd>Shift</kbd> run</p>
-  <p id="go" class="go">Loading the neighbourhood…</p>
-</div>
+// ---- tunable numbers ----
+const MODEL_SCALE = 32;          // 1:32, roughly gauge 1: one real metre in the basement is 32 layout metres
+const TABLE_HEIGHT = 0.95;       // real metres, floor to the top of the baseboard
+const BOARD_W = 116, BOARD_D = 72;   // layout metres (about 3.6 x 2.25 m of real table)
+const ROOM_W = 8, ROOM_D = 6;    // real metres
+const STRAIGHT = 48;             // layout metres of straight track on each side of every oval
+const VMAX = 22;                 // layout m/s at full throttle (about 80 scale km/h)
+const ACCEL = 3.5;               // layout m/s per second
+const COUPLING_GAP = 0.15;       // layout metres between buffer faces
+const TILT_BLUR = 5;             // tilt-shift strength in pixels at the top and bottom of the screen
 
-<div id="end" class="screen">
-  <h1 id="endTitle"></h1>
-  <p id="endText"></p>
-  <p class="go">Press <kbd>Enter</kbd> to play again</p>
-</div>
+const $ = (id) => document.getElementById(id);
+const step = (text) => { $('loadStep').textContent = text; };
+// if anything fails to load, say so on the loading screen instead of hanging there
+addEventListener('error', (e) => $('loadStep') && step(`Could not load: ${e.message}`));
+addEventListener('unhandledrejection', (e) => $('loadStep') && step(`Could not load: ${e.reason?.message ?? e.reason}`));
 
-<script type="module" src="./src/main.js"></script>
+// ---- renderer, camera, post-processing ----
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(24, innerWidth / innerHeight, 2, 4000);   // narrow lens: reads as a close look at something small
+camera.position.set(110, 150, 190);
+
+const look = stage(renderer, scene, { time: 'noon', sky: false, fog: false, shadowSpan: 140, far: 4000 });
+scene.background = new THREE.Color(0x15110e);
+const anchor = new THREE.Object3D();   // the shadow camera stays centred on the board
+scene.add(anchor);
+look.follow(anchor);
+
+const target = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
+const composer = new EffectComposer(renderer, target);
+composer.addPass(new RenderPass(scene, camera));
+const tiltH = new ShaderPass(HorizontalTiltShiftShader);
+const tiltV = new ShaderPass(VerticalTiltShiftShader);
+const saturate = new ShaderPass(HueSaturationShader);
+saturate.uniforms.saturation.value = 0.18;   // a touch of extra colour, like a painted model
+composer.addPass(tiltH); composer.addPass(tiltV); composer.addPass(saturate);
+composer.addPass(new OutputPass());
+let tiltOn = true;
+function resize() {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setPixelRatio(renderer.getPixelRatio());
+  composer.setSize(innerWidth, innerHeight);
+  tiltH.uniforms.h.value = TILT_BLUR / innerWidth;
+  tiltV.uniforms.v.value = TILT_BLUR / innerHeight;
+}
+addEventListener('resize', resize);
+resize();
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+controls.enableDamping = true;
+controls.minDistance = 45;
+controls.maxDistance = 700;
+controls.maxPolarAngle = THREE.MathUtils.degToRad(78);
+controls.screenSpacePanning = false;
+
+// ---- loading parts from Polyfork's CDN ----
+// Parts are named by their kit key (as in each kit's PARTS.json); this maps each key to its Polyfork asset id.
+// Kits: Countryside Railway (trains, track, station), Neighborhood Pathways (the town), Open Plan (the basement).
+const IDS = {
+  'alcove-bookcase': 'alcove-bookcase-83894d', 'area-rug': 'area-rug-5c56e2', 'brake-coach': 'brake-coach-f83456',
+  'broad-canopy-shade-tree': 'broad-canopy-shade-tree-e7c4a2', 'cattle-wagon': 'cattle-wagon-0d3070',
+  'ceramic-floor-tile': 'ceramic-floor-tile-ecf05f', 'coal-stage': 'coal-stage-2789f5',
+  'coal-tender': 'coal-tender-0e3647', 'cobbled-yard-tile': 'cobbled-yard-tile-d00544',
+  'cobra-head-street-light': 'cobra-head-street-light-3e25b8', 'colour-light-signal': 'colour-light-signal-713276',
+  'column-radiator': 'column-radiator-18af7e', 'covered-van': 'covered-goods-van-34fce3',
+  'curbside-mailbox': 'curbside-mailbox-0e0736', 'curved-track': 'curved-track-819ec6',
+  'desk-monitor': 'desk-monitor-32cfce', 'engine-shed': 'engine-shed-eff627',
+  'family-crossover-suv': 'family-crossover-suv-42027f', 'floor-lamp': 'arc-floor-lamp-fa0b5f',
+  'framed-art': 'framed-wall-art-d2c8a2', 'goods-shed': 'goods-shed-206be9',
+  'ground-disc-signal': 'ground-disc-signal-3d52e9', 'guards-van': 'guard-s-van-6231d0',
+  'hopper-wagon': 'hopper-wagon-b4c486', 'lineside-buddleia': 'lineside-buddleia-36cd9a',
+  'lineside-cow-parsley': 'lineside-cow-parsley-4a8bfd', 'lineside-hut': 'lineside-hut-2b43ff',
+  'lineside-tree': 'lineside-tree-97e02a', 'living-sofa': 'sofa-9c0e7e', 'luggage-trolley': 'luggage-trolley-0bb740',
+  'mainline-diesel': 'mainline-diesel-locomotive-33ef97', 'office-chair': 'office-chair-7c9874',
+  'office-desk': 'office-desk-021eb3', 'open-wagon': 'open-goods-wagon-998292',
+  'ornamental-front-yard-tree': 'ornamental-front-yard-tree-c6781a',
+  'park-picnic-shelter': 'park-picnic-shelter-9548a3', 'passenger': 'passenger-ac425a',
+  'passenger-carriage': 'passenger-carriage-de9d58', 'platelayer': 'platelayer-47dbe6',
+  'platform-canopy-run': 'platform-canopy-run-bc2275', 'platform-poster-board': 'platform-poster-board-271c7a',
+  'platform-run': 'platform-run-3738d0', 'porch-front-cottage': 'porch-front-cottage-620c29',
+  'porter': 'porter-e4e566', 'railway-cartage-lorry': 'railway-cartage-lorry-c51950',
+  'railway-carter': 'railway-carter-971897', 'railway-container': 'railway-container-1cfbbd',
+  'residential-street-tile': 'residential-street-tile-f07dda', 'running-in-board': 'a-running-in-board-e66b1e',
+  'semaphore-signal': 'semaphore-signal-cb8968', 'side-table': 'side-table-2ea5c0',
+  'signal-box': 'signal-box-f57a2d', 'signalman': 'signalman-c561d7',
+  'single-storey-ranch-house': 'single-storey-ranch-house-3880ea', 'sleeper-stack': 'sleeper-stack-67628e',
+  'split-level-house': 'split-level-house-40fe1a', 'staircase-flight': 'straight-stair-flight-236ae7',
+  'station-bench': 'station-bench-5f56b4', 'station-building': 'country-station-building-2d8f5e',
+  'station-clock-post': 'station-clock-post-eaaf63', 'station-lamp-post': 'station-lamp-post-7d14dd',
+  'station-master': 'station-master-1d6a0a', 'storage-basket': 'woven-storage-basket-983d80',
+  'straight-track': 'straight-track-d4cf38', 'tank-locomotive': 'tank-steam-locomotive-314bb1',
+  'tank-wagon': 'tank-wagon-d860fa', 'telegraph-pole-run': 'railway-telegraph-pole-run-bb9354',
+  'tender-locomotive': 'tender-steam-locomotive-8e2a82', 'townhouse-row-unit': 'townhouse-row-unit-b9544b',
+  'trainspotter': 'trainspotter-ffd141', 'two-storey-family-house': 'two-storey-family-house-c63c4a',
+  'wall-segment-plain': 'plain-wall-segment-143b6d', 'water-pump-house': 'water-pump-house-121270',
+  'water-tower': 'water-tower-dd6200', 'waving-child': 'waving-child-dfada0', 'yard-crane': 'yard-crane-316e4a',
+};
+const CDN = 'https://polyfork.dev/cdn/';
+const modules = new Map();
+async function load(id) {
+  if (!modules.has(id)) modules.set(id, import(`${CDN}${id}.mjs`));
+  return modules.get(id);
+}
+const part = async (key, params = {}) => (await load(IDS[key] ?? key)).createAsset(params);   // a key, or an asset id
+const rail = part, hood = part, home = part, prop = part;
+// start every download at once; the build below then finds each module already on its way
+[...Object.values(IDS), 'supply-shelving-rack-ae446a', 'cardboard-delivery-box-59cc68', 'field-workbench-70f706'].forEach(load);
+
+const layout = new THREE.Group();   // everything on the baseboard, in layout metres
+scene.add(layout);
+function put(parent, obj, x, y, z, ryDeg = 0) {
+  obj.position.set(x, y, z);
+  obj.rotation.y = THREE.MathUtils.degToRad(ryDeg);
+  parent.add(obj);
+  return obj;
+}
+
+// ---- the baseboard: a grass mat on a painted wooden frame ----
+step('building the baseboard');
+{
+  const grass = new THREE.PlaneGeometry(BOARD_W, BOARD_D, 116, 72);
+  grass.rotateX(-Math.PI / 2);
+  const colors = [], c = new THREE.Color(), base = new THREE.Color(0x6f8a32), dry = new THREE.Color(0x9b9a4a);
+  const p = grass.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i);
+    const patch = 0.5 + 0.5 * Math.sin(x * 0.11 + Math.sin(z * 0.07) * 2) * Math.sin(z * 0.13 - x * 0.05);
+    c.copy(base).lerp(dry, patch * 0.45 + Math.random() * 0.12).multiplyScalar(0.92 + Math.random() * 0.12);
+    colors.push(c.r, c.g, c.b);
+  }
+  grass.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const mat = new THREE.Mesh(grass, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mat.position.y = 0.005;
+  layout.add(mat);
+  const wood = new THREE.MeshLambertMaterial({ color: 0x4a2f1f });
+  const fasciaH = 5;
+  const box = (w, h, d, x, y, z, m = wood) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); layout.add(b); return b; };
+  box(BOARD_W, 2, BOARD_D, 0, -1, 0, new THREE.MeshLambertMaterial({ color: 0x6b5a45 }));   // plywood top
+  box(BOARD_W + 1.6, fasciaH, 0.8, 0, -fasciaH / 2 + 0.4, BOARD_D / 2 + 0.4);
+  box(BOARD_W + 1.6, fasciaH, 0.8, 0, -fasciaH / 2 + 0.4, -BOARD_D / 2 - 0.4);
+  box(0.8, fasciaH, BOARD_D, BOARD_W / 2 + 0.4, -fasciaH / 2 + 0.4, 0);
+  box(0.8, fasciaH, BOARD_D, -BOARD_W / 2 - 0.4, -fasciaH / 2 + 0.4, 0);
+  const legH = TABLE_HEIGHT * MODEL_SCALE - fasciaH;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    box(2.8, legH, 2.8, sx * (BOARD_W / 2 - 4), -fasciaH - legH / 2, sz * (BOARD_D / 2 - 4), new THREE.MeshLambertMaterial({ color: 0x8a6a48 }));
+  }
+}
+
+// ---- track: three concentric ovals at the kit's 4 m track centres ----
+// Each loop is a path (two straights, two semicircles) and the kit's straight and 45 degree curve pieces laid along it.
+function makeLoop(R) {
+  const segs = [];
+  let x = -STRAIGHT / 2, z = R, yaw = Math.PI / 2, s = 0;   // start at the front-left, heading +x; yaw 0 means heading +z
+  for (let side = 0; side < 2; side++) {
+    for (let i = 0; i < STRAIGHT / 8; i++) {
+      segs.push({ type: 'line', s0: s, len: 8, x, z, yaw });
+      x += Math.sin(yaw) * 8; z += Math.cos(yaw) * 8; s += 8;
+    }
+    for (let j = 0; j < 4; j++) {
+      const a = Math.PI / 4, cx = x + R * Math.cos(yaw), cz = z - R * Math.sin(yaw);
+      segs.push({ type: 'arc', s0: s, len: R * a, x, z, yaw, cx, cz, R });
+      yaw += a; x = cx - R * Math.cos(yaw); z = cz + R * Math.sin(yaw); s += R * a;
+    }
+  }
+  const length = s;
+  function at(sv, out = { x: 0, z: 0, yaw: 0 }) {
+    sv = ((sv % length) + length) % length;
+    let lo = 0, hi = segs.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (segs[mid].s0 <= sv) lo = mid; else hi = mid - 1; }
+    const g = segs[lo], d = sv - g.s0;
+    if (g.type === 'line') { out.x = g.x + Math.sin(g.yaw) * d; out.z = g.z + Math.cos(g.yaw) * d; out.yaw = g.yaw; }
+    else { const y = g.yaw + d / g.R; out.x = g.cx - g.R * Math.cos(y); out.z = g.cz + g.R * Math.sin(y); out.yaw = y; }
+    return out;
+  }
+  return { R, segs, length, at };
+}
+
+async function layTrack(loop, colorway) {
+  const straight = await rail('straight-track', { colorway, length: 8, slab: '#6c8634' });   // the straights' concrete edge slabs painted as grass, like the curves
+  const curve = await rail('curved-track', { colorway, radius: loop.R, angle: 45 });
+  // which way does the kit's curve bend? Read it rather than assume: its centre sits on the side it turns toward.
+  curve.updateMatrixWorld(true);
+  const cb = new THREE.Box3().setFromObject(curve);
+  const bend = Math.sign(cb.getCenter(new THREE.Vector3()).x) || 1;
+  const a = Math.PI / 4;
+  const ex = bend * loop.R * (1 - Math.cos(a)), ez = loop.R * Math.sin(a), endYaw = bend * a;
+  for (const g of loop.segs) {
+    if (g.type === 'line') { put(layout, straight.clone(), g.x, 0, g.z).rotation.y = g.yaw; continue; }
+    const piece = curve.clone();
+    if (bend === 1) { put(layout, piece, g.x, 0, g.z).rotation.y = g.yaw; continue; }
+    // the piece bends the other way: lay it end-first, which turns it into a curve the way this loop needs
+    const th = g.yaw - (endYaw + Math.PI);
+    const px = g.x - (ex * Math.cos(th) + ez * Math.sin(th)), pz = g.z - (-ex * Math.sin(th) + ez * Math.cos(th));
+    put(layout, piece, px, 0, pz).rotation.y = th;
+  }
+}
+
+step('laying track');
+const loops = [makeLoop(20), makeLoop(16), makeLoop(12)];
+await Promise.all([layTrack(loops[0], 'grey-ballast'), layTrack(loops[1], 'grey-ballast'), layTrack(loops[2], 'cinder')]);
+
+// ---- trains ----
+// A vehicle stands on two pivots (its bogie centres, or its outer axles), each placed on the path, which is how a real
+// bogie vehicle sits on a curve: the body is a chord between them.
+function measureVehicle(obj, flip) {
+  const holder = new THREE.Group();
+  holder.add(obj);
+  if (flip) obj.rotation.y = Math.PI;
+  holder.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(holder);
+  const wp = new THREE.Vector3(), nodes = [];
+  holder.traverse((o) => { if (o !== obj && o.name) nodes.push(o); });
+  const zOf = (o) => holder.worldToLocal(o.getWorldPosition(wp)).z;
+  const bogies = nodes.filter((o) => /^bogie(-[fr])?$/.test(o.name)).map((o) => ({ node: o, z: zOf(o) }));
+  const wheels = [];
+  for (const o of nodes.filter((n) => /wheel/.test(n.name))) {
+    const wb = new THREE.Box3().setFromObject(o), centre = wb.getCenter(new THREE.Vector3());
+    const pivot = o.getWorldPosition(new THREE.Vector3());
+    const r = (wb.max.y - wb.min.y) / 2;
+    // spin only wheels whose pivot is their axle, so nothing wobbles
+    if (r > 0.1 && Math.hypot(centre.y - pivot.y, centre.z - pivot.z) < 0.06) wheels.push({ node: o, r, z: zOf(o) });
+  }
+  let pf, pr;
+  if (bogies.length >= 2) { pf = Math.max(...bogies.map((b) => b.z)); pr = Math.min(...bogies.map((b) => b.z)); }
+  else {
+    const zs = [...bogies.map((b) => b.z), ...wheels.map((w) => w.z)];
+    if (zs.length >= 2) { pf = Math.max(...zs); pr = Math.min(...zs); }
+    else { const mid = (box.max.z + box.min.z) / 2, half = (box.max.z - box.min.z) * 0.3; pf = mid + half; pr = mid - half; }
+  }
+  return { holder, front: box.max.z, length: box.max.z - box.min.z, pf, pr, bogies, wheels, spin: flip ? -1 : 1 };
+}
+
+const TRAINS = [
+  { name: 'The Express', sub: 'tender steam engine, four coaches', whistle: 'steam', loop: 0, s: 150, colour: '#2f6b3a', cars: [
+    ['tender-locomotive', { colorway: 'deep-green', livery: 'deep-green', wear: 0.15 }],
+    ['coal-tender', { colorway: 'deep-green', livery: 'deep-green', wear: 0.2 }],
+    ['passenger-carriage', { colorway: 'maroon-cream', era: 'maroon-cream', length: 16, wear: 0.15 }],
+    ['passenger-carriage', { colorway: 'maroon-cream', era: 'maroon-cream', length: 16, wear: 0.25 }],
+    ['passenger-carriage', { colorway: 'maroon-cream', era: 'maroon-cream', length: 16, wear: 0.2 }],
+    ['brake-coach', { colorway: 'maroon-cream', era: 'maroon-cream', length: 16, wear: 0.2 }],
+  ] },
+  { name: 'The Freight', sub: 'mainline diesel, mixed goods', whistle: 'diesel', loop: 1, s: 40, colour: '#2b4f9c', cars: [
+    ['mainline-diesel', { colorway: 'royal-blue', livery: 'royal-blue', bogies: 'bo-bo', wear: 0.25 }],
+    ['hopper-wagon', { colorway: 'oxide', load: 'full', wear: 0.5 }],
+    ['tank-wagon', { colorway: 'oil-black', livery: 'oil-black', wear: 0.4 }],
+    ['open-wagon', { colorway: 'goods-brown', load: 'timber', wear: 0.4 }],
+    ['covered-van', { colorway: 'goods-grey', wear: 0.35 }],
+    ['cattle-wagon', { colorway: 'bauxite', wear: 0.4 }],
+    ['guards-van', { colorway: 'goods-brown', wear: 0.3 }],
+  ] },
+  { name: 'The Branch Line', sub: 'tank engine, short goods', whistle: 'steam', loop: 2, s: 100, colour: '#b8352c', cars: [
+    ['tank-locomotive', { colorway: 'signal-red', livery: 'signal-red', tanks: 'saddle', wear: 0.2 }],
+    ['open-wagon', { colorway: 'weathered-grey', load: 'coal', wear: 0.5 }],
+    ['tank-wagon', { colorway: 'milk-cream', livery: 'milk-cream', wear: 0.25 }],
+    ['guards-van', { colorway: 'signal-red', wear: 0.2 }],
+  ] },
+];
+
+step('putting the trains on the track');
+const trains = [];
+for (const def of TRAINS) {
+  const cars = [];
+  for (const [key, params, flip] of def.cars) {
+    const v = measureVehicle(await rail(key, params), !!flip);
+    layout.add(v.holder);
+    cars.push(v);
+  }
+  trains.push({ ...def, path: loops[def.loop], cars, speed: 0, throttle: 0 });
+}
+trains[0].throttle = 0.55; trains[1].throttle = 0.4; trains[2].throttle = 0;   // two trains already running when you come down the stairs
+
+const tmpF = { x: 0, z: 0, yaw: 0 }, tmpR = { x: 0, z: 0, yaw: 0 }, tmpB = { x: 0, z: 0, yaw: 0 };
+function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+function poseTrain(t, ds) {
+  let front = t.s;
+  for (const car of t.cars) {
+    const origin = front - car.front;             // path position of the vehicle's own z = 0
+    t.path.at(origin + car.pf, tmpF); t.path.at(origin + car.pr, tmpR);
+    const dx = tmpF.x - tmpR.x, dz = tmpF.z - tmpR.z, len = Math.hypot(dx, dz) || 1;
+    const yaw = Math.atan2(dx, dz);
+    car.holder.position.set(tmpR.x + (dx / len) * -car.pr, 0, tmpR.z + (dz / len) * -car.pr);
+    car.holder.rotation.y = yaw;
+    for (const b of car.bogies) b.node.rotation.y = wrapAngle(t.path.at(origin + b.z, tmpB).yaw - yaw);
+    for (const w of car.wheels) w.node.rotation.x += car.spin * ds / w.r;
+    front -= car.length + COUPLING_GAP;
+  }
+}
+trains.forEach((t) => poseTrain(t, 0));
+
+// ---- scenery on the layout ----
+step('building the station and the town');
+const R0 = 20;
+async function scenery() {
+  const jobs = [];
+  const add = (p, x, z, ry = 0, y = 0) => jobs.push(p.then((o) => put(layout, o, x, y, z, ry)));
+
+  // the station, on the front straight of the outer loop. Platform pieces are drawn relative to the track centre.
+  const plat = await rail('platform-run', { piece: 'straight', backWall: true });
+  const pb = new THREE.Box3().setFromObject(plat), platSide = Math.sign(pb.getCenter(new THREE.Vector3()).x) || 1;
+  // track heading +x has yaw 90, which turns the piece's local +x toward world -z; flip it so the platform is outside (+z)
+  const platYaw = platSide > 0 ? -90 : 90;
+  const platPieces = ['ramp', 'straight', 'straight', 'straight', 'straight', 'ramp-reversed'];
+  platPieces.forEach((piece, i) => {
+    const x = platYaw === 90 ? -12 + i * 4 : -12 + (i + 1) * 4;   // pieces run from their own z = 0 to z = 4
+    add(rail('platform-run', { piece, backWall: true, wear: 0.25 }), x, R0, platYaw);
+  });
+  add(rail('platform-canopy-run', { piece: 'straight' }), -2, R0, platYaw, 1.2);
+  add(rail('platform-canopy-run', { piece: 'straight' }), 2, R0, platYaw, 1.2);
+  // the building is drawn from the track centre too: stand it on the outer track's line, on the platform's side,
+  // and slide it along the track until its middle is where we want it
+  jobs.push(rail('station-building', { colorway: 'red-brick', hallLength: 12, wear: 0.2 }).then((o) => {
+    const side = Math.sign(new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()).x) || 1;
+    put(layout, o, 0, 0, R0, side > 0 ? -90 : 90);
+    o.updateMatrixWorld(true);
+    o.position.x += -1 - new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()).x;
+  }));
+  add(rail('station-lamp-post'), -10, 23.6, 0, 1.2);
+  add(rail('station-lamp-post'), 8, 23.6, 0, 1.2);
+  add(rail('station-bench'), -6, 24.4, 180, 1.2);
+  add(rail('station-bench'), 5, 24.4, 180, 1.2);
+  add(rail('station-clock-post'), 0, 24.6, 180, 1.2);
+  add(rail('running-in-board'), -9, 25.2, 180, 1.2);
+  add(rail('luggage-trolley'), 9.5, 23.5, 90, 1.2);
+  add(rail('platform-poster-board'), 3, 25.4, 180, 1.2);
+  // forecourt
+  for (let x = 14; x <= 26; x += 4) for (let z = 26; z <= 34; z += 4) add(rail('cobbled-yard-tile'), x, z);
+  add(hood('family-crossover-suv', { colorway: 'harbour-blue' }), 16, 30, 90, 0.06);
+  add(rail('railway-cartage-lorry'), 24, 30, -90, 0.06);
+
+  // the town along the back edge, facing a lane
+  for (let x = -42; x <= 42; x += 4) add(hood('residential-street-tile', { piece: 'straight', markings: 'none' }), x, -26, 90);
+  const houses = [
+    ['porch-front-cottage', { colorway: 'sage-cottage' }, -38],
+    ['two-storey-family-house', { colorway: 'colonial-white' }, -24],
+    ['single-storey-ranch-house', { colorway: 'mint-ranch' }, -9],
+    ['townhouse-row-unit', { colorway: 'brick-red', piece: 'detached' }, 4],
+    ['split-level-house', { colorway: 'taupe-stone' }, 17],
+    ['two-storey-family-house', { colorway: 'barn-red', roofForm: 'hipped' }, 31],
+  ];
+  for (const [key, params, x] of houses) {
+    jobs.push(hood(key, params).then((o) => {
+      const b = new THREE.Box3().setFromObject(o);
+      const depth = b.max.z - b.min.z;
+      put(layout, o, x, 0, Math.max(-35.5 - b.min.z, -28.6 - b.max.z));   // front edge on the pavement line, back inside the board
+      return depth;
+    }));
+  }
+  add(hood('broad-canopy-shade-tree', { season: 'summer' }), -46, -31);
+  add(hood('ornamental-front-yard-tree', { colorway: 'copper-leaf' }), 42, -31);
+  add(hood('cobra-head-street-light'), -16, -23.5, 180);
+  add(hood('cobra-head-street-light'), 24, -23.5, 180);
+  add(hood('curbside-mailbox'), -30, -28.8);
+
+  // engine shed and water tower at the left end, goods shed and yard crane at the right
+  add(rail('engine-shed', { colorway: 'red-brick', wear: 0.35 }), -51, -6);
+  add(rail('water-tower', { colorway: 'green-tank' }), -50, 15);
+  add(rail('coal-stage'), -52, 27, 90);
+  add(rail('goods-shed', { colorway: 'buff-brick' }), 51, -4);
+  add(rail('yard-crane'), 52, 15, 90);
+  add(rail('railway-container'), 49, 25, 90);
+  add(rail('railway-container'), 55, 25, 90);
+
+  // inside the inner loop: the signal box and a little park
+  add(rail('signal-box', { colorway: 'green-cream' }), 2, 5, 0);
+  add(rail('signalman'), 7.5, 7.6, 0);
+  add(hood('park-picnic-shelter', { colorway: 'green-park' }), -14, -2);
+  add(hood('broad-canopy-shade-tree'), -24, 1);
+  add(hood('ornamental-front-yard-tree'), -5, -5);
+  add(rail('lineside-hut'), 15, -4);
+  add(rail('sleeper-stack'), 20, 3, 30);
+  add(rail('water-pump-house'), 26, -1);
+
+  // lineside greenery around the edges
+  const trees = [[-55, -32, 'conifer'], [-46, -18, 'ash'], [-55, 4, 'conifer'], [-40, 31, 'ash'], [36, 31, 'conifer'],
+    [55, -30, 'ash'], [44, -14, 'conifer'], [-31, 3, 'ash'], [33, 5, 'conifer']];
+  trees.forEach(([x, z, species], i) => add(rail('lineside-tree', { species, size: 0.7 + (i % 3) * 0.12 }), x, z, i * 47));
+  const bushes = [[-30, 25], [28, 24], [-44, -24], [12, -23], [-20, 10], [30, -8], [-36, -9]];
+  bushes.forEach(([x, z], i) => add(rail(i % 2 ? 'lineside-buddleia' : 'lineside-cow-parsley'), x, z, i * 70));
+  add(rail('telegraph-pole-run'), -36, 23.5, 90);
+  add(rail('telegraph-pole-run'), 36, 23.5, 90);
+  add(rail('semaphore-signal'), -30, 23.6, 90);
+  add(rail('colour-light-signal'), 30, -24.4, -90);
+  add(rail('ground-disc-signal'), 25, 7.5, 90);
+
+  await Promise.all(jobs);
+
+  // a few people, standing about (animated with the kit's idle clip when it loads)
+  const people = [
+    ['station-master', -3, 22.9, 180], ['passenger', -7, 23.2, 200], ['passenger', 6.5, 23, 160],
+    ['porter', 10.5, 22.8, 90], ['trainspotter', -13, 23.4, 220], ['waving-child', -18, 24.5, 180],
+    ['platelayer', 36, -22.6, 0], ['railway-carter', 21, 28, -90],
+  ];
+  const onPlatform = (z) => z > 22 && z < 26;
+  const folk = [];
+  for (const [key, x, z, ry] of people) {
+    const o = put(layout, await rail(key), x, onPlatform(z) && Math.abs(x) < 13 ? 1.2 : 0.06, z, ry);
+    folk.push(o);
+  }
+  return folk;
+}
+const folk = await scenery();
+const anims = [];
+for (const f of folk) { try { const a = await animate(f); a.locomotion(0); anims.push(a); } catch { /* still stands without the clip */ } }
+
+// ---- the basement, in real metres, scaled up around the table ----
+step('furnishing the basement');
+const room = new THREE.Group();
+room.scale.setScalar(MODEL_SCALE);
+room.position.y = -TABLE_HEIGHT * MODEL_SCALE;
+scene.add(room);
+const walls = { north: new THREE.Group(), south: new THREE.Group(), west: new THREE.Group(), east: new THREE.Group() };
+Object.values(walls).forEach((g) => room.add(g));
+{
+  const jobs = [];
+  const add = (p, x, z, ry = 0, parent = room, y = 0) => jobs.push(p.then((o) => put(parent, o, x, y, z, ry)));
+  const wall = (params = {}) => home('wall-segment-plain', { colorway: 'modern-grey', face: 'plain', lived_in: 0.6, ...params });
+  for (let x = -ROOM_W / 2 + 0.5; x < ROOM_W / 2; x++) {
+    add(wall(x === -1.5 || x === 1.5 ? { opening: 'casement' } : {}), x, -ROOM_D / 2, 0, walls.north);
+    add(wall(), x, ROOM_D / 2, 180, walls.south);
+  }
+  for (let z = -ROOM_D / 2 + 0.5; z < ROOM_D / 2; z++) {
+    add(wall(), -ROOM_W / 2, z, 90, walls.west);
+    add(wall(), ROOM_W / 2, z, -90, walls.east);
+  }
+  for (let x = -ROOM_W / 2 + 0.5; x < ROOM_W / 2; x++) for (let z = -ROOM_D / 2 + 0.5; z < ROOM_D / 2; z++) {
+    add(home('ceramic-floor-tile', { colorway: 'charcoal', pattern: 'square', lived_in: 0.7 }), x, z);
+  }
+  const F = 0.05;   // floor tile top
+  add(home('area-rug', { colorway: 'clay-accent' }), 2.6, 1.2, 90, room, F);
+  add(home('living-sofa', { colorway: 'charcoal-oak', seats: 3 }), 3.45, 1.45, -90, room, F);
+  add(home('floor-lamp', { stem: 'arc' }), 2.9, 0.15, -90, room, F);
+  add(home('side-table'), 3.55, 2.6, 0, room, F);
+  add(home('alcove-bookcase', { colorway: 'warm-walnut', fill: 1 }), 1.9, -2.65, 0, room, F);
+  add(home('column-radiator'), -0.5, -2.92, 0, room, F);
+  add(home('storage-basket'), 1.1, -2.7, 20, room, F);
+  // the stairs down into the basement, tucked into the back corner by their measured footprint
+  jobs.push(home('staircase-flight').then((o) => {
+    o.rotation.y = Math.PI; o.updateMatrixWorld(true);   // measure before it joins the scaled room
+    const b = new THREE.Box3().setFromObject(o);
+    put(room, o, ROOM_W / 2 - 0.06 - b.max.x, F, -ROOM_D / 2 + 0.06 - b.min.z, 180);
+  }));
+  add(home('office-desk', { colorway: 'walnut' }), -3.6, 1.6, 90, room, F);
+  add(home('office-chair'), -3.0, 1.6, -90, room, F);
+  add(home('desk-monitor'), -3.75, 1.6, 90, room, F + 0.75);
+  add(prop('field-workbench-70f706'), -3.62, -1.4, 90, room, F);
+  add(prop('supply-shelving-rack-ae446a'), -2.6, -2.66, 0, room, F);
+  add(prop('supply-shelving-rack-ae446a'), -1.3, -2.66, 0, room, F);
+  [[-3.2, 2.6, 0, 10], [-3.25, 2.6, 0.43, -15], [-2.6, 2.7, 0, 35], [0.4, -2.6, 0, 5], [1.0, 2.6, 0, -20]].forEach(([x, z, y, r]) =>
+    add(prop('cardboard-delivery-box-59cc68'), x, z, r, room, F + y));
+  add(home('framed-art'), -3.94, 0.2, 90, walls.west, 0);
+  add(home('framed-art'), 0.4, -2.94, 0, walls.north, 0);
+  await Promise.all(jobs);
+  room.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = false; } });
+}
+
+look.shadows(layout);
+renderer.shadowMap.needsUpdate = true;
+
+// cut away the walls between the camera and the table, like an open dollhouse
+const wallPlanes = { north: -ROOM_D / 2, south: ROOM_D / 2, west: -ROOM_W / 2, east: ROOM_W / 2 };
+function cutaway() {
+  const cx = camera.position.x / MODEL_SCALE, cz = camera.position.z / MODEL_SCALE;
+  walls.north.visible = cz > wallPlanes.north + 0.3;
+  walls.south.visible = cz < wallPlanes.south - 0.3;
+  walls.west.visible = cx > wallPlanes.west + 0.3;
+  walls.east.visible = cx < wallPlanes.east - 0.3;
+}
+
+// ---- the controller panel ----
+let selected = 0, riding = false;
+const panel = $('panel');
+trains.forEach((t, i) => {
+  const el = document.createElement('div');
+  el.className = 'cab';
+  el.innerHTML = `<div class="row"><span class="name" style="color:${t.colour === '#2b4f9c' ? '#8fb2ff' : t.colour === '#b8352c' ? '#ff8f7a' : '#8fd59b'}">${t.name}</span><span class="key">key ${i + 1}</span></div>
+    <div class="row"><span class="sub">${t.sub}</span></div>
+    <input type="range" min="-100" max="100" step="1" value="${Math.round(t.throttle * 100)}" aria-label="${t.name} throttle">
+    <div class="row"><span class="spd">0 km/h</span><span class="key dir"></span></div>
+    <div class="btns"><button data-a="stop">Stop</button><button data-a="toot">Whistle</button><button data-a="ride">Ride</button></div>`;
+  t.ui = { el, range: el.querySelector('input'), spd: el.querySelector('.spd'), dir: el.querySelector('.dir') };
+  t.ui.range.addEventListener('input', () => { t.throttle = t.ui.range.value / 100; });
+  el.addEventListener('pointerdown', () => select(i));
+  el.querySelectorAll('button').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation(); select(i);
+    if (b.dataset.a === 'stop') setThrottle(t, 0);
+    if (b.dataset.a === 'toot') whistle(t.whistle);
+    if (b.dataset.a === 'ride' && !riding) toggleRide();   // already riding: the select() above has switched trains
+  }));
+  panel.appendChild(el);
+});
+function setThrottle(t, v) { t.throttle = THREE.MathUtils.clamp(v, -1, 1); t.ui.range.value = Math.round(t.throttle * 100); }
+function select(i) {
+  selected = i;
+  trains.forEach((t, j) => t.ui.el.classList.toggle('sel', j === i));
+  if (riding) $('mode').textContent = `Riding ${trains[selected].name} · C to step back`;
+}
+select(0);
+
+// a little marker that floats above the selected engine
+const marker = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.4, 4), new THREE.MeshBasicMaterial({ color: 0xffc95a }));
+marker.rotation.x = Math.PI;
+scene.add(marker);
+
+// click a train to pick it
+const ray = new THREE.Raycaster(), pointer = new THREE.Vector2();
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;   // a drag, not a click
+  pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(pointer, camera);
+  let best = null;
+  trains.forEach((t, i) => t.cars.forEach((c) => {
+    const hit = ray.intersectObject(c.holder, true)[0];
+    if (hit && (!best || hit.distance < best.d)) best = { i, d: hit.distance };
+  }));
+  if (best) select(best.i);
+});
+
+// ---- whistles and horns, made with WebAudio ----
+let audio = null;
+function whistle(kind) {
+  audio ||= new AudioContext();
+  const t0 = audio.currentTime, dur = kind === 'steam' ? 0.9 : 1.1;
+  const out = audio.createGain();
+  out.gain.setValueAtTime(0, t0);
+  out.gain.linearRampToValueAtTime(0.09, t0 + 0.06);
+  out.gain.setValueAtTime(0.09, t0 + dur - 0.2);
+  out.gain.linearRampToValueAtTime(0, t0 + dur);
+  const filter = audio.createBiquadFilter();
+  filter.type = 'lowpass'; filter.frequency.value = kind === 'steam' ? 2600 : 1200;
+  out.connect(filter).connect(audio.destination);
+  const notes = kind === 'steam' ? [587, 740, 880] : [277, 349];
+  for (const f of notes) {
+    const o = audio.createOscillator();
+    o.type = kind === 'steam' ? 'triangle' : 'sawtooth';
+    o.frequency.setValueAtTime(f * 0.97, t0); o.frequency.linearRampToValueAtTime(f, t0 + 0.08);
+    o.connect(out); o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+}
+
+// ---- keyboard ----
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' && e.key.startsWith('Arrow')) e.target.blur();
+  const k = e.key.toLowerCase();
+  if (['1', '2', '3'].includes(k)) select(Number(k) - 1);
+  else if (k === ' ') { setThrottle(trains[selected], 0); e.preventDefault(); }
+  else if (k === 'h') whistle(trains[selected].whistle);
+  else if (k === 'c') toggleRide();
+  else if (k === 't') tiltOn = !tiltOn;
+  else if (k === 'escape' && riding) toggleRide();
+  // each press, and each key repeat while it is held, moves the throttle a notch
+  else if (k === 'w' || k === 'arrowup') setThrottle(trains[selected], trains[selected].throttle + 0.05);
+  else if (k === 's' || k === 'arrowdown') setThrottle(trains[selected], trains[selected].throttle - 0.05);
+  if (k.startsWith('arrow')) e.preventDefault();
+});
+
+// ---- ride-along camera ----
+const saved = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
+function toggleRide() {
+  riding = !riding;
+  controls.enabled = !riding;
+  if (riding) { saved.pos.copy(camera.position); saved.target.copy(controls.target); camera.fov = 50; }
+  else { camera.position.copy(saved.pos); controls.target.copy(saved.target); camera.fov = 24; }
+  camera.updateProjectionMatrix();
+  $('mode').textContent = riding ? `Riding ${trains[selected].name} · C to step back` : 'Overview · drag to orbit, scroll to zoom';
+}
+const rideGoal = new THREE.Vector3(), rideLook = new THREE.Vector3(), rideLookNow = new THREE.Vector3();
+function rideCamera(dt) {
+  const t = trains[selected], dir = Math.sign(t.speed || 1);
+  const ref = dir < 0 ? t.cars[t.cars.length - 1].holder : t.cars[0].holder;   // in reverse, ride at the tail
+  const yaw = ref.rotation.y + (dir < 0 ? Math.PI : 0);
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  const base = ref.position;
+  rideGoal.set(base.x - fx * 16, 7.5, base.z - fz * 16);
+  rideLook.set(base.x + fx * 24, 1.5, base.z + fz * 24);
+  const k = 1 - Math.exp(-5 * dt);
+  camera.position.lerp(rideGoal, k);
+  rideLookNow.lerp(rideLook, k);
+  camera.lookAt(rideLookNow);
+}
+
+// ---- the loop ----
+const clock = new THREE.Clock();
+$('loading').remove();
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05), time = clock.elapsedTime;
+  const sel = trains[selected];
+  for (const t of trains) {
+    const goal = t.throttle * VMAX;
+    t.speed += THREE.MathUtils.clamp(goal - t.speed, -ACCEL * dt, ACCEL * dt);
+    const ds = t.speed * dt;
+    t.s += ds;
+    poseTrain(t, ds);
+    const kmh = Math.abs(t.speed) * 3.6;
+    t.ui.spd.textContent = `${kmh.toFixed(0)} scale km/h`;
+    t.ui.dir.textContent = Math.abs(t.speed) < 0.05 ? 'stopped' : t.speed > 0 ? 'forward ▶' : '◀ reverse';
+  }
+  const lead = sel.cars[0].holder.position;
+  marker.position.set(lead.x, 7.5 + Math.sin(time * 3) * 0.5, lead.z);
+  marker.rotation.y = time * 1.5;
+  marker.visible = !riding;
+  for (const a of anims) a.update(dt);
+  if (riding) rideCamera(dt); else controls.update();
+  cutaway();
+  look.update();
+  tiltH.enabled = tiltV.enabled = tiltOn;
+  const blur = riding ? TILT_BLUR * 0.6 : TILT_BLUR;
+  tiltH.uniforms.h.value = blur / innerWidth; tiltV.uniforms.v.value = blur / innerHeight;
+  tiltH.uniforms.r.value = tiltV.uniforms.r.value = riding ? 0.45 : 0.5;
+  composer.render();
+  requestAnimationFrame(frame);
+}
+window.__trains = { trains, loops, layout, room, look, camera, controls, scene, select, setThrottle };   // for poking from the console
+frame();
+</script>
 </body>
 </html>
