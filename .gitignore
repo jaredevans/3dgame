@@ -1,0 +1,7 @@
+# Downloaded assets: fetch them again as described in PROJECT_BRIEF.md ("Assets and where to get them")
+/kit/
+/vendor/
+/halloween/
+/models/
+
+.DS_Store

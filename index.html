@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Candy Dash</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120c1f; color: #fff;
+    font-family: "Trebuchet MS", "Avenir Next", system-ui, sans-serif; }
+  canvas { display: block; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; display: none; justify-content: space-between;
+    padding: 14px 22px; font-size: 26px; font-weight: 700; text-shadow: 0 2px 6px #000c; pointer-events: none; }
+  #hud span { min-width: 6em; }
+  #hud #candy { text-align: center; }
+  #hud #hearts { text-align: right; letter-spacing: 3px; }
+  #time.low { color: #ff6b4a; }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; background: #120c1fcc; padding: 24px; }
+  .screen h1 { font-size: clamp(48px, 9vw, 110px); margin: 0 0 8px; color: #ff9a2e;
+    text-shadow: 0 4px 0 #7a2d00, 0 8px 24px #000; letter-spacing: 2px; }
+  .screen p { font-size: 22px; margin: 8px 0; max-width: 34em; line-height: 1.4; }
+  .screen kbd { background: #fff2; border: 1px solid #fff5; border-radius: 6px; padding: 2px 8px; font-family: inherit; }
+  .screen .go { margin-top: 26px; font-size: 26px; color: #ffd27a; animation: pulse 1.2s infinite alternate; }
+  @keyframes pulse { from { opacity: .45; } to { opacity: 1; } }
+  #end { display: none; }
+  #hit { position: fixed; inset: 0; background: #b0101088; opacity: 0; pointer-events: none; transition: opacity .5s; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud">
+  <span id="time">⏱ 90</span>
+  <span id="candy">🍬 0 / 0</span>
+  <span id="hearts">♥♥♥</span>
+</div>
+<div id="hit"></div>
+
+<div id="start" class="screen">
+  <h1>Candy Dash</h1>
+  <p>Grab candy from every neighbour before time runs out. Don't let the ghost catch you!</p>
+  <p><kbd>W</kbd> <kbd>S</kbd> or <kbd>↑</kbd> <kbd>↓</kbd> walk &nbsp;·&nbsp; <kbd>A</kbd> <kbd>D</kbd> or <kbd>←</kbd> <kbd>→</kbd> turn &nbsp;·&nbsp; <kbd>Shift</kbd> run</p>
+  <p id="go" class="go">Loading the neighbourhood…</p>
+</div>
+
+<div id="end" class="screen">
+  <h1 id="endTitle"></h1>
+  <p id="endText"></p>
+  <p class="go">Press <kbd>Enter</kbd> to play again</p>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
