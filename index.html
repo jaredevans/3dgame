@@ -46,7 +46,8 @@
 <div id="help">
   <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> or click a train: pick it<br>
   <kbd>W</kbd> <kbd>S</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> throttle · <kbd>Space</kbd> stop<br>
-  <kbd>H</kbd> whistle · <kbd>C</kbd> ride along · <kbd>T</kbd> tilt-shift on/off
+  <kbd>H</kbd> whistle · <kbd>C</kbd> ride along · <kbd>F</kbd> flying tour<br>
+  <kbd>T</kbd> tilt-shift on/off
 </div>
 <div id="panel"></div>
 <div id="loading">Laying track in the basement…<small id="loadStep"></small></div>
@@ -61,8 +62,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { HorizontalTiltShiftShader } from 'three/addons/shaders/HorizontalTiltShiftShader.js';
-import { VerticalTiltShiftShader } from 'three/addons/shaders/VerticalTiltShiftShader.js';
 import { HueSaturationShader } from 'three/addons/shaders/HueSaturationShader.js';
 import { stage } from 'https://polyfork.dev/cdn/stage.mjs';
 import { animate } from 'https://polyfork.dev/cdn/clips.mjs';
@@ -70,8 +69,8 @@ import { animate } from 'https://polyfork.dev/cdn/clips.mjs';
 // ---- tunable numbers ----
 const MODEL_SCALE = 32;          // 1:32, roughly gauge 1: one real metre in the basement is 32 layout metres
 const TABLE_HEIGHT = 0.95;       // real metres, floor to the top of the baseboard
-const BOARD_W = 116, BOARD_D = 72;   // layout metres (about 3.6 x 2.25 m of real table)
-const ROOM_W = 8, ROOM_D = 6;    // real metres
+const BOARD_W = 172, BOARD_D = 72;   // layout metres (about 5.4 x 2.25 m of real table)
+const ROOM_W = 11, ROOM_D = 7;   // real metres
 const STRAIGHT = 48;             // layout metres of straight track on each side of every oval
 const VMAX = 22;                 // layout m/s at full throttle (about 80 scale km/h)
 const ACCEL = 3.5;               // layout m/s per second
@@ -90,20 +89,68 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(24, innerWidth / innerHeight, 2, 4000);   // narrow lens: reads as a close look at something small
-camera.position.set(110, 150, 190);
+const camera = new THREE.PerspectiveCamera(24, innerWidth / innerHeight, 0.05, 4000);   // narrow lens: reads as a close look at something small
+camera.position.set(174, 50.3, 97.8);   // the opening view: low from the garden corner, looking up the table
 
-const look = stage(renderer, scene, { time: 'noon', sky: false, fog: false, shadowSpan: 140, far: 4000 });
+const look = stage(renderer, scene, { time: 'noon', sky: false, fog: false, shadowSpan: 200, shadowMap: 4096, far: 4000 });
 scene.background = new THREE.Color(0x15110e);
 const anchor = new THREE.Object3D();   // the shadow camera stays centred on the board
 scene.add(anchor);
 look.follow(anchor);
 
+// The scene renders with a depth texture, so the blur can tell where each pixel is in the world.
 const target = new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType });
+target.depthTexture = new THREE.DepthTexture(1, 1);
 const composer = new EffectComposer(renderer, target);
 composer.addPass(new RenderPass(scene, camera));
-const tiltH = new ShaderPass(HorizontalTiltShiftShader);
-const tiltV = new ShaderPass(VerticalTiltShiftShader);
+
+// Tilt-shift that leaves the table alone: a pixel whose world position is on the table, or in the air above it, stays
+// sharp; the room around it gets the miniature blur, stronger towards the top and bottom of the screen.
+// The first pass blurs across and writes "on the table" into alpha; the second blurs down and reads it back.
+const TABLE_BOX = { min: new THREE.Vector3(-BOARD_W / 2 - 1.5, -6, -BOARD_D / 2 - 1.5), max: new THREE.Vector3(BOARD_W / 2 + 1.5, 80, BOARD_D / 2 + 1.5) };
+const BLUR_TAPS = `
+  vec4 c = texture2D(tDiffuse, vUv);
+  float k = amount * abs(r - vUv.y);
+  vec3 sum = c.rgb * 0.1633;
+  sum += (texture2D(tDiffuse, vUv - 1.0 * k * dir).rgb + texture2D(tDiffuse, vUv + 1.0 * k * dir).rgb) * 0.1531;
+  sum += (texture2D(tDiffuse, vUv - 2.0 * k * dir).rgb + texture2D(tDiffuse, vUv + 2.0 * k * dir).rgb) * 0.12245;
+  sum += (texture2D(tDiffuse, vUv - 3.0 * k * dir).rgb + texture2D(tDiffuse, vUv + 3.0 * k * dir).rgb) * 0.0918;
+  sum += (texture2D(tDiffuse, vUv - 4.0 * k * dir).rgb + texture2D(tDiffuse, vUv + 4.0 * k * dir).rgb) * 0.051;`;
+const blurShader = (first) => ({
+  uniforms: {
+    tDiffuse: { value: null }, tDepth: { value: null }, amount: { value: 0 }, r: { value: 0.5 }, dir: { value: new THREE.Vector2(first ? 1 : 0, first ? 0 : 1) },
+    projInv: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() }, boxMin: { value: TABLE_BOX.min }, boxMax: { value: TABLE_BOX.max },
+  },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `
+    uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform float amount; uniform float r; uniform vec2 dir;
+    uniform mat4 projInv; uniform mat4 camWorld; uniform vec3 boxMin; uniform vec3 boxMax;
+    varying vec2 vUv;
+    float onTable() {
+      float d = texture2D(tDepth, vUv).x;
+      if (d >= 1.0) return 0.0;
+      vec4 v = projInv * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+      vec3 w = (camWorld * vec4(v.xyz / v.w, 1.0)).xyz;
+      return (all(greaterThanEqual(w, boxMin)) && all(lessThanEqual(w, boxMax))) ? 1.0 : 0.0;
+    }
+    void main() {
+      ${BLUR_TAPS}
+      float table = ${first ? 'onTable()' : 'c.a'};
+      gl_FragColor = vec4(mix(sum, c.rgb, table), ${first ? 'table' : '1.0'});   // the mask rides in alpha between the two passes only
+    }`,
+});
+class TableSafeBlur extends ShaderPass {
+  render(renderer, writeBuffer, readBuffer, ...rest) {
+    if (this.uniforms.tDepth) {
+      this.uniforms.tDepth.value = readBuffer.depthTexture;
+      this.uniforms.projInv.value.copy(camera.projectionMatrixInverse);
+      this.uniforms.camWorld.value.copy(camera.matrixWorld);
+    }
+    super.render(renderer, writeBuffer, readBuffer, ...rest);
+  }
+}
+const tiltH = new TableSafeBlur(blurShader(true));
+const tiltV = new TableSafeBlur(blurShader(false));
 const saturate = new ShaderPass(HueSaturationShader);
 saturate.uniforms.saturation.value = 0.18;   // a touch of extra colour, like a painted model
 composer.addPass(tiltH); composer.addPass(tiltV); composer.addPass(saturate);
@@ -114,8 +161,6 @@ function resize() {
   renderer.setSize(innerWidth, innerHeight);
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(innerWidth, innerHeight);
-  tiltH.uniforms.h.value = TILT_BLUR / innerWidth;
-  tiltV.uniforms.v.value = TILT_BLUR / innerHeight;
 }
 addEventListener('resize', resize);
 resize();
@@ -123,8 +168,8 @@ resize();
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0);
 controls.enableDamping = true;
-controls.minDistance = 45;
-controls.maxDistance = 700;
+controls.minDistance = 1.5;    // close enough to see a butterfly on a flower
+controls.maxDistance = 900;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(78);
 controls.screenSpacePanning = false;
 
@@ -179,7 +224,11 @@ async function load(id) {
 const part = async (key, params = {}) => (await load(IDS[key] ?? key)).createAsset(params);   // a key, or an asset id
 const rail = part, hood = part, home = part, prop = part;
 // start every download at once; the build below then finds each module already on its way
-[...Object.values(IDS), 'supply-shelving-rack-ae446a', 'cardboard-delivery-box-59cc68', 'field-workbench-70f706'].forEach(load);
+[...Object.values(IDS), 'supply-shelving-rack-ae446a', 'cardboard-delivery-box-59cc68', 'field-workbench-70f706',
+  'cow-base', 'horse-base', 'sheep-base', 'dog-base', 'farm-dog-723730', 'duck-base', 'pigeon-base', 'crow-base', 'herring-gull-base',
+  'suburban-resident-a9db9c', 'neighborhood-child-8cc5ac', 'wooden-fence-section-d72055', 'farm-gate-8ab320', 'hay-bale-079e8c',
+  'water-trough-df3ced', 'butterfly-base', 'flower-bed-708e73', 'pastel-flowering-plant-d16a03', 'wildflower-68d3a1', 'sunflower-80ce15',
+  'low-garden-wall-run-a34d05', 'backyard-garden-shed-38d79f', 'flowering-magnolia-dd76cb', 'lotus-flower-cluster-bc129a', 'reed-bed-bbbefb'].forEach(load);
 
 const layout = new THREE.Group();   // everything on the baseboard, in layout metres
 scene.add(layout);
@@ -193,7 +242,7 @@ function put(parent, obj, x, y, z, ryDeg = 0) {
 // ---- the baseboard: a grass mat on a painted wooden frame ----
 step('building the baseboard');
 {
-  const grass = new THREE.PlaneGeometry(BOARD_W, BOARD_D, 116, 72);
+  const grass = new THREE.PlaneGeometry(BOARD_W, BOARD_D, Math.round(BOARD_W), Math.round(BOARD_D));
   grass.rotateX(-Math.PI / 2);
   const colors = [], c = new THREE.Color(), base = new THREE.Color(0x6f8a32), dry = new THREE.Color(0x9b9a4a);
   const p = grass.attributes.position;
@@ -210,13 +259,13 @@ step('building the baseboard');
   const wood = new THREE.MeshLambertMaterial({ color: 0x4a2f1f });
   const fasciaH = 5;
   const box = (w, h, d, x, y, z, m = wood) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); layout.add(b); return b; };
-  box(BOARD_W, 2, BOARD_D, 0, -1, 0, new THREE.MeshLambertMaterial({ color: 0x6b5a45 }));   // plywood top
+  box(BOARD_W, 2, BOARD_D, 0, -1.3, 0, new THREE.MeshLambertMaterial({ color: 0x6b5a45 }));   // plywood top, a little under the grass mat
   box(BOARD_W + 1.6, fasciaH, 0.8, 0, -fasciaH / 2 + 0.4, BOARD_D / 2 + 0.4);
   box(BOARD_W + 1.6, fasciaH, 0.8, 0, -fasciaH / 2 + 0.4, -BOARD_D / 2 - 0.4);
   box(0.8, fasciaH, BOARD_D, BOARD_W / 2 + 0.4, -fasciaH / 2 + 0.4, 0);
   box(0.8, fasciaH, BOARD_D, -BOARD_W / 2 - 0.4, -fasciaH / 2 + 0.4, 0);
   const legH = TABLE_HEIGHT * MODEL_SCALE - fasciaH;
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+  for (const sx of [-1, 0, 1]) for (const sz of [-1, 1]) {   // a long table wants a middle pair of legs
     box(2.8, legH, 2.8, sx * (BOARD_W / 2 - 4), -fasciaH - legH / 2, sz * (BOARD_D / 2 - 4), new THREE.MeshLambertMaterial({ color: 0x8a6a48 }));
   }
 }
@@ -422,12 +471,12 @@ async function scenery() {
   }
   add(hood('broad-canopy-shade-tree', { season: 'summer' }), -46, -31);
   add(hood('ornamental-front-yard-tree', { colorway: 'copper-leaf' }), 42, -31);
-  add(hood('cobra-head-street-light'), -16, -23.5, 180);
-  add(hood('cobra-head-street-light'), 24, -23.5, 180);
+  add(hood('cobra-head-street-light'), -16, -28.9, 180);   // on the house side, arm out over the street
+  add(hood('cobra-head-street-light'), 24, -28.9, 180);
   add(hood('curbside-mailbox'), -30, -28.8);
 
   // engine shed and water tower at the left end, goods shed and yard crane at the right
-  add(rail('engine-shed', { colorway: 'red-brick', wear: 0.35 }), -51, -6);
+  add(rail('engine-shed', { colorway: 'red-brick', wear: 0.35 }), -55, -6);   // clear of the coaches' swing on the west curve
   add(rail('water-tower', { colorway: 'green-tank' }), -50, 15);
   add(rail('coal-stage'), -52, 27, 90);
   add(rail('goods-shed', { colorway: 'buff-brick' }), 51, -4);
@@ -447,12 +496,12 @@ async function scenery() {
 
   // lineside greenery around the edges
   const trees = [[-55, -32, 'conifer'], [-46, -18, 'ash'], [-55, 4, 'conifer'], [-40, 31, 'ash'], [36, 31, 'conifer'],
-    [55, -30, 'ash'], [44, -14, 'conifer'], [-31, 3, 'ash'], [33, 5, 'conifer']];
+    [55, -30, 'ash'], [46, -18, 'conifer'], [-27, 1, 'ash'], [49, 9, 'conifer']];
   trees.forEach(([x, z, species], i) => add(rail('lineside-tree', { species, size: 0.7 + (i % 3) * 0.12 }), x, z, i * 47));
-  const bushes = [[-30, 25], [28, 24], [-44, -24], [12, -23], [-20, 10], [30, -8], [-36, -9]];
+  const bushes = [[-30, 27], [30, 27.5], [-44, -24], [45, -28], [-8, 6], [20, -7], [-18, 6]];   // all clear of the trains
   bushes.forEach(([x, z], i) => add(rail(i % 2 ? 'lineside-buddleia' : 'lineside-cow-parsley'), x, z, i * 70));
-  add(rail('telegraph-pole-run'), -36, 23.5, 90);
-  add(rail('telegraph-pole-run'), 36, 23.5, 90);
+  add(rail('telegraph-pole-run'), -36, 26.5, 90);
+  add(rail('telegraph-pole-run'), 36, 26.5, 90);
   add(rail('semaphore-signal'), -30, 23.6, 90);
   add(rail('colour-light-signal'), 30, -24.4, -90);
   add(rail('ground-disc-signal'), 25, 7.5, 90);
@@ -477,6 +526,312 @@ const folk = await scenery();
 const anims = [];
 for (const f of folk) { try { const a = await animate(f); a.locomotion(0); anims.push(a); } catch { /* still stands without the clip */ } }
 
+// ---- life on the layout: farm animals, birds and people that move ----
+// Every model is at its real size in metres, the same as the trains, so a cow stands as tall against a coach as it would
+// in a real field. Animals walk with Polyfork's walker (feet planted, phase from distance travelled); birds flap by
+// turning their wing bones; people use the humanoid walk and idle clips.
+step('letting the animals out');
+const { walker, flatGround, naturalSpeed } = await import('https://polyfork.dev/cdn/walk.mjs');
+const rand = (a, b) => a + Math.random() * (b - a), d2r = THREE.MathUtils.degToRad;
+const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+const movers = [];   // everything that moves on its own: each has update(dt, t)
+
+async function creature(key, params, x, z, y = 0, ry = rand(0, 360)) {
+  const mod = await load(IDS[key] ?? key);
+  const o = put(layout, mod.createAsset(params ?? {}), x, y, z, ry);
+  o.updateMatrixWorld(true);
+  return { o, rig: mod.rig ?? {} };
+}
+// turn a bone to a share of the range its model declares (0 = rest, 1 = the far end of the range)
+function bend(c, name, amount) {
+  const b = c.o.getObjectByName(name), r = c.rig[name];
+  if (!b || !r) return;
+  b.userData.rest ??= b.quaternion.clone();
+  b.quaternion.copy(b.userData.rest);
+  b.rotateOnAxis(AXES[r.axis] ?? AXES.x, d2r(r.range[0] + (r.range[1] - r.range[0]) * amount));
+}
+function turnToward(heading, want, rate, dt) {
+  return heading + THREE.MathUtils.clamp(wrapAngle(want - heading), -rate * dt, rate * dt);
+}
+
+// an animal that ambles to a random spot in its area, stops (and grazes or pecks), then picks another;
+// or, with `follow`, keeps a little behind someone
+function wander(c, { area, speed, pauses = [3, 9], graze = 0, peck = false, follow = null, ground = 0, turn = 1.4, herd = null, avoid = [] }) {
+  const gait = walker(c.o, { ground: flatGround(ground) });
+  const size = new THREE.Box3().setFromObject(c.o).getSize(new THREE.Vector3()), radius = Math.max(size.x, size.z) * 0.45;
+  const clear = (x, z) => avoid.every(([ax, az, ar]) => Math.hypot(x - ax, z - az) > ar + radius);
+  if (herd) herd.push({ o: c.o, radius });
+  const v = speed ?? naturalSpeed(gait);
+  let dist = 0, walking = false, timer = rand(0, 4), tx = 0, tz = 0, heading = c.o.rotation.y, down = 0, head = 0;
+  const phase = rand(0, 10);
+  movers.push({ o: c.o, update(dt, t) {
+    const p = c.o.position;
+    if (follow) {
+      const q = follow.position, yaw = follow.rotation.y;
+      tx = q.x - Math.sin(yaw) * 1.6 + Math.cos(yaw) * 0.9; tz = q.z - Math.cos(yaw) * 1.6 - Math.sin(yaw) * 0.9;
+      walking = Math.hypot(tx - p.x, tz - p.z) > 0.5;
+    } else if (!walking && (timer -= dt) <= 0) {
+      for (let k = 0; k < 8; k++) { tx = rand(area[0], area[1]); tz = rand(area[2], area[3]); if (clear(tx, tz)) break; }
+      walking = true;
+    }
+    if (walking) {
+      const dx = tx - p.x, dz = tz - p.z, far = Math.hypot(dx, dz);
+      if (far < 0.4 && !follow) { walking = false; timer = rand(...pauses); }
+      else {
+        const want = Math.atan2(dx, dz);
+        heading = turnToward(heading, want, turn, dt);
+        const sharp = Math.abs(wrapAngle(want - heading)) > 1.0;
+        // a follower trots to keep up, then eases in as it closes the gap
+        const ds = Math.min(far, (follow ? Math.min(2.4, far * 1.5) : v) * dt * (sharp ? 0.35 : 1));
+        p.x += Math.sin(heading) * ds; p.z += Math.cos(heading) * ds; dist += ds;
+      }
+    }
+    // keep a little personal space from the rest of the herd and out of the trough
+    if (herd) for (const other of herd) {
+      if (other.o === c.o) continue;
+      const dx = p.x - other.o.position.x, dz = p.z - other.o.position.z, gap = Math.hypot(dx, dz) || 1e-3, need = radius + other.radius;
+      if (gap < need) { const push = (need - gap) * Math.min(1, dt * 3); p.x += (dx / gap) * push; p.z += (dz / gap) * push; }
+    }
+    for (const [ax, az, ar] of avoid) {
+      const dx = p.x - ax, dz = p.z - az, gap = Math.hypot(dx, dz) || 1e-3, need = ar + radius;
+      if (gap < need) { p.x = ax + (dx / gap) * need; p.z = az + (dz / gap) * need; }
+    }
+    c.o.rotation.y = heading;
+    c.o.updateMatrixWorld(true);
+    gait.poseAt(dist);
+    // heads: down to graze, quick bobs to peck, a slow look around while standing
+    const grazing = !walking && graze && Math.sin(t * 0.15 + phase) > 0.3 - graze;
+    down += ((grazing ? 1 : 0) - down) * Math.min(1, dt * 1.2);
+    const bob = peck && !walking ? Math.max(0, Math.sin(t * 9 + phase)) ** 4 : 0;
+    bend(c, 'Neck', Math.max(down, bob));
+    head += ((walking ? 0 : Math.sin(t * 0.6 + phase) * 0.8) - head) * Math.min(1, dt * 2);
+    bend(c, 'Head', head);
+  } });
+  return c;
+}
+
+// a bird that circles over the layout, flapping, gliding now and then, banked into the turn
+async function flier(key, { cx, cz, r, h, speed, dir }) {
+  const c = await creature(key, {}, cx + r, cz, h, 0);
+  const wings = ['LeftWing', 'RightWing'].map((n) => c.o.getObjectByName(n));
+  const rest = wings.map((w) => w.quaternion.clone());
+  let a = rand(0, Math.PI * 2), flap = 0;
+  const phase = rand(0, 10), beat = rand(7, 10);
+  movers.push({ o: c.o, bird: true, update(dt, t) {
+    a += (dir * speed / r) * dt;
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+    c.o.position.set(x, h + Math.sin(t * 0.4 + phase) * 2, z);
+    c.o.rotation.set(0, Math.atan2(-Math.sin(a) * dir, Math.cos(a) * dir), 0);
+    c.o.rotateZ(-dir * 0.4);                                        // bank into the circle
+    const gliding = Math.sin(t * 0.5 + phase) > 0.55;
+    flap += ((gliding ? 6 : 34 * Math.sin(t * beat + phase)) - flap) * Math.min(1, dt * 12);
+    wings.forEach((w, i) => {
+      w.quaternion.copy(rest[i]);
+      w.rotateY(d2r(i === 0 ? -80 : 80));                           // open the folded wing out to the side
+      w.rotateX(d2r(flap));                                         // and beat it up and down
+    });
+  } });
+}
+
+// a person who walks a route and back (or round and round), pausing at the ends
+async function stroller(key, params, route, { y = 0.06, speed = 1.3, loop = false, pauses = [1, 5] } = {}) {
+  const c = await creature(key, params, route[0][0], route[0][1], y);
+  let anim = null;
+  try { anim = await animate(c.o); } catch { /* walks in a rest pose without the clip */ }
+  let i = 1, dir = 1, wait = rand(0, 3), heading = c.o.rotation.y;
+  movers.push({ update(dt) {
+    const p = c.o.position;
+    if (wait > 0) { wait -= dt; anim?.locomotion(0); }
+    else {
+      const [tx, tz] = route[i], dx = tx - p.x, dz = tz - p.z, far = Math.hypot(dx, dz);
+      if (far < 0.25) {
+        const end = !loop && (i + dir < 0 || i + dir >= route.length);
+        if (end) { dir = -dir; wait = rand(...pauses); }
+        i = loop ? (i + 1) % route.length : i + dir;
+      } else {
+        const want = Math.atan2(dx, dz);
+        heading = turnToward(heading, want, 4, dt);
+        const ds = Math.min(far, speed * dt);
+        p.x += Math.sin(heading) * ds; p.z += Math.cos(heading) * ds;
+        anim?.locomotion(speed);
+      }
+    }
+    c.o.rotation.y = heading;
+    anim?.update(dt);
+  } });
+  return c.o;
+}
+
+const lifeJobs = [];
+const life = (p) => lifeJobs.push(p);
+
+// the farm at the left end: a fenced paddock, a farmhouse, hay and a trough
+const PAD = { x0: -82, x1: -64, z0: -30, z1: 10 };
+for (let z = PAD.z0 + 1; z < PAD.z1; z += 2) {
+  life(part('wooden-fence-section-d72055').then((o) => put(layout, o, PAD.x0, 0, z, 90)));
+  const gate = Math.abs(z + 1) < 0.5;
+  life(part(gate ? 'farm-gate-8ab320' : 'wooden-fence-section-d72055').then((o) => put(layout, o, PAD.x1, 0, z, 90)));
+}
+for (let x = PAD.x0 + 1; x < PAD.x1; x += 2) {
+  life(part('wooden-fence-section-d72055').then((o) => put(layout, o, x, 0, PAD.z0, 0)));
+  life(part('wooden-fence-section-d72055').then((o) => put(layout, o, x, 0, PAD.z1, 0)));
+}
+life(part('water-trough-df3ced').then((o) => put(layout, o, -70, 0, -3, 90)));
+[[-79, -26, 10], [-77.9, -26.2, -6], [-78.4, -26.1, 0, 0.52]].forEach(([x, z, r, y = 0]) =>
+  life(part('hay-bale-079e8c').then((o) => put(layout, o, x, y, z, r))));
+[[-79, 16, 0], [-77.9, 16.1, 4], [-78.5, 16.05, 2, 0.52]].forEach(([x, z, r, y = 0]) =>
+  life(part('hay-bale-079e8c').then((o) => put(layout, o, x, y, z, r))));
+life(hood('porch-front-cottage', { colorway: 'brick-red' }).then((o) => put(layout, o, -72, 0, 25, 90)));
+life(rail('lineside-tree', { species: 'ash', size: 1.1 }).then((o) => put(layout, o, -84, 0, -5, 30)));
+life(rail('lineside-tree', { species: 'ash', size: 0.9 }).then((o) => put(layout, o, -62, 0, 33, 200)));
+const herd = { area: [PAD.x0 + 2.5, PAD.x1 - 2.5, PAD.z0 + 2.5, PAD.z1 - 2.5], herd: [], avoid: [[-70, -3, 1.2], [-78.4, -26.1, 1.2]] };   // the trough and the hay
+for (const [key, n, extra] of [['cow-base', 3, { graze: 0.9 }], ['horse-base', 2, { graze: 0.6 }], ['sheep-base', 5, { graze: 1 }]]) {
+  for (let i = 0; i < n; i++) {
+    life(creature(key, {}, -82 + 4 + (i * 5 + n) % 12, -26 + ((i * 7 + n * 3) % 30)).then((c) => wander(c, { ...herd, ...extra })));
+  }
+}
+
+// the duck pond at the right end, with a bench and a path round it
+const POND = { x: 73, z: -8, r: 7 };
+{
+  const water = new THREE.Mesh(new THREE.CircleGeometry(POND.r, 48), new THREE.MeshLambertMaterial({ color: 0x4f8db3 }));
+  water.rotation.x = -Math.PI / 2; water.position.set(POND.x, 0.08, POND.z);
+  const rim = new THREE.Mesh(new THREE.RingGeometry(POND.r, POND.r + 0.9, 48), new THREE.MeshLambertMaterial({ color: 0x9b8a6a }));
+  rim.rotation.x = -Math.PI / 2; rim.position.set(POND.x, 0.1, POND.z);
+  layout.add(water, rim);
+}
+life(rail('station-bench').then((o) => put(layout, o, POND.x, 0.06, POND.z + POND.r + 3, 180)));
+life(rail('lineside-tree', { species: 'ash', size: 1 }).then((o) => put(layout, o, 82, 0, -22, 80)));
+life(rail('lineside-tree', { species: 'conifer', size: 0.9 }).then((o) => put(layout, o, 64, 0, -25, 10)));
+life(rail('lineside-tree', { species: 'ash', size: 0.8 }).then((o) => put(layout, o, 83, 0, 10, 140)));
+for (let i = 0; i < 3; i++) {   // ducks paddling slow circles, sitting low in the water
+  life(creature('duck-base', {}, POND.x, POND.z, -0.2, 0).then((c) => {
+    const r = 2 + i * 1.6, w = (i % 2 ? -1 : 1) * rand(0.12, 0.2), a0 = rand(0, 6.3);
+    movers.push({ update(dt, t) {
+      const a = a0 + t * w;
+      c.o.position.set(POND.x + Math.cos(a) * r, -0.2 + Math.sin(t * 2 + i) * 0.02, POND.z + Math.sin(a) * r);
+      c.o.rotation.y = Math.atan2(-Math.sin(a) * Math.sign(w), Math.cos(a) * Math.sign(w));
+    } });
+  }));
+}
+for (let i = 0; i < 2; i++) {   // and two waddling about on the bank
+  life(creature('duck-base', {}, rand(66, 80), rand(1, 4)).then((c) => wander(c, { area: [65, 81, 0.5, 5], peck: true, pauses: [2, 6] })));
+}
+const pondPath = Array.from({ length: 16 }, (_, i) => [POND.x + Math.cos(i / 16 * Math.PI * 2) * (POND.r + 2.2), POND.z + Math.sin(i / 16 * Math.PI * 2) * (POND.r + 2.2)]);
+life(stroller('passenger', { figure: 'masculine', age: 'old', colorway: 'cocoa' }, pondPath, { loop: true, speed: 1.0 }));
+// lotus flowers and reeds in and around the pond
+life(part('lotus-flower-cluster-bc129a').then((o) => put(layout, o, POND.x - 3, 0.08, POND.z - 2, 20)));
+life(part('lotus-flower-cluster-bc129a').then((o) => put(layout, o, POND.x + 3.5, 0.08, POND.z + 1.5, 140)));
+life(part('reed-bed-bbbefb').then((o) => put(layout, o, POND.x + POND.r + 0.6, 0, POND.z - 1, 90)));
+life(part('reed-bed-bbbefb').then((o) => put(layout, o, POND.x - 4.6, 0, POND.z - POND.r + 1, 40)));
+
+// the garden beside the pond: a low walled garden with gravel paths, flower beds, a shed, a magnolia, and butterflies
+const GARDEN = { x0: 60, x1: 84, z0: 12, z1: 32, cx: 72, cz: 22 };
+const flowers = [];   // where butterflies can land: [x, z, height of the bloom]
+{
+  const wall = (x, z, ry) => life(part('low-garden-wall-run-a34d05').then((o) => put(layout, o, x, 0, z, ry)));
+  for (let x = GARDEN.x0 + 2; x < GARDEN.x1; x += 4) { wall(x, GARDEN.z1, 0); if (Math.abs(x - GARDEN.cx) > 4) wall(x, GARDEN.z0, 0); }   // a gap in the south wall faces the pond
+  for (let z = GARDEN.z0 + 2; z < GARDEN.z1; z += 4) { wall(GARDEN.x0, z, 90); wall(GARDEN.x1, z, 90); }
+  // gravel paths: one up the middle from the gap in the wall, one across
+  const gravel = new THREE.MeshLambertMaterial({ color: 0xcbbd9c });
+  const path = (w, d, x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), gravel); m.position.set(x, 0.04, z); layout.add(m); };
+  path(2.4, GARDEN.z1 - GARDEN.z0 - 3, GARDEN.cx, (GARDEN.z0 + GARDEN.z1 - 3) / 2);
+  path(GARDEN.x1 - GARDEN.x0 - 1, 2.4, GARDEN.cx, GARDEN.cz);
+  const bedColours = ['cottage-mix', 'meadow-blue', 'sun-border'];
+  let n = 0;
+  for (const [cx, cz] of [[65, 16.5], [79, 16.5]]) for (const dx of [-1.6, 0, 1.6]) for (const dz of [-0.9, 0.9]) {
+    const x = cx + dx, z = cz + dz;
+    life(part('flower-bed-708e73', { colorway: bedColours[n++ % 3], season: 'summer' }).then((o) => put(layout, o, x, 0.06, z, 0)));
+    flowers.push([x, z, 0.5]);
+  }
+  const pastel = ['blossom-pink', 'violet-civic', 'peach-verge', 'coral-civic', 'ice-blossom'];
+  const plant = (x, z) => { life(part('pastel-flowering-plant-d16a03', { colorway: pastel[n++ % 5] }).then((o) => put(layout, o, x, 0.06, z, rand(0, 360)))); flowers.push([x, z, 0.42]); };
+  for (let z = GARDEN.z0 + 1.5; z < GARDEN.z1 - 4; z += 2) if (Math.abs(z - GARDEN.cz) > 2.5) { plant(GARDEN.cx - 2.5, z); plant(GARDEN.cx + 2.5, z); }
+  for (let x = GARDEN.x0 + 1.5; x < GARDEN.x1 - 1; x += 2) if (Math.abs(x - GARDEN.cx) > 2.5) { plant(x, GARDEN.cz - 2.5); plant(x, GARDEN.cz + 2.5); }
+  const wild = ['meadow-gold', 'poppy-red', 'thistle-violet', 'snow-daisy'];
+  for (let i = 0; i < 46; i++) {   // wildflowers drifting through the corners, clear of the paths, the shed and the tree
+    const x = rand(GARDEN.x0 + 1, GARDEN.x1 - 1), z = rand(GARDEN.z0 + 1, GARDEN.z1 - 1);
+    if (Math.abs(x - GARDEN.cx) < 3 || Math.abs(z - GARDEN.cz) < 3 || Math.hypot(x - 64, z - 28.5) < 3 || Math.hypot(x - 80, z - 28) < 3) continue;
+    if ((Math.abs(x - 65) < 3 || Math.abs(x - 79) < 3) && Math.abs(z - 16.5) < 2) continue;   // not inside the flower beds
+    life(part('wildflower-68d3a1', { colorway: wild[i % 4] }).then((o) => put(layout, o, x, 0.06, z, rand(0, 360))));
+    flowers.push([x, z, 0.42]);
+  }
+  for (let x = 70; x <= 75; x += 1.5) { life(part('sunflower-80ce15').then((o) => put(layout, o, x, 0.06, GARDEN.z1 - 1.2, rand(-15, 15)))); flowers.push([x, GARDEN.z1 - 1.2, 1.75]); }
+  life(part('backyard-garden-shed-38d79f').then((o) => put(layout, o, 64, 0.06, 28.5, 90)));
+  life(part('flowering-magnolia-dd76cb').then((o) => put(layout, o, 80, 0.06, 28, 30)));
+  life(rail('lineside-buddleia').then((o) => put(layout, o, 67.6, 0.06, 30.4, 0)));
+  flowers.push([67.6, 30.4, 2.1], [80, 26.5, 2.6]);
+  life(rail('station-bench').then((o) => put(layout, o, 77, 0.06, 25.2, 180)));
+  life(stroller('passenger', { figure: 'feminine', age: 'adult', colorway: 'olive' },
+    [[GARDEN.cx, GARDEN.z0 + 1], [GARDEN.cx, GARDEN.cz], [64, GARDEN.cz], [GARDEN.cx, GARDEN.cz], [80, GARDEN.cz], [GARDEN.cx, GARDEN.cz], [GARDEN.cx, GARDEN.z1 - 3]],
+    { speed: 0.9, pauses: [3, 8] }));
+}
+
+// butterflies: real monarch-sized and smaller, flitting from flower to flower and settling with slow wingbeats
+async function butterfly(params) {
+  const [fx, fz, fy] = flowers[Math.floor(rand(0, flowers.length))];
+  const c = await creature('butterfly-base', params, fx, fz, fy);
+  const wings = ['LeftForeWing', 'LeftHindWing', 'RightForeWing', 'RightHindWing'].map((n) => {
+    const b = c.o.getObjectByName(n); return { b, rest: b.quaternion.clone(), side: n.startsWith('Left') ? 1 : -1 };
+  });
+  let settled = rand(0.5, 4), tx = fx, tz = fz, ty = fy, heading = rand(0, 6.3), open = 0;
+  const phase = rand(0, 10), from = new THREE.Vector3(), to = new THREE.Vector3();
+  let u = 1, flight = 1;
+  movers.push({ o: c.o, update(dt, t) {
+    const p = c.o.position;
+    if (settled > 0) {
+      settled -= dt;
+      open = 35 + 30 * Math.sin(t * 2.2 + phase);                       // basking: slow open and close
+      if (settled <= 0) {
+        [tx, tz, ty] = flowers[Math.floor(rand(0, flowers.length))];
+        from.copy(p); to.set(tx, ty, tz); u = 0; flight = Math.max(0.6, from.distanceTo(to) / rand(0.8, 1.4));
+      }
+    } else {
+      u = Math.min(1, u + dt / flight);
+      const e = u * u * (3 - 2 * u);
+      const x = THREE.MathUtils.lerp(from.x, to.x, e), z = THREE.MathUtils.lerp(from.z, to.z, e);
+      const lift = Math.sin(u * Math.PI) * (0.6 + 0.4 * Math.sin(phase));   // an arc up and over
+      const flutter = Math.sin(t * 7 + phase) * 0.08 * Math.sin(u * Math.PI);
+      const want = Math.atan2(to.x - from.x, to.z - from.z);
+      heading = turnToward(heading, want, 6, dt);
+      p.set(x + Math.cos(heading) * flutter, THREE.MathUtils.lerp(from.y, to.y, e) + lift + Math.abs(flutter), z - Math.sin(heading) * flutter);
+      open = 45 + 40 * Math.sin(t * 26 + phase);                          // fast wingbeats in flight
+      if (u >= 1) settled = rand(1.5, 6);
+    }
+    c.o.rotation.y = heading;
+    for (const w of wings) { w.b.quaternion.copy(w.rest); w.b.rotateY(d2r(open * w.side)); }
+  } });
+}
+const BUTTERFLIES = [{ wing: 0xf77f1a }, { wing: 0xf77f1a, size: 0.8 }, { wing: 0xffd84a, size: 0.7 }, { wing: 0xfafaf0, size: 0.6 }, { wing: 0x6fb2ff, size: 0.6 },
+  { wing: 0xf77f1a }, { wing: 0xffd84a, size: 0.7 }, { wing: 0xfafaf0, size: 0.6 }, { wing: 0xe85d9c, size: 0.65 }, { wing: 0x6fb2ff, size: 0.6 }];
+await Promise.all(lifeJobs.splice(0));   // the flowers are planted before the butterflies arrive
+for (const params of BUTTERFLIES) life(butterfly(params));
+
+// pigeons on the platform and in the forecourt, pecking and pottering about
+for (let i = 0; i < 5; i++) {
+  life(creature('pigeon-base', {}, rand(-9, 9), rand(22.6, 24.6), 1.2).then((c) => wander(c, { area: [-10, 10, 22.4, 24.8], ground: 1.2, peck: true, pauses: [1, 4] })));
+}
+for (let i = 0; i < 4; i++) {
+  life(creature('pigeon-base', {}, rand(13, 27), rand(26, 35), 0.06).then((c) => wander(c, { area: [12.5, 27.5, 25, 35.5], ground: 0.06, peck: true, pauses: [1, 4] })));
+}
+
+// crows and gulls wheeling over the layout
+for (const [key, f] of [['crow-base', { cx: -40, cz: -5, r: 26, h: 18, speed: 9, dir: 1 }], ['crow-base', { cx: -34, cz: 2, r: 18, h: 22, speed: 8, dir: 1 }],
+  ['crow-base', { cx: 10, cz: -12, r: 34, h: 26, speed: 10, dir: -1 }], ['herring-gull-base', { cx: 50, cz: 0, r: 30, h: 24, speed: 9, dir: 1 }],
+  ['herring-gull-base', { cx: 30, cz: 6, r: 44, h: 30, speed: 10, dir: -1 }]]) life(flier(key, f));
+
+// people walking: passengers pacing the platform, folk on the street (one with a dog), the farmer with the sheepdog
+life(stroller('passenger', { figure: 'feminine', age: 'adult', colorway: 'travel' }, [[-9, 23.2], [8, 23.2]], { y: 1.2, speed: 1.1 }));
+life(stroller('passenger', { figure: 'masculine', age: 'teen', colorway: 'olive' }, [[7, 24.3], [-8, 24.3]], { y: 1.2, speed: 1.3 }));
+life(stroller('suburban-resident-a9db9c', {}, [[-40, -25.3], [40, -25.3]], { speed: 1.25 })
+  .then((owner) => creature('dog-base', {}, -41, -24).then((c) => wander(c, { follow: owner }))));
+life(stroller('neighborhood-child-8cc5ac', {}, [[34, -26.7], [-30, -26.7]], { speed: 1.5, pauses: [0.5, 2] }));
+life(stroller('passenger', { figure: 'feminine', age: 'old', colorway: 'olive' }, [[-18, -26.2], [12, -26.2]], { speed: 0.9 }));
+life(stroller('platelayer', {}, [[-70, 20], [-62.5, 12], [-62.5, -1], [-62.5, 12]], { speed: 1.2, pauses: [3, 8] })
+  .then((farmer) => creature('farm-dog-723730', {}, -66, 19).then((c) => wander(c, { follow: farmer }))));
+
+await Promise.all(lifeJobs);
+
 // ---- the basement, in real metres, scaled up around the table ----
 step('furnishing the basement');
 const room = new THREE.Group();
@@ -490,7 +845,7 @@ Object.values(walls).forEach((g) => room.add(g));
   const add = (p, x, z, ry = 0, parent = room, y = 0) => jobs.push(p.then((o) => put(parent, o, x, y, z, ry)));
   const wall = (params = {}) => home('wall-segment-plain', { colorway: 'modern-grey', face: 'plain', lived_in: 0.6, ...params });
   for (let x = -ROOM_W / 2 + 0.5; x < ROOM_W / 2; x++) {
-    add(wall(x === -1.5 || x === 1.5 ? { opening: 'casement' } : {}), x, -ROOM_D / 2, 0, walls.north);
+    add(wall(Math.abs(x) === 2 ? { opening: 'casement' } : {}), x, -ROOM_D / 2, 0, walls.north);
     add(wall(), x, ROOM_D / 2, 180, walls.south);
   }
   for (let z = -ROOM_D / 2 + 0.5; z < ROOM_D / 2; z++) {
@@ -501,29 +856,30 @@ Object.values(walls).forEach((g) => room.add(g));
     add(home('ceramic-floor-tile', { colorway: 'charcoal', pattern: 'square', lived_in: 0.7 }), x, z);
   }
   const F = 0.05;   // floor tile top
-  add(home('area-rug', { colorway: 'clay-accent' }), 2.6, 1.2, 90, room, F);
-  add(home('living-sofa', { colorway: 'charcoal-oak', seats: 3 }), 3.45, 1.45, -90, room, F);
-  add(home('floor-lamp', { stem: 'arc' }), 2.9, 0.15, -90, room, F);
-  add(home('side-table'), 3.55, 2.6, 0, room, F);
-  add(home('alcove-bookcase', { colorway: 'warm-walnut', fill: 1 }), 1.9, -2.65, 0, room, F);
-  add(home('column-radiator'), -0.5, -2.92, 0, room, F);
-  add(home('storage-basket'), 1.1, -2.7, 20, room, F);
+  const hw = ROOM_W / 2, hd = ROOM_D / 2;   // furniture stands relative to the walls
+  add(home('area-rug', { colorway: 'clay-accent' }), hw - 2.9, 1.4, 90, room, F);
+  add(home('living-sofa', { colorway: 'charcoal-oak', seats: 3 }), hw - 0.55, 1.65, -90, room, F);
+  add(home('floor-lamp', { stem: 'arc' }), hw - 1.1, 0.3, -90, room, F);
+  add(home('side-table'), hw - 0.45, 2.9, 0, room, F);
+  add(home('alcove-bookcase', { colorway: 'warm-walnut', fill: 1 }), 2.4, -hd + 0.35, 0, room, F);
+  add(home('column-radiator'), -0.5, -hd + 0.08, 0, room, F);
+  add(home('storage-basket'), 1.4, -hd + 0.3, 20, room, F);
   // the stairs down into the basement, tucked into the back corner by their measured footprint
   jobs.push(home('staircase-flight').then((o) => {
     o.rotation.y = Math.PI; o.updateMatrixWorld(true);   // measure before it joins the scaled room
     const b = new THREE.Box3().setFromObject(o);
-    put(room, o, ROOM_W / 2 - 0.06 - b.max.x, F, -ROOM_D / 2 + 0.06 - b.min.z, 180);
+    put(room, o, hw - 0.06 - b.max.x, F, -hd + 0.06 - b.min.z, 180);
   }));
-  add(home('office-desk', { colorway: 'walnut' }), -3.6, 1.6, 90, room, F);
-  add(home('office-chair'), -3.0, 1.6, -90, room, F);
-  add(home('desk-monitor'), -3.75, 1.6, 90, room, F + 0.75);
-  add(prop('field-workbench-70f706'), -3.62, -1.4, 90, room, F);
-  add(prop('supply-shelving-rack-ae446a'), -2.6, -2.66, 0, room, F);
-  add(prop('supply-shelving-rack-ae446a'), -1.3, -2.66, 0, room, F);
-  [[-3.2, 2.6, 0, 10], [-3.25, 2.6, 0.43, -15], [-2.6, 2.7, 0, 35], [0.4, -2.6, 0, 5], [1.0, 2.6, 0, -20]].forEach(([x, z, y, r]) =>
-    add(prop('cardboard-delivery-box-59cc68'), x, z, r, room, F + y));
-  add(home('framed-art'), -3.94, 0.2, 90, walls.west, 0);
-  add(home('framed-art'), 0.4, -2.94, 0, walls.north, 0);
+  add(home('office-desk', { colorway: 'walnut' }), -hw + 0.4, 1.9, 90, room, F);
+  add(home('office-chair'), -hw + 1.0, 1.9, -90, room, F);
+  add(home('desk-monitor'), -hw + 0.25, 1.9, 90, room, F + 0.75);
+  add(prop('field-workbench-70f706'), -hw + 0.38, -1.4, 90, room, F);
+  add(prop('supply-shelving-rack-ae446a'), -hw + 1.4, -hd + 0.34, 0, room, F);
+  add(prop('supply-shelving-rack-ae446a'), -hw + 2.7, -hd + 0.34, 0, room, F);
+  [[-hw + 0.8, hd - 0.4, 0, 10], [-hw + 0.75, hd - 0.4, 0.43, -15], [-hw + 1.4, hd - 0.3, 0, 35], [0.4, -hd + 0.4, 0, 5], [1.0, hd - 0.4, 0, -20]]
+    .forEach(([x, z, y, r]) => add(prop('cardboard-delivery-box-59cc68'), x, z, r, room, F + y));
+  add(home('framed-art'), -hw + 0.06, 0.2, 90, walls.west, 0);
+  add(home('framed-art'), 0.4, -hd + 0.06, 0, walls.north, 0);
   await Promise.all(jobs);
   room.traverse((o) => { if (o.isMesh) { o.receiveShadow = true; o.castShadow = false; } });
 }
@@ -559,7 +915,7 @@ trains.forEach((t, i) => {
     e.stopPropagation(); select(i);
     if (b.dataset.a === 'stop') setThrottle(t, 0);
     if (b.dataset.a === 'toot') whistle(t.whistle);
-    if (b.dataset.a === 'ride' && !riding) toggleRide();   // already riding: the select() above has switched trains
+    if (b.dataset.a === 'ride' && !riding) { if (touring) toggleTour(); toggleRide(); }   // already riding: the select() above has switched trains
   }));
   panel.appendChild(el);
 });
@@ -621,9 +977,11 @@ addEventListener('keydown', (e) => {
   if (['1', '2', '3'].includes(k)) select(Number(k) - 1);
   else if (k === ' ') { setThrottle(trains[selected], 0); e.preventDefault(); }
   else if (k === 'h') whistle(trains[selected].whistle);
-  else if (k === 'c') toggleRide();
+  else if (k === 'c') { if (touring) toggleTour(); toggleRide(); }
+  else if (k === 'f') toggleTour();
   else if (k === 't') tiltOn = !tiltOn;
   else if (k === 'escape' && riding) toggleRide();
+  else if (k === 'escape' && touring) toggleTour();
   // each press, and each key repeat while it is held, moves the throttle a notch
   else if (k === 'w' || k === 'arrowup') setThrottle(trains[selected], trains[selected].throttle + 0.05);
   else if (k === 's' || k === 'arrowdown') setThrottle(trains[selected], trains[selected].throttle - 0.05);
@@ -655,6 +1013,54 @@ function rideCamera(dt) {
   camera.lookAt(rideLookNow);
 }
 
+// ---- flying tour (F): the camera glides round the cool parts of the table, always with track in the shot ----
+// Each stop is a camera position and the point it looks at; a smooth closed curve runs through both lists.
+const TOUR = [
+  [[-22, 13, 52], [-2, 1, 21]],        // the station, trains running past the platform
+  [[38, 17, 50], [40, 1, 10]],         // the forecourt and the east end of the loops
+  [[98, 16, 42], [70, 0, 14]],         // the garden and the duck pond, the line beyond
+  [[96, 22, -30], [60, 0, -6]],        // past the pond to the goods shed
+  [[44, 21, -60], [10, 1, -22]],       // along the town street, the back straight below
+  [[-40, 22, -56], [-48, 1, -8]],      // the engine shed and the west curve
+  [[-98, 22, -34], [-68, 0, -6]],      // over the farm, the line behind the paddock
+  [[-92, 26, 30], [-50, 0, 6]],        // out past the farmhouse, looking back at the loops
+  [[-30, 48, 44], [0, 0, 0]],          // up high over the whole layout
+];
+const tourPos = new THREE.CatmullRomCurve3(TOUR.map(([p]) => new THREE.Vector3(...p)), true, 'centripetal');
+const tourLook = new THREE.CatmullRomCurve3(TOUR.map(([, l]) => new THREE.Vector3(...l)), true, 'centripetal');
+const TOUR_SECONDS = 90, TOUR_FOV = 32;
+let touring = false, tourU = 0, tourIn = 0;
+const tourFrom = { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 24 };
+const tourNow = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+function toggleTour() {
+  if (riding) toggleRide();
+  touring = !touring;
+  controls.enabled = !touring;
+  if (touring) {
+    // start from the stop nearest the camera, and ease in from where the camera is now
+    let best = 0;
+    TOUR.forEach(([p], i) => { if (camera.position.distanceTo(new THREE.Vector3(...p)) < camera.position.distanceTo(new THREE.Vector3(...TOUR[best][0]))) best = i; });
+    tourU = best / TOUR.length; tourIn = 0;
+    tourFrom.pos.copy(camera.position); tourFrom.look.copy(controls.target); tourFrom.fov = camera.fov;
+  } else {
+    controls.target.copy(tourNow.look);   // hand the view back to orbiting, right where the tour left it
+    camera.fov = 24; camera.updateProjectionMatrix();
+  }
+  $('mode').textContent = touring ? 'Flying tour · F or Esc to stop, or grab the view' : 'Overview · drag to orbit, scroll to zoom';
+}
+function tourCamera(dt) {
+  tourU = (tourU + dt / TOUR_SECONDS) % 1;
+  tourIn = Math.min(1, tourIn + dt / 2.5);
+  const e = tourIn * tourIn * (3 - 2 * tourIn);   // smoothstep from the old view onto the tour path
+  tourNow.pos.copy(tourFrom.pos).lerp(tourPos.getPointAt(tourU), e);
+  tourNow.look.copy(tourFrom.look).lerp(tourLook.getPointAt(tourU), e);
+  camera.position.copy(tourNow.pos);
+  camera.lookAt(tourNow.look);
+  const fov = THREE.MathUtils.lerp(tourFrom.fov, TOUR_FOV, e);
+  if (Math.abs(fov - camera.fov) > 0.01) { camera.fov = fov; camera.updateProjectionMatrix(); }
+}
+renderer.domElement.addEventListener('pointerdown', () => { if (touring) toggleTour(); });   // grabbing the view ends the tour
+
 // ---- the loop ----
 const clock = new THREE.Clock();
 $('loading').remove();
@@ -674,19 +1080,23 @@ function frame() {
   const lead = sel.cars[0].holder.position;
   marker.position.set(lead.x, 7.5 + Math.sin(time * 3) * 0.5, lead.z);
   marker.rotation.y = time * 1.5;
-  marker.visible = !riding;
+  marker.visible = !riding && !touring;
   for (const a of anims) a.update(dt);
-  if (riding) rideCamera(dt); else controls.update();
+  for (const m of movers) m.update(dt, time);
+  if (touring) tourCamera(dt); else if (riding) rideCamera(dt); else controls.update();
+  // the near plane follows the zoom: close-ups can get right in, and the overview keeps its depth precision
+  const near = riding ? 0.3 : THREE.MathUtils.clamp(camera.position.distanceTo(touring ? tourNow.look : controls.target) * 0.015, 0.05, 4);
+  if (Math.abs(near - camera.near) > 0.01) { camera.near = near; camera.updateProjectionMatrix(); }
   cutaway();
   look.update();
   tiltH.enabled = tiltV.enabled = tiltOn;
   const blur = riding ? TILT_BLUR * 0.6 : TILT_BLUR;
-  tiltH.uniforms.h.value = blur / innerWidth; tiltV.uniforms.v.value = blur / innerHeight;
+  tiltH.uniforms.amount.value = (blur * 1.6) / innerWidth; tiltV.uniforms.amount.value = (blur * 1.6) / innerHeight;
   tiltH.uniforms.r.value = tiltV.uniforms.r.value = riding ? 0.45 : 0.5;
   composer.render();
   requestAnimationFrame(frame);
 }
-window.__trains = { trains, loops, layout, room, look, camera, controls, scene, select, setThrottle };   // for poking from the console
+window.__trains = { trains, loops, layout, room, look, camera, controls, scene, select, setThrottle, movers };   // for poking from the console
 frame();
 </script>
 </body>

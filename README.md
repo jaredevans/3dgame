@@ -1,6 +1,6 @@
 # Basement Empire
 
-A small model railway simulator for the browser, built with [three.js](https://threejs.org) and free low-poly models from [Polyfork](https://polyfork.dev). A basement holds a big table layout with three loops of track, a station, an engine shed and a little town. Three trains run on it, and you drive them. The whole room is seen as a tilt-shift diorama, so it reads as something small on a table.
+A small model railway simulator for the browser, built with [three.js](https://threejs.org) and free low-poly models from [Polyfork](https://polyfork.dev). A basement holds a big table layout with three loops of track, a station, an engine shed, a little town, a farm, a duck pond and a walled garden, with people, animals, birds and butterflies going about their day. Three trains run on it, and you drive them. The whole room is seen as a tilt-shift diorama, so it reads as something small on a table.
 
 The whole game is one file, `index.html`. three.js comes from jsDelivr and every model comes from Polyfork's free CDN, so there is nothing to install or download. It needs an internet connection.
 
@@ -15,7 +15,8 @@ What the game is and the decisions behind it are in [`PROJECT_BRIEF.md`](PROJECT
 | `Space` | Stop the picked train |
 | `H` | Whistle or horn |
 | `C` | Ride along with the picked train (again, or `Esc`, to step back) |
-| `T` | Tilt-shift blur on/off |
+| `F` | Flying tour round the layout (again, `Esc`, or grabbing the view to stop) |
+| `T` | Miniature blur on/off (it softens the room, never the table) |
 | Drag / scroll | Orbit / zoom (right-drag pans) |
 
 Each train also has a card at the bottom of the screen with a throttle slider and Stop, Whistle and Ride buttons.
@@ -50,7 +51,7 @@ Everything is in the `<script type="module">` inside `index.html`:
 - The tunable numbers (scale, table and room size, top speed, acceleration, tilt-shift strength) are at the top.
 - `IDS` maps each part's kit name to its Polyfork asset id. To use another Polyfork model, add its id there, or pass the id straight to `part()`.
 - `TRAINS` lists each train's vehicles and their colours. The part options (liveries, loads, lengths) are listed on each model's Polyfork page.
-- `scenery()` places the buildings, trees, signals and people on the layout; the block after "the basement" furnishes the room.
+- `scenery()` places the buildings, trees, signals and standing people on the layout. The "life on the layout" block adds the farm, the pond and everything that moves: `wander()` for animals, `flier()` for birds, `stroller()` for walking people. The block after "the basement" furnishes the room.
 
 ## Credits and licence of the assets
 
