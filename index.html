@@ -486,7 +486,6 @@ async function scenery() {
 
   // inside the inner loop: the signal box and a little park
   add(rail('signal-box', { colorway: 'green-cream' }), 2, 5, 0);
-  add(rail('signalman'), 7.5, 7.6, 0);
   add(hood('park-picnic-shelter', { colorway: 'green-park' }), -14, -2);
   add(hood('broad-canopy-shade-tree'), -24, 1);
   add(hood('ornamental-front-yard-tree'), -5, -5);
@@ -507,24 +506,8 @@ async function scenery() {
   add(rail('ground-disc-signal'), 25, 7.5, 90);
 
   await Promise.all(jobs);
-
-  // a few people, standing about (animated with the kit's idle clip when it loads)
-  const people = [
-    ['station-master', -3, 22.9, 180], ['passenger', -7, 23.2, 200], ['passenger', 6.5, 23, 160],
-    ['porter', 10.5, 22.8, 90], ['trainspotter', -13, 23.4, 220], ['waving-child', -18, 24.5, 180],
-    ['platelayer', 36, -22.6, 0], ['railway-carter', 21, 28, -90],
-  ];
-  const onPlatform = (z) => z > 22 && z < 26;
-  const folk = [];
-  for (const [key, x, z, ry] of people) {
-    const o = put(layout, await rail(key), x, onPlatform(z) && Math.abs(x) < 13 ? 1.2 : 0.06, z, ry);
-    folk.push(o);
-  }
-  return folk;
 }
-const folk = await scenery();
-const anims = [];
-for (const f of folk) { try { const a = await animate(f); a.locomotion(0); anims.push(a); } catch { /* still stands without the clip */ } }
+await scenery();
 
 // ---- life on the layout: farm animals, birds and people that move ----
 // Every model is at its real size in metres, the same as the trains, so a cow stands as tall against a coach as it would
@@ -634,7 +617,7 @@ async function flier(key, { cx, cz, r, h, speed, dir }) {
 }
 
 // a person who walks a route and back (or round and round), pausing at the ends
-async function stroller(key, params, route, { y = 0.06, speed = 1.3, loop = false, pauses = [1, 5] } = {}) {
+async function stroller(key, params, route, { y = 0.06, speed = 1.3, loop = false, pauses = [1, 3.5] } = {}) {
   const c = await creature(key, params, route[0][0], route[0][1], y);
   let anim = null;
   try { anim = await animate(c.o); } catch { /* walks in a rest pose without the clip */ }
@@ -764,7 +747,7 @@ const flowers = [];   // where butterflies can land: [x, z, height of the bloom]
   life(rail('station-bench').then((o) => put(layout, o, 77, 0.06, 25.2, 180)));
   life(stroller('passenger', { figure: 'feminine', age: 'adult', colorway: 'olive' },
     [[GARDEN.cx, GARDEN.z0 + 1], [GARDEN.cx, GARDEN.cz], [64, GARDEN.cz], [GARDEN.cx, GARDEN.cz], [80, GARDEN.cz], [GARDEN.cx, GARDEN.cz], [GARDEN.cx, GARDEN.z1 - 3]],
-    { speed: 0.9, pauses: [3, 8] }));
+    { speed: 0.9, pauses: [1.5, 4] }));
 }
 
 // butterflies: real monarch-sized and smaller, flitting from flower to flower and settling with slow wingbeats
@@ -820,6 +803,18 @@ for (const [key, f] of [['crow-base', { cx: -40, cz: -5, r: 26, h: 18, speed: 9,
   ['crow-base', { cx: 10, cz: -12, r: 34, h: 26, speed: 10, dir: -1 }], ['herring-gull-base', { cx: 50, cz: 0, r: 30, h: 24, speed: 9, dir: 1 }],
   ['herring-gull-base', { cx: 30, cz: 6, r: 44, h: 30, speed: 10, dir: -1 }]]) life(flier(key, f));
 
+// railway staff and passengers going about their business (platform top is 1.2 m; its ramps start past x = +/-8)
+const P = 1.2;
+life(stroller('station-master', {}, [[-6, 22.9], [6, 22.9]], { y: P, speed: 0.8, pauses: [1.5, 3] }));
+life(stroller('passenger', { figure: 'masculine', age: 'adult', colorway: 'cocoa' }, [[-7, 24.6], [-2, 23.6], [3, 24.6], [7, 23.8]], { y: P, speed: 1.0 }));
+life(stroller('passenger', { figure: 'feminine', age: 'old', colorway: 'travel' }, [[5, 22.8], [-1, 24.2], [-6, 23.4]], { y: P, speed: 0.8 }));
+life(stroller('porter', {}, [[7.5, 23.2], [2, 24.8], [7.5, 24.8]], { y: P, speed: 1.1, loop: true, pauses: [0.5, 2] }));
+life(stroller('trainspotter', {}, [[-7.5, 22.7], [-3, 22.7]], { y: P, speed: 0.7, pauses: [2, 4] }));
+life(stroller('waving-child', {}, [[-18, 24.8], [-24, 28], [-20, 33], [-14, 30]], { speed: 1.5, loop: true }));
+life(stroller('platelayer', {}, [[26, -22.8], [40, -22.8]], { speed: 0.8, pauses: [1.5, 3] }));            // walking the line
+life(stroller('railway-carter', {}, [[12.8, 26.6], [28, 26.6], [28, 34.6], [12.8, 34.6]], { speed: 1.1, loop: true }));   // round the parked lorry and car
+life(stroller('signalman', {}, [[7.5, 8.6], [-3.5, 8.6], [-3.5, 1.2], [7.5, 1.2]], { speed: 0.9, loop: true }));  // round his signal box
+
 // people walking: passengers pacing the platform, folk on the street (one with a dog), the farmer with the sheepdog
 life(stroller('passenger', { figure: 'feminine', age: 'adult', colorway: 'travel' }, [[-9, 23.2], [8, 23.2]], { y: 1.2, speed: 1.1 }));
 life(stroller('passenger', { figure: 'masculine', age: 'teen', colorway: 'olive' }, [[7, 24.3], [-8, 24.3]], { y: 1.2, speed: 1.3 }));
@@ -827,7 +822,7 @@ life(stroller('suburban-resident-a9db9c', {}, [[-40, -25.3], [40, -25.3]], { spe
   .then((owner) => creature('dog-base', {}, -41, -24).then((c) => wander(c, { follow: owner }))));
 life(stroller('neighborhood-child-8cc5ac', {}, [[34, -26.7], [-30, -26.7]], { speed: 1.5, pauses: [0.5, 2] }));
 life(stroller('passenger', { figure: 'feminine', age: 'old', colorway: 'olive' }, [[-18, -26.2], [12, -26.2]], { speed: 0.9 }));
-life(stroller('platelayer', {}, [[-70, 20], [-62.5, 12], [-62.5, -1], [-62.5, 12]], { speed: 1.2, pauses: [3, 8] })
+life(stroller('platelayer', {}, [[-70, 20], [-62.5, 12], [-62.5, -1], [-62.5, 12]], { speed: 1.2, pauses: [1.5, 4] })
   .then((farmer) => creature('farm-dog-723730', {}, -66, 19).then((c) => wander(c, { follow: farmer }))));
 
 await Promise.all(lifeJobs);
@@ -1081,7 +1076,6 @@ function frame() {
   marker.position.set(lead.x, 7.5 + Math.sin(time * 3) * 0.5, lead.z);
   marker.rotation.y = time * 1.5;
   marker.visible = !riding && !touring;
-  for (const a of anims) a.update(dt);
   for (const m of movers) m.update(dt, time);
   if (touring) tourCamera(dt); else if (riding) rideCamera(dt); else controls.update();
   // the near plane follows the zoom: close-ups can get right in, and the overview keeps its depth precision
