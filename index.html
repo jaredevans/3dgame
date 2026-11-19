@@ -228,7 +228,10 @@ const rail = part, hood = part, home = part, prop = part;
   'cow-base', 'horse-base', 'sheep-base', 'dog-base', 'farm-dog-723730', 'duck-base', 'pigeon-base', 'crow-base', 'herring-gull-base',
   'suburban-resident-a9db9c', 'neighborhood-child-8cc5ac', 'wooden-fence-section-d72055', 'farm-gate-8ab320', 'hay-bale-079e8c',
   'water-trough-df3ced', 'butterfly-base', 'flower-bed-708e73', 'pastel-flowering-plant-d16a03', 'wildflower-68d3a1', 'sunflower-80ce15',
-  'low-garden-wall-run-a34d05', 'backyard-garden-shed-38d79f', 'flowering-magnolia-dd76cb', 'lotus-flower-cluster-bc129a', 'reed-bed-bbbefb'].forEach(load);
+  'low-garden-wall-run-a34d05', 'backyard-garden-shed-38d79f', 'flowering-magnolia-dd76cb', 'lotus-flower-cluster-bc129a', 'reed-bed-bbbefb',
+  'backyard-swing-set-38637e', 'playground-roundabout-e4d43b', 'climbing-frame-e917d5', 'rope-swing-on-a-ada4bb', 'playground-slide-8b764c',
+  'kite-kid-base', 'kite-kid-0a7d70', 'volantin-398e88', 'village-child-bef09e', 'child-with-a-painted-b8a19f', 'pupil-standing-0bd6d5',
+  'kid-in-a-caped-663f11'].forEach(load);
 
 const layout = new THREE.Group();   // everything on the baseboard, in layout metres
 scene.add(layout);
@@ -486,7 +489,7 @@ async function scenery() {
 
   // inside the inner loop: the signal box and a little park
   add(rail('signal-box', { colorway: 'green-cream' }), 2, 5, 0);
-  add(hood('park-picnic-shelter', { colorway: 'green-park' }), -14, -2);
+  add(hood('park-picnic-shelter', { colorway: 'green-park' }), 12, 5);
   add(hood('broad-canopy-shade-tree'), -24, 1);
   add(hood('ornamental-front-yard-tree'), -5, -5);
   add(rail('lineside-hut'), 15, -4);
@@ -815,6 +818,163 @@ life(stroller('platelayer', {}, [[26, -22.8], [40, -22.8]], { speed: 0.8, pauses
 life(stroller('railway-carter', {}, [[12.8, 26.6], [28, 26.6], [28, 34.6], [12.8, 34.6]], { speed: 1.1, loop: true }));   // round the parked lorry and car
 life(stroller('signalman', {}, [[7.5, 8.6], [-3.5, 8.6], [-3.5, 1.2], [7.5, 1.2]], { speed: 0.9, loop: true }));  // round his signal box
 
+// ---- the kids' park in the middle of the layout: a playground, a game of tag, a rope swing and kites ----
+// All of it sits inside the inner loop, at least a metre and a half clear of the trains' swept path.
+const PLAY = { x0: -24, x1: -6, z0: -8.5, z1: 0.5 };
+{
+  const surface = new THREE.Mesh(new THREE.BoxGeometry(19, 0.06, 9.4), new THREE.MeshLambertMaterial({ color: 0xb0654a }));
+  surface.position.set(-15, 0.03, -4); layout.add(surface);   // a soft red play surface
+}
+const KIDS = [['neighborhood-child-8cc5ac', {}], ['village-child-bef09e', {}], ['child-with-a-painted-b8a19f', {}],
+  ['pupil-standing-0bd6d5', {}], ['kid-in-a-caped-663f11', {}], ['waving-child', {}]];
+async function kid(i, x, z, y = 0.06, ry = 0) {
+  const [key, params] = KIDS[i % KIDS.length];
+  const c = await creature(key, params, x, z, y, ry);
+  try { c.anim = await animate(c.o); c.anim.locomotion(0); } catch { /* stands in its rest pose without the clip */ }
+  return c;
+}
+// stand a kid on a moving part (a swing seat, the roundabout) at a world height, so it rides along with it
+function ride(k, node, x, y, z, ry = 0) {
+  const local = node.worldToLocal(new THREE.Vector3(x, y, z));
+  node.add(k.o); k.o.position.copy(local); k.o.rotation.set(0, ry, 0);
+  movers.push({ update: (dt) => k.anim?.update(dt) });
+}
+// a hinge that swings like a pendulum about the axis its model declares
+function pendulum(node, axis, amp, length, phase) {
+  const rest = node.quaternion.clone(), w = Math.sqrt(9.81 / Math.max(0.6, length));
+  movers.push({ update(dt, t) { node.quaternion.copy(rest); node.rotateOnAxis(AXES[axis], amp * Math.sin(t * w + phase)); } });
+}
+const AVOID_PLAY = [[-19, -6.6, 2.1], [-12.5, -4.2, 1.7], [-7.5, -2, 1.9], [-22.3, -1.6, 1.4]];
+
+life(load('backyard-swing-set-38637e').then(async (mod) => {
+  const set = put(layout, mod.createAsset(), -19, 0.06, -6.6, 0);
+  set.updateMatrixWorld(true);
+  for (const [name, phase, i] of [['swing-l', 0, 0], ['swing-r', 2.1, 1]]) {
+    const node = set.getObjectByName(name);
+    if (!node) continue;
+    const top = node.getWorldPosition(new THREE.Vector3());
+    const seat = new THREE.Box3().setFromObject(node), sx = (seat.min.x + seat.max.x) / 2, sz = (seat.min.z + seat.max.z) / 2;   // the seat hangs off to one side of the shared pivot
+    ride(await kid(i, sx, sz), node, sx, seat.min.y + 0.06, sz);
+    pendulum(node, mod.rig?.[name]?.axis ?? 'x', d2r(rand(24, 32)), top.y - seat.min.y, phase);
+  }
+}));
+life(load('playground-roundabout-e4d43b').then(async (mod) => {
+  const r = put(layout, mod.createAsset(), -12.5, 0.06, -4.2, 0);
+  r.updateMatrixWorld(true);
+  const platter = r.getObjectByName('platter') ?? r;
+  for (let i = 0; i < 2; i++) {
+    const a = i * Math.PI;
+    ride(await kid(i + 2, 0, 0), platter, -12.5 + Math.cos(a) * 0.9, 0.36, -4.2 + Math.sin(a) * 0.9, -a);
+  }
+  let spin = 0;
+  movers.push({ update(dt, t) { spin += dt * (1.1 + 0.6 * Math.sin(t * 0.25)); platter.rotation.y = spin; } });
+}));
+life(part('climbing-frame-e917d5').then((o) => put(layout, o, -22.3, 0.06, -1.6, 0)));
+life(load('rope-swing-on-a-ada4bb').then(async (mod) => {
+  const tree = put(layout, mod.createAsset({ season: 'summer' }), -28.5, 0.06, -3, 90);
+  tree.updateMatrixWorld(true);
+  const node = tree.getObjectByName('swing');
+  if (!node) return;
+  const top = node.getWorldPosition(new THREE.Vector3());
+  const seat = new THREE.Box3().setFromObject(node), sx = (seat.min.x + seat.max.x) / 2, sz = (seat.min.z + seat.max.z) / 2;
+  ride(await kid(5, sx, sz), node, sx, seat.min.y + 0.08, sz, 0);
+  pendulum(node, mod.rig?.swing?.axis ?? 'x', d2r(34), top.y - seat.min.y, 0.7);
+}));
+
+// the slide: one kid climbs the ladder, slides down, and runs round to the ladder again
+life(part('playground-slide-8b764c').then(async (sl) => {
+  put(layout, sl, -7.5, 0.06, -2, 90);
+  sl.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(sl), c = box.getCenter(new THREE.Vector3());
+  const hi = new THREE.Vector3(), v = new THREE.Vector3(); let n = 0;   // the ladder end is the end with the tall rails
+  sl.traverse((o) => { if (!o.isMesh) return; const p = o.geometry.attributes.position;
+    for (let i = 0; i < p.count; i += 3) { v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld); if (v.y > box.max.y * 0.8) { hi.add(v); n++; } } });
+  hi.divideScalar(n || 1);
+  const ux = hi.x - c.x, uz = hi.z - c.z, ul = Math.hypot(ux, uz) || 1, ax = ux / ul, az = uz / ul, half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+  const deck = box.max.y * 0.6;
+  const at = (k, y) => new THREE.Vector3(c.x + ax * k, y, c.z + az * k);
+  const k = await kid(4, c.x - ax * (half + 0.6), c.z - az * (half + 0.6));
+  const steps = [
+    { to: at(-half - 0.6, 0.06), loco: 0, time: 0.6 },                                          // a breather at the bottom
+    { to: new THREE.Vector3(c.x - az * 1.6, 0.06, c.z + ax * 1.6), loco: 3, time: 1.2 },          // run round the side
+    { to: at(half + 0.5, 0.06), loco: 3, time: 1.1 },                                              // to the foot of the ladder
+    { to: at(half * 0.7, deck), loco: 0.8, time: 1.5, face: -1 },                                  // climb
+    { to: at(half * 0.7, deck), loco: 0, time: 0.7, face: -1 },                                    // sit at the top
+    { to: at(-half - 0.3, 0.3), loco: 0, time: 1.0, face: -1 },                                    // whee
+  ];
+  let i = 0, u = 0; const from = k.o.position.clone();
+  movers.push({ o: k.o, update(dt) {
+    const s = steps[i];
+    u = Math.min(1, u + dt / s.time);
+    k.o.position.lerpVectors(from, s.to, u);
+    const dx = s.to.x - from.x, dz = s.to.z - from.z;
+    if (s.face) k.o.rotation.y = Math.atan2(-ax, -az); else if (Math.hypot(dx, dz) > 0.1) k.o.rotation.y = Math.atan2(dx, dz);
+    k.anim?.locomotion(s.loco); k.anim?.update(dt);
+    if (u >= 1) { from.copy(s.to); i = (i + 1) % steps.length; u = 0; }
+  } });
+}));
+
+// a game of tag round the playground: one kid runs off, the others give chase
+async function runner(i, leader = null) {
+  const k = await kid(i, rand(PLAY.x0, PLAY.x1), rand(PLAY.z0, PLAY.z1));
+  let tx = k.o.position.x, tz = k.o.position.z, heading = rand(0, 6.3), rest = 0, best = Infinity, stuck = 0;
+  const radius = 0.35;
+  const clear = (x, z) => AVOID_PLAY.every(([ox, oz, orad]) => Math.hypot(x - ox, z - oz) > orad + 0.8);
+  const pick = () => { for (let n = 0; n < 12; n++) { tx = rand(PLAY.x0, PLAY.x1); tz = rand(PLAY.z0, PLAY.z1); if (clear(tx, tz)) break; } best = Infinity; stuck = 0; };
+  movers.push({ o: k.o, update(dt) {
+    const p = k.o.position;
+    if (leader) { tx = leader.position.x; tz = leader.position.z; }
+    else if (Math.hypot(tx - p.x, tz - p.z) < 0.6) {
+      if ((rest -= dt) <= 0) { rest = Math.random() < 0.3 ? rand(0.6, 1.5) : 0; pick(); }
+    } else {
+      // blocked by something on the way? after a couple of seconds without getting closer, run somewhere else
+      const d = Math.hypot(tx - p.x, tz - p.z);
+      if (d < best - 0.05) { best = d; stuck = 0; } else if ((stuck += dt) > 2) pick();
+    }
+    const far = Math.hypot(tx - p.x, tz - p.z);
+    const speed = leader ? (far > 1.4 ? 3.0 : 0) : (far > 0.6 ? 3.4 : 0);
+    if (speed > 0) {
+      heading = turnToward(heading, Math.atan2(tx - p.x, tz - p.z), 6, dt);
+      p.x += Math.sin(heading) * speed * dt; p.z += Math.cos(heading) * speed * dt;
+    }
+    for (const [ox, oz, orad] of AVOID_PLAY) {   // dodge round the play equipment
+      const dx = p.x - ox, dz = p.z - oz, gap = Math.hypot(dx, dz) || 1e-3;
+      if (gap < orad + radius) { p.x = ox + (dx / gap) * (orad + radius); p.z = oz + (dz / gap) * (orad + radius); }
+    }
+    k.o.rotation.y = heading;
+    k.anim?.locomotion(speed); k.anim?.update(dt);
+  } });
+  return k.o;
+}
+life(runner(0).then(async (it) => { const a = await runner(2, it); const b = await runner(3, a); await runner(5, it); return b; }));
+life(stroller('passenger', { figure: 'feminine', age: 'adult', colorway: 'cocoa' }, [[-25, -9], [-5, -9], [-5, 1.2], [-25, 1.2]], { loop: true, speed: 0.9 }));
+life(stroller('suburban-resident-a9db9c', {}, [[-5, 1.2], [-25, 1.2], [-25, -9], [-5, -9]], { loop: true, speed: 0.8 }));
+
+// kites: two kids on the grass beside the playground, kites riding the wind high over the layout on sagging strings
+async function kiteFlyer(key, params, route, wind) {
+  const o = await stroller(key, params, route, { speed: 0.6, pauses: [3, 7] });
+  const hand = o.getObjectByName('RightHand') ?? o;
+  const kite = put(layout, await part('volantin-398e88'), route[0][0] + wind[0], 15, route[0][1] + wind[1]);
+  const N = 24, pts = new Float32Array(N * 3);
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pts, 3));
+  const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xf2efe4 }));
+  line.frustumCulled = false; layout.add(line);
+  const h = new THREE.Vector3(), phase = rand(0, 10);
+  movers.push({ update(dt, t) {
+    const p = o.position;
+    kite.position.set(p.x + wind[0] + Math.sin(t * 0.7 + phase) * 1.8, 15 + Math.sin(t * 0.45 + phase) * 2.2 + Math.sin(t * 1.9) * 0.4, p.z + wind[1] + Math.cos(t * 0.55 + phase) * 1.4);
+    hand.getWorldPosition(h); layout.worldToLocal(h);
+    kite.lookAt(h.x, h.y, h.z); kite.rotateY(Math.PI / 2); kite.rotateZ(Math.sin(t * 1.3 + phase) * 0.25);   // face the kid, and wobble
+    for (let i = 0; i < N; i++) {   // a string that sags a little in the middle
+      const u = i / (N - 1), sag = Math.sin(u * Math.PI) * 1.6;
+      pts[i * 3] = h.x + (kite.position.x - h.x) * u; pts[i * 3 + 1] = h.y + (kite.position.y - 0.6 - h.y) * u - sag; pts[i * 3 + 2] = h.z + (kite.position.z - h.z) * u;
+    }
+    geo.attributes.position.needsUpdate = true;
+  } });
+}
+life(kiteFlyer('kite-kid-base', {}, [[-22, 5.2], [-24.5, 5.6]], [11, -3]));
+life(kiteFlyer('kite-kid-0a7d70', {}, [[-11, 4.8], [-13.5, 4.4]], [12, 2]));
+
 // people walking: passengers pacing the platform, folk on the street (one with a dog), the farmer with the sheepdog
 life(stroller('passenger', { figure: 'feminine', age: 'adult', colorway: 'travel' }, [[-9, 23.2], [8, 23.2]], { y: 1.2, speed: 1.1 }));
 life(stroller('passenger', { figure: 'masculine', age: 'teen', colorway: 'olive' }, [[7, 24.3], [-8, 24.3]], { y: 1.2, speed: 1.3 }));
@@ -1020,6 +1180,7 @@ const TOUR = [
   [[-98, 22, -34], [-68, 0, -6]],      // over the farm, the line behind the paddock
   [[-92, 26, 30], [-50, 0, 6]],        // out past the farmhouse, looking back at the loops
   [[-30, 48, 44], [0, 0, 0]],          // up high over the whole layout
+  [[-6, 13, 17], [-16, 2, -3]],        // down over the kids' park in the middle, kites overhead
 ];
 const tourPos = new THREE.CatmullRomCurve3(TOUR.map(([p]) => new THREE.Vector3(...p)), true, 'centripetal');
 const tourLook = new THREE.CatmullRomCurve3(TOUR.map(([, l]) => new THREE.Vector3(...l)), true, 'centripetal');

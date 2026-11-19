@@ -14,7 +14,7 @@ The decisions below describe the game as built. Change any of them before the ne
 - The walls between the camera and the table are hidden as the camera moves, like an open dollhouse.
 - Ride-along camera (`C`): behind and above the picked train's leading vehicle (its tail vehicle when reversing), looking down the line.
 - Diorama effect: a tilt-shift blur towards the top and bottom of the screen that only softens the room. Everything on the table, and in the air above it, stays sharp: the blur reads each pixel's depth, works out where it is in the world, and skips it if it is over the table. Plus a little extra colour saturation. `T` turns the blur off. It is weaker in ride-along view.
-- Flying tour (`F`): the camera glides along a smooth closed loop past the station, the forecourt, the garden and pond, the goods shed, the town street, the engine shed and the farm, then up over the whole layout, about 90 seconds a lap. Every stop is aimed so track is in the shot. `F`, `Esc` or grabbing the view ends it where it is.
+- Flying tour (`F`): the camera glides along a smooth closed loop past the station, the forecourt, the garden and pond, the goods shed, the town street, the engine shed and the farm, up over the whole layout and down over the kids' park, about 90 seconds a lap. Every stop is aimed so track is in the shot. `F`, `Esc` or grabbing the view ends it where it is.
 
 **Scale**
 - The layout is about 1:32 (roughly gauge 1). The railway is built in the kit's own real-world metres, and the room is built in real metres and scaled up 32 times around it. That keeps the railway parts, their 4 m grid and the kit's lighting at their native size.
@@ -33,7 +33,7 @@ The decisions below describe the game as built. Change any of them before the ne
 - Beside the loops: engine shed, water tower and coal stage on the left; goods shed, yard crane and containers on the right.
 - Far left end: a farm. A fenced paddock with a farm gate, a water trough and hay bales, a farmhouse, trees.
 - Far right end: a duck pond with a stone rim, lotus flowers, reeds, a bench and trees; and beside it a walled garden with gravel paths, raised flower beds, pastel flowering plants along the paths, wildflowers, a row of sunflowers, a buddleia, a flowering magnolia, a shed and a bench.
-- Inside the inner loop: a signal box with its signalman, a picnic shelter, a lineside hut and trees.
+- Inside the inner loop: on the right, the signal box with its signalman walking round it, a picnic shelter, a lineside hut, a pump house and trees; on the left, the kids' park (below).
 - Signals, telegraph poles, lineside trees and wildflowers around the edges, kept clear of the trains' swept path on curves.
 - A few figures (station master, passengers, porter, trainspotter, a waving child, a carter) standing with an idle animation.
 
@@ -44,6 +44,7 @@ The decisions below describe the game as built. Change any of them before the ne
 - Pigeons pecking and pottering on the platform and in the station forecourt.
 - Ducks: three paddling slow circles on the pond, two waddling on the bank.
 - Three crows and two gulls circling over the layout, flapping and now and then gliding, banked into their turns.
+- The kids' park in the middle: a red play surface with a swing set (two kids standing on the swinging seats), a roundabout spinning with two kids riding it, a slide one kid keeps climbing and sliding down, a climbing frame, and a rope-swing tree with a kid swinging on it. Four kids play tag round the equipment, dodging it, while two parents stroll the edge. Two kite-flying kids walk the grass alongside, their kites riding the wind about 15 m up on sagging strings.
 - In the garden: a gardener walking the paths, and ten butterflies (monarch orange, yellow, white, blue and pink, monarch-sized and smaller) flitting from flower to flower and settling with slow wingbeats.
 - The camera can zoom right in, to about 5 cm of real table, close enough to watch a butterfly on a flower.
 - Clearance: no building, tree, sign or bush stands where a train passes. This was checked by stepping every train round its loop and testing each car's footprint against everything on the layout.
@@ -87,6 +88,7 @@ Nothing is copied into the repo; everything loads from CDNs at run time.
 | Shelving, boxes, workbench | Polyfork single models `supply-shelving-rack-ae446a`, `cardboard-delivery-box-59cc68`, `field-workbench-70f706` |
 | Animals and birds | Polyfork `cow-base`, `horse-base`, `sheep-base`, `dog-base`, `farm-dog-723730`, `duck-base`, `pigeon-base`, `crow-base`, `herring-gull-base` |
 | Town people | Polyfork `suburban-resident-a9db9c`, `neighborhood-child-8cc5ac` |
+| Kids' park | Polyfork `backyard-swing-set-38637e`, `playground-roundabout-e4d43b`, `playground-slide-8b764c`, `climbing-frame-e917d5`, `rope-swing-on-a-ada4bb`, `kite-kid-base`, `kite-kid-0a7d70`, `volantin-398e88`, `village-child-bef09e`, `child-with-a-painted-b8a19f`, `pupil-standing-0bd6d5`, `kid-in-a-caped-663f11` |
 | Farm | Polyfork `wooden-fence-section-d72055`, `farm-gate-8ab320`, `hay-bale-079e8c`, `water-trough-df3ced` |
 | Garden and pond | Polyfork `flower-bed-708e73`, `pastel-flowering-plant-d16a03`, `wildflower-68d3a1`, `sunflower-80ce15`, `low-garden-wall-run-a34d05`, `backyard-garden-shed-38d79f`, `flowering-magnolia-dd76cb`, `lotus-flower-cluster-bc129a`, `reed-bed-bbbefb`, `butterfly-base` |
 | Walking for legged animals | `https://polyfork.dev/cdn/walk.mjs` |
