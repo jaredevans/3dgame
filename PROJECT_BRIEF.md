@@ -99,6 +99,12 @@ Track-building notes, read from the kits rather than assumed:
 - Platform pieces and the station building are drawn relative to the track centre line, so they are placed on the track's line and turned to the side they belong on.
 - Vehicles face +z. The rig nodes (`bogie-f`, `bogie-r`, `bogie`, `wheel-*`) are found by name.
 
+## Scenic Tour
+
+A second mode, reached from the basement's "Scenic Tour ▸" button: a full-size ring of five themed places (Downtown City, Oceanside, Mountain, Wild West, Futuristic) joined by 90-second scenic routes, each with its own train, where you drive from the cab and walk round each place between trains. Its design is `docs/superpowers/specs/2026-11-20-scenic-tour-design.md`; it lives in `tour.html` and `tour/`, and its Polyfork kits are self-hosted (`kits/`, never committed).
+
+Status: phase 1 built (City to Oceanside and back, cab and drone views, walking, morning sky, streaming by id). Phase 2 (the rest of the ring) and phase 3 (director camera, events, map, night) are to come.
+
 ## Ideas for later
 
 Points and junctions so trains can change loops and use sidings, a turntable at the engine shed, coupling and uncoupling wagons, station stops with a timetable, day and night (the kits' windows and lamps can light up), switching the basement lights off, sound for wheels and engines, saving the layout.
@@ -116,4 +122,4 @@ Building or editing the layout, collisions and derailments, a goal or score, mul
 
 ## What is in git
 
-`index.html`, this brief, `README.md` and `.gitignore`. Nothing else is needed to run or publish the game.
+`index.html`, this brief, `README.md` and `.gitignore` for the basement; `tour.html`, `tour/` and `docs/` for the Scenic Tour. The basement needs nothing else; the tour also needs the self-hosted kits.

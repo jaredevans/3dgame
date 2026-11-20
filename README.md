@@ -6,7 +6,9 @@ A small model railway simulator for the browser, built with [three.js](https://t
 
 It runs in a desktop browser with a mouse and keyboard. Press `F` for a flying tour of the layout.
 
-The whole game is one file, `index.html`. three.js comes from jsDelivr and every model comes from Polyfork's free CDN, so there is nothing to install or download. It needs an internet connection.
+The basement is one file, `index.html`. three.js comes from jsDelivr and every model comes from Polyfork's free CDN, so there is nothing to install or download. It needs an internet connection.
+
+The **Scenic Tour** (the "Scenic Tour ▸" button) is a second way to play, in `tour.html` and `tour/`. It needs Polyfork kit files that are self-hosted rather than committed: see [Scenic Tour](#scenic-tour) below.
 
 What the game is and the decisions behind it are in [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md).
 
@@ -25,6 +27,37 @@ What the game is and the decisions behind it are in [`PROJECT_BRIEF.md`](PROJECT
 
 Each train also has a card at the bottom of the screen with a throttle slider and Stop, Whistle and Ride buttons.
 
+## Scenic Tour
+
+Drive a full-size train through a big open world, get out at the stations and walk round. The design is in [`docs/superpowers/specs/2026-11-20-scenic-tour-design.md`](docs/superpowers/specs/2026-11-20-scenic-tour-design.md). It is being built in phases; **phase 1** is one leg: the Seaside Excursion (a blue diesel and three coaches) from Downtown City along the cliff tops to Oceanside and back, with the cab and drone views, walking at both ends and a morning sky.
+
+| Input | Action |
+|---|---|
+| `W` / `S` or `↑` / `↓` | Throttle up / down (below zero is reverse) |
+| `Space` (hold) | Brake |
+| `H` | Horn |
+| `V`, `1`, `2` | Change view, cab, drone (drag to look or orbit, scroll to zoom the drone) |
+| `E` | Get out when stopped at a platform; board a train when you're next to it |
+| `WASD`, `Shift`, drag | On foot: walk, run, look |
+
+### The kit files
+
+The tour builds its places with Polyfork kits' own `kit.mjs` (`buildKit`), which Polyfork serves only from its Pro CDN or from a kit's download, so the kits are hosted by us and **never committed to this repo** (`kits/` is gitignored). It uses seven kits, each unzipped into its own folder named by its id:
+
+`nyc-city-kit-fbca88`, `coast-and-boardwalk-d883fd`, `alpine-and-snow-092f66`, `frontier-town-a0085b`, `chrome-arcology-transit-kit-87a0e1`, `countryside-railway-9b4c57`, `nature-forest-kit-f29d6a`
+
+Locally they live in `kits/<id>/`. In production, serve the same folders from any web server and point the tour at it with `?kits=`:
+
+```
+https://<your-site>/tour.html?kits=https://<kit-server>/kits/
+```
+
+If the kit server is on a different origin from the page, it must send CORS headers (`Access-Control-Allow-Origin`) or the browser refuses the modules. If a kit file can't be loaded, the loading screen names the file.
+
+### Developer aids
+
+`node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint.
+
 ## Run it locally
 
 Serve the folder with any static web server and open the page:
@@ -33,7 +66,7 @@ Serve the folder with any static web server and open the page:
 python3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-Then open <http://127.0.0.1:8765/> in a desktop browser. The first load downloads about 15 MB of models; the browser caches them after that.
+Then open <http://127.0.0.1:8765/> in a desktop browser. The first load downloads about 15 MB of models; the browser caches them after that. For the tour, open <http://127.0.0.1:8765/tour.html> with the kits in `kits/`.
 
 ## Publish on GitHub Pages
 

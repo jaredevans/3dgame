@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
-import { LEGS, PLACES, worldTerrain, legRoute, laneFor, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, worldTerrain, legRoute, laneFor, SEA_LEVEL } from './world-data.js';
+import { wantedSet } from './streaming.js';
+import { makeStreamer } from './streamer.js';
 import { buildTerrain, buildSea } from './terrain-mesh.js';
 import { buildTrack } from './track-mesh.js';
 import { buildTrain, poseTrain } from './vehicles.js';
@@ -53,15 +55,32 @@ async function boot() {
   const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160, sky: false, fog: false });
   const skyDome = makeSkyDome(scene, camera);
 
-  setLoading('building Downtown City and Oceanside');
+  // ---- places and legs load through the streamer, by id ----
   const routes = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
-  const places = {};
-  for (const id of ['city', 'ocean']) { places[id] = await buildPlace(id); scene.add(places[id].group); look.shadows(places[id].group); }
-  const termini = {
-    city: await buildTerminus(routes['city-ocean'], 'start', { name: PLACES.city.name }),
-    ocean: await buildTerminus(routes['city-ocean'], 'end', { name: PLACES.ocean.name }),
+  const places = {}, termini = {};
+  const builders = {};
+  for (const id of Object.keys(PLACES)) builders[id] = async () => {
+    setLoading(`building ${PLACES[id].name}`);
+    const place = await buildPlace(id);
+    scene.add(place.group); look.shadows(place.group);
+    // the place's stations: a terminus at its end of each leg it serves
+    for (const st of PLACES[id].stations) {
+      const t = await buildTerminus(routes[st.leg], st.end, { name: PLACES[id].name });
+      scene.add(t.group); look.shadows(t.group);
+      termini[id] = t;
+    }
+    places[id] = place;
+    return { dispose() { place.dispose(); termini[id]?.group.removeFromParent(); delete places[id]; delete termini[id]; } };
   };
-  for (const t of Object.values(termini)) { scene.add(t.group); look.shadows(t.group); }
+  for (const id of Object.keys(LEGS)) builders[id] = async () => {
+    setLoading('laying track');
+    const tracks = [buildTrack(routes[id], laneFor('out')), buildTrack(routes[id], laneFor('back'))];
+    for (const t of tracks) scene.add(t);
+    return { dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } } };
+  };
+  const ring = { places: RING.places.filter((id) => PLACES[id]), legs: RING.legs.filter((id) => LEGS[id]), length: (id) => routes[id].length };
+  const streamer = makeStreamer(builders, { onError: fail });
+  await streamer.want(wantedSet({ place: 'city' }, ring));
 
   setLoading('shaping the land');
   const terrain = worldTerrain({ patches: Object.values(places).map((p) => p.patch).filter(Boolean) });
@@ -72,9 +91,6 @@ async function boot() {
   scene.add(buildTerrain(terrain, { x0: -1280, z0: -1536, x1: 3328, z1: 1024, fine: near }));
   scene.add(buildSea(SEA_LEVEL));
   for (const p of Object.values(places)) for (const e of await p.addExtras(terrain)) look.shadows(e);
-
-  setLoading('laying track');
-  for (const r of Object.values(routes)) { scene.add(buildTrack(r, laneFor('out'))); scene.add(buildTrack(r, laneFor('back'))); }
 
   setLoading('the Seaside Excursion');
   const spec = TRAIN_SPECS.cityOcean;
@@ -215,7 +231,7 @@ async function boot() {
   }
 
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { train, drive, player, views, places, termini, skyDome, skyAt, seamCheck: (id) => seamCheck(places[id], terrain), snap });
+  Object.assign(window.__tour, { train, drive, player, views, places, termini, skyDome, skyAt, streamer, seamCheck: (id) => seamCheck(places[id], terrain), snap });
   Object.defineProperties(window.__tour, { run: { get: () => run }, mode: { get: () => mode }, walkWorld: { get: () => (at ? walkWorld() : null) } });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
   function snap(pos, at, fov = 50) {
@@ -244,6 +260,9 @@ async function boot() {
     if (controls) controls.update();
     else if (mode === 'foot') player.update(dt, footInput(), walkWorld());
     else views.update(dt, train);
+    // keep what's near you loaded (Phase 1's ring is small enough that this is everything)
+    if (mode === 'foot') streamer.want(wantedSet({ place: at.place.id }, ring));
+    else streamer.want(wantedSet({ leg: 'city-ocean', s: run.dir === 'out' ? drive.s : run.route.length - drive.s, back: run.dir === 'back' }, ring));
     // the sky: where you are on the ring sets the time of day
     const want = mode === 'foot' ? ringPosition({ place: at.place.id })
       : ringPosition({ leg: 'city-ocean', fraction: run.dir === 'out' ? drive.s / run.route.length : 1 - drive.s / run.route.length });
