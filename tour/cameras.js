@@ -71,6 +71,13 @@ export function makeCameras(camera, dom, { heightAt }) {
     get mode() { return mode; },
     set, cycle: () => set(MODES[(MODES.indexOf(mode) + 1) % MODES.length]),
     attachCab(c) { cab = c; set(mode); },
+    // on foot the player's camera takes over: show the train whole, no cab inside it
+    setDriving(on) {
+      cab?.clip(on && mode === 'cab');
+      if (cab) cab.interior.visible = on && mode === 'cab';
+      camera.near = on && mode === 'cab' ? 0.05 : 0.1;
+      camera.updateProjectionMatrix();
+    },
     update,
   };
 }

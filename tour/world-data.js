@@ -16,8 +16,8 @@ export const RING = {
 
 // centre: where the place's kit is put (its own origin), turned by rot; ground: the station's level (= its line end)
 export const PLACES = {
-  city: { name: 'Downtown City', kit: KITS.city, centre: { x: -50, z: 0 }, y: 8, rot: 0, ground: 8, size: [172, 140],
-    build: { city: { seed: 11, blocks: [2, 2] } },
+  city: { name: 'Downtown City', kit: KITS.city, centre: { x: -30, z: 0 }, y: 8, rot: 0, ground: 8, size: [150, 118],
+    build: { city: { seed: 11, blocks: [2, 2], boundary: false } },
     stations: [{ leg: 'city-ocean', end: 'start', role: 'departure', platformLength: 120 }] },
   // the coast kit's beach is at its own y = 0 and its sea lies to its +z: turned half round so the sea faces -z, and
   // raised 1.2 m so its shoreline meets our sea level. The station is behind its dunes at 3 m.
@@ -43,10 +43,10 @@ export const LEGS = {
     // out of the city's east side, up onto the cliff tops above the sea, and down into Oceanside.
     // The first and last 120 m are straight and level: the platforms.
     points: [
-      { x: 70, y: 8, z: 0 }, { x: 190, y: 8, z: 0 }, { x: 330, y: 8.5, z: -15 }, { x: 520, y: 10.5, z: -70 },
+      { x: 70, y: 8, z: 0 }, { x: 110, y: 8, z: 0 }, { x: 150, y: 8, z: 0 }, { x: 250, y: 8.2, z: -4 }, { x: 370, y: 8.8, z: -22 }, { x: 520, y: 10.5, z: -70 },
       { x: 720, y: 14.5, z: -150 }, { x: 920, y: 18, z: -200 }, { x: 1120, y: 18.6, z: -215 }, { x: 1320, y: 14.4, z: -205 },
       { x: 1500, y: 10.4, z: -175 }, { x: 1640, y: 7.3, z: -152 }, { x: 1760, y: 4.6, z: -140 }, { x: 1840, y: 3, z: -138 },
-      { x: 1960, y: 3, z: -138 },
+      { x: 1880, y: 3, z: -138 }, { x: 1920, y: 3, z: -138 }, { x: 1960, y: 3, z: -138 },
     ],
   },
 };

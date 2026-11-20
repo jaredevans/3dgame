@@ -83,5 +83,33 @@ export async function buildTerminus(route, end, { name = '', colorway = 'red-bri
 
   // what a stopped train needs: the platform window and the stopping point, in this route's s
   const stopS = atEnd ? L - BUFFER_GAP - STOP_SHORT : BUFFER_GAP + STOP_SHORT;
-  return { group, platform: { sFrom: p0, sTo: p1, stopS }, buffersS };
+
+  // for walking: solid things (not the platforms and canopies you walk on and under), and the station's own frame
+  group.updateMatrixWorld(true);
+  const solid = [];
+  for (const o of group.children) {
+    const key = o.userData.partKey;
+    if (!key || /platform-run|canopy|buffer-stop/.test(key)) continue;   // buffers stand in the track zone, already out of bounds
+    solid.push({ key, box: new THREE.Box3().setFromObject(o) });
+  }
+  const mid = (p0 + p1) / 2, o = route.at(mid), sn = Math.sin(o.yaw), cs = Math.cos(o.yaw);
+  const local = (x, z) => { const dx = x - o.x, dz = z - o.z; return { along: dx * sn + dz * cs, across: dx * cs - dz * sn }; };
+  const half = (p1 - p0) / 2, lineEnd = atEnd ? L - mid : -mid;   // where the track stops, along the station
+  const walk = {
+    inStation(x, z) { const l = local(x, z); return Math.abs(l.along) <= half + 40 && Math.abs(l.across) <= 30; },
+    onTrack(x, z) {
+      const l = local(x, z);
+      const pastEnd = atEnd ? l.along > lineEnd : l.along < lineEnd;
+      return Math.abs(l.across) < 3.6 && !pastEnd && Math.abs(l.along) <= half + 40;
+    },
+    platformY(x, z) {
+      const l = local(x, z), a = Math.abs(l.across);
+      return a >= 3.5 && a <= 8 && Math.abs(l.along) <= half ? o.y + PLATFORM_TOP : null;
+    },
+    blocked(x, z, r) {
+      for (const b of solid) if (x > b.box.min.x - r && x < b.box.max.x + r && z > b.box.min.z - r && z < b.box.max.z + r) return b.key;
+      return null;
+    },
+  };
+  return { group, platform: { sFrom: p0, sTo: p1, stopS }, buffersS, walk };
 }
