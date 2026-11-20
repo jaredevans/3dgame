@@ -10,3 +10,6 @@
 
 # Polyfork kit zips for the scenic tour: served from the owner's server, never committed to this public repo
 /kits/
+
+# per-plan execution workspaces (ledgers, briefs)
+/.superpowers/
