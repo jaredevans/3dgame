@@ -30,7 +30,8 @@ export async function buildTerminus(route, end, { name = '', colorway = 'red-bri
   // platform runs over the 120 m nearest the buffers
   const p0 = atEnd ? L - BUFFER_GAP - 120 : BUFFER_GAP, p1 = p0 + 120;
   const lanes = { out: laneFor('out'), back: laneFor('back') };
-  const sides = { out: -1, back: +1 };   // outer side of each line: right of the outbound, left of the return
+  // the outer side of each line: the outbound line is the left-hand one, so its platform (and the town) is on the left
+  const sides = { out: Math.sign(lanes.out), back: Math.sign(lanes.back) };
   const parts = (key, params) => part(KITS.railway, key, params);
 
   const tmpl = {

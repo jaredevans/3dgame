@@ -74,6 +74,8 @@ export function makeSkyDome(scene, camera) {
   const now = { stage: -1 };
   return {
     uniforms,
+    // centre the dome on a camera (the driving camera each frame; a still's camera for __tour.snap)
+    follow(cam) { dome.position.copy(cam.position); },
     // sky: from skyAt(); sunDir: the direction the key light shines from
     update(sky, sunDir, dt) {
       dome.position.copy(camera.position);

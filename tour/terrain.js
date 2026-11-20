@@ -94,7 +94,7 @@ function toLocal(px, pz, o) {
 // how far a local point lies outside a centred rectangle of half sizes hx, hz (0 inside)
 const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), Math.max(0, Math.abs(lz) - hz));
 
-// pads: circles { x, z, r, y } or rectangles { x, z, w, d, rot, y }, held flat at y.
+// pads: circles { x, z, r, y } or rectangles { x, z, w, d, rot, y }, held flat at y, blending out over `blend` metres.
 // patches: a placed kit's own ground { x, y, z, rot, drop, sample(lx, lz) -> { h, d } | null }: h is the kit's ground at
 // the nearest point of its land, d how far outside its land the point is (0 on it). On its land ours follows the kit's,
 // sunk by `drop` so the kit's ground covers ours; off it, ours blends out from the land's edge height.
@@ -120,6 +120,12 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
 
   function heightAt(x, z) {
     let h = natural(x, z);
+    // a placed kit's own ground first, so the track bed and the pads beside the line still win next to it
+    for (const p of patches) {
+      const [lx, lz] = toLocal(x, z, p), r = p.sample(lx, lz);
+      if (!r || r.d >= PATCH_BLEND) continue;
+      h = lerp(p.y + r.h - (p.drop ?? 0), h, smooth(0, PATCH_BLEND, r.d));
+    }
     // the track bed: hold the formation under every route, cuttings and embankments blending out
     let bestW = 1, bedY = 0;
     for (const nearest of nearests) {
@@ -133,12 +139,8 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
       let d;
       if (p.r !== undefined) d = Math.max(0, Math.hypot(x - p.x, z - p.z) - p.r);
       else { const [lx, lz] = toLocal(x, z, p); d = outside(lx, lz, p.w / 2, p.d / 2); }
-      if (d < PAD_BLEND) h = lerp(p.y, h, smooth(0, PAD_BLEND, d));
-    }
-    for (const p of patches) {
-      const [lx, lz] = toLocal(x, z, p), r = p.sample(lx, lz);
-      if (!r || r.d >= PATCH_BLEND) continue;
-      h = lerp(p.y + r.h - (p.drop ?? 0), h, smooth(0, PATCH_BLEND, r.d));
+      const blend = p.blend ?? PAD_BLEND;
+      if (d < blend) h = lerp(p.y, h, smooth(0, blend, d));
     }
     return h;
   }

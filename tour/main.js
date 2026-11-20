@@ -23,10 +23,10 @@ import { skyAt, ringPosition } from './sky.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
 
-// a run: a train driving forwards along `route` (a leg, or a reversed view of one) in the outbound lane, to `platform`
-function makeRun(route, trainLength, destination, platform) {
+// a run: a train driving forwards along `route` (a leg, or a reversed view of one) on `lane`, to `platform`
+function makeRun(route, trainLength, destination, platform, lane = laneFor('out')) {
   return {
-    route, lane: laneFor('out'), destination, platform,
+    route, lane, destination, platform,
     limits: { sMin: trainLength + BUFFER_GAP, sMax: route.length - BUFFER_GAP },
     stopS: platform.stopS,
   };
@@ -108,7 +108,8 @@ async function boot() {
   function runFor(dir) {
     const r = dir === 'out'
       ? makeRun(leg, trainLength, PLACES.ocean.name, termini.ocean.platform)
-      : makeRun(reverseRoute(leg), trainLength, PLACES.city.name, flip(termini.city.platform, leg.length));
+      // back the same way on the same, town-side line: on the reversed view that line's offset changes sign
+      : makeRun(reverseRoute(leg), trainLength, PLACES.city.name, flip(termini.city.platform, leg.length), -laneFor('out'));
     const originPlatform = dir === 'out' ? termini.city.platform : flip(termini.ocean.platform, leg.length);
     return Object.assign(r, { dir, to: dir === 'out' ? 'ocean' : 'city', from: dir === 'out' ? 'city' : 'ocean', originPlatform });
   }
@@ -143,7 +144,8 @@ async function boot() {
   function getOut() {
     const here = stopHere();
     at = { place: places[here], terminus: termini[here] };
-    const p = run.route.offsetAt(drive.s - 8, run.lane - 2.6);
+    // step out onto the platform: on the outer side of the line you're on, a little behind the cab
+    const p = run.route.offsetAt(drive.s - 8, run.lane + Math.sign(run.lane) * 2.6);
     player.enter(p.x, p.z, p.yaw, p.y + PLATFORM_TOP);
     Object.assign(drive, leaveCab(drive));
     mode = 'foot';
@@ -231,7 +233,9 @@ async function boot() {
   function snap(pos, at, fov = 50) {
     const cam = new THREE.PerspectiveCamera(fov, innerWidth / innerHeight, 0.1, 8000);
     cam.position.set(...pos); cam.lookAt(...at);
+    skyDome.follow(cam);
     renderer.render(scene, cam);
+    skyDome.follow(camera);
     let img = document.getElementById('snap');
     if (!img) { img = document.createElement('img'); img.id = 'snap'; img.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:50'; img.onclick = () => img.remove(); document.body.append(img); }
     img.src = renderer.domElement.toDataURL();

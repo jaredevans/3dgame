@@ -60,12 +60,19 @@ One ring of railway through five places, in this order. You start in Downtown Ci
 | Wild West | frontier main street, saloon, water tower, red rock | Frontier Town (`frontier-town-a0085b`) |
 | Futuristic | gleaming arcology, elevated guideways, lit plazas | Chrome Arcology Transit kit (`chrome-arcology-transit-kit-87a0e1`) |
 
-**Two stations per place, on opposite sides of town.** The line does not run through the town. The route from the previous place ends at a terminus on one side; the route to the next place starts from a terminus on the far side. To travel on, you must walk across the town from one station to the other. The town in between has streets, buildings, people going about and the place's landmarks, and the walk across it is part of the journey.
+**Two stations per place, on opposite sides of town, each running alongside it.** The line does not run through the town, and a town never sits behind a station's buffers: each station lies beside the town, with its platform and building on the town side, so you step off the train and walk straight in. The route from the previous place ends at a terminus along one edge of the town; the route to the next place starts from a terminus along the opposite edge. To travel on, you walk through the town from one station to the other. The town has streets, buildings, people going about and the place's landmarks, and the walk through it is part of the journey.
 
 ```
-  ── route from previous place ──▶ [Arrival station] · · town · · [Departure station] ──▶ route to next place ──
-                                     train back waits here          next train waits here
+        route to next place ◀══════════════[ Departure station ]═══
+                                            platform · building
+                              ┌──────────────────────────────────┐
+                              │               town               │
+                              └──────────────────────────────────┘
+                                            platform · building
+  ═══ route from previous place ════════════[ Arrival station ]
 ```
+
+(Revised 2026-11-20 at the owner's request: places sit to the side of their stations, not behind them.)
 
 **Size: about 100 m across, a one-to-two-minute walk end to end** (so station to station, through town). Each kit's composed place is the core (most are 40–60 m; Chrome Arcology is about 116 × 139 m and needs little more), extended with a ring of streets and buildings from the same kit around the station. Not a full town of several hundred metres.
 
@@ -94,7 +101,7 @@ The Countryside Railway kit (already used by the basement) supplies the steam en
 
 - When stopped at a platform, a prompt offers "Get out" (`E`). You step down as a person on the platform.
 - **On foot:** third-person, over the shoulder. `WASD` to walk, `Shift` to run, mouse to look. You stay on the ground and cannot walk through buildings, fences or other solid things. The walkable area is the place itself; its edges are bounded naturally (water, cliffs, fences, scenery), not by invisible walls in the middle of open ground.
-- **Boarding:** the train onwards round the ring waits at the place's **other** station, across town, so going on always means walking through the place. The train you arrived on stays at the station where you got off, turned to face back the way it came, so you can return without crossing town. Walk up to a waiting train and a prompt names it ("Board the Canyon Express to the Wild West"); press `E` and you are in its cab.
+- **Boarding:** the train onwards round the ring waits at the place's **other** station, across town, so going on always means walking through the place. The train you arrived on stays at the same town-side platform where you got off, turned to face back the way it came, so you can return without crossing town. Walk up to a waiting train and a prompt names it ("Board the Canyon Express to the Wild West"); press `E` and you are in its cab.
 - Signs and the map (`M`, which also works on foot) point the way to the departure station.
 - The walker is a Polyfork humanoid figure animated with Polyfork's `clips.mjs` (`animate()`, walk and idle).
 
@@ -157,7 +164,7 @@ Events fire every time you drive the leg, in either direction where it makes sen
   - Parts from other kits (aircraft, rocket, animals) can still come from Polyfork's free per-part CDN.
 - **Each place is built with its kit's `buildKit()`**, starting from the composed place and extending it to the target size with the same kit's parts (for street kits such as New York City, the kit's `city: { seed, blocks }` generator can lay the extra streets). `buildKit` merges static parts into a few draw calls and provides walking support: `place.blocked(x, z, r)` for collision, `groundAt` / `surfaceAt` for what's underfoot, `openSpot` / `spots` for clear points, and people who already walk. Parts added outside `buildKit` need their own collision boxes.
 - **Terrain.** One heightfield landscape for the whole ring, generated by the tour: shaped hills, mountains, coastline and sea, canyon, plains, with the track bed cut and filled to grade. Ground colour varies by region (sand, grass, snow, red earth, paving). Each place's ground comes from its kit (its `terrain.mjs` and knobs, or `setting: true` for the wider ground and the kit's own trees and rocks) and must blend seamlessly into the ring's landscape at its edges; the kits' default `island` edges are not used.
-- **Double track on the routes** (designer's call): one line each way, so trains can pass in the opposite direction. The work train at the viaduct signal runs on your own line ahead of you. Each route ends in a terminus at each end; the stations are termini, not through stations.
+- **Double track on the routes, left-hand running** (designer's call, as on the British railway the kit models): the outbound line is the left-hand one, and its platform and station building are on the town side. You drive both ways on that town-side line, so the train you came on is always at the town-side platform; the other line carries passing trains. The work train at the viaduct signal runs on your own line ahead of you. Each route ends in a terminus at each end; the stations are termini, not through stations.
 - **Track is a smooth 3D curve** (gentle gradients and banked curves), with rails, sleepers and ballast generated along it, plus bridges, viaducts, the trestle, the tunnel and the elevated guideway as the route needs. The kit's straight and 45° track pieces cannot follow it.
 - **Trains** reuse the basement's way of sitting a vehicle on the path: each vehicle on two pivots (bogie centres or outer axles), bogies turning and wheels spinning with distance. The tour has its own copy of that code; it does not import from `index.html`.
 - **Streaming window.** In memory: the current place, the two routes touching it, and the places at their far ends (at least as distant scenery). As you drive away from a place, the next leg's far place and routes load; what is two legs behind unloads.

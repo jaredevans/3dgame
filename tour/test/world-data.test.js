@@ -12,8 +12,9 @@ test('the leg lies inside the limits', () => {
 
 test('running sides', () => {
   assert.equal(TRACK_CENTRES, 4);
-  assert.equal(laneFor('out'), -2);
-  assert.equal(laneFor('back'), 2);
+  // left-hand running, as on the British railway the kit models: outbound trains use the line on the left
+  assert.equal(laneFor('out'), 2);
+  assert.equal(laneFor('back'), -2);
 });
 
 test('stations sit on the line ends', () => {
@@ -30,6 +31,19 @@ test('stations sit on the line ends', () => {
   // each station's ground is level with its line end
   near(PLACES.city.ground, r.at(0).y, 0.01);
   near(PLACES.ocean.ground, r.at(r.length).y, 0.01);
+});
+
+test('each town stands beside its station, on the platform side, not past the buffers', () => {
+  const r = makeRoute(LEGS['city-ocean'].points);
+  for (const [place, end] of [['city', 'start'], ['ocean', 'end']]) {
+    const L = r.length, mid = end === 'start' ? 61.5 : L - 61.5;   // the middle of the 120 m platform
+    const o = r.at(mid), c = PLACES[place].centre;
+    const dx = c.x - o.x, dz = c.z - o.z;
+    const along = dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw);    // + towards the route's end
+    const across = dx * Math.cos(o.yaw) - dz * Math.sin(o.yaw);   // + left of the line
+    assert.ok(Math.abs(along) <= 60, `${place} is ${along.toFixed(0)} m along from its platform's middle`);
+    assert.ok(Math.sign(across) === Math.sign(laneFor('out')) && Math.abs(across) >= 20, `${place} is ${across.toFixed(0)} m across, not beside the platform`);
+  }
 });
 
 test('the ring is in order', () => {

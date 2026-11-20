@@ -46,6 +46,21 @@ test('a patch takes its own ground inside and blends out from its edge', () => {
   near(t.heightAt(1000, 1100), makeTerrain({ base: 8, seed: 3 }).heightAt(1000, 1100), 0.01);
 });
 
+test('a pad can blend out over a shorter distance', () => {
+  const t = makeTerrain({ pads: [{ x: 500, z: 500, w: 20, d: 20, y: 5, blend: 6 }], base: 8, seed: 3 });
+  const natural = makeTerrain({ base: 8, seed: 3 });
+  near(t.heightAt(517, 500), natural.heightAt(517, 500), 0.01);   // 7 m out: back to natural ground
+  near(t.heightAt(510, 500), 5, 0.01);
+});
+
+test('the track bed stays level beside a kit\'s own ground', () => {
+  // a kit's land 15 m from the line, much lower than the track: the bed must not be dragged down to it
+  const patch = { x: 300, y: 0, z: 70, rot: 0, drop: 0.15, sample: (lx, lz) => ({ h: 0, d: Math.max(0, Math.abs(lz) - 10) }) };
+  const t = makeTerrain({ routes: [route], patches: [patch], base: 8, seed: 3 });
+  const s = route.length / 2;
+  for (const d of [-2, 0, 2]) { const p = route.offsetAt(s, d); near(t.heightAt(p.x, p.z), route.at(s).y - BED_DROP, 0.01, `d=${d}`); }
+});
+
 test('terrain blends out of the track bed smoothly', () => {
   // walking straight out from the track, no 1 m step is steeper than 1 in 1
   const s = route.length / 2, a = route.at(s);

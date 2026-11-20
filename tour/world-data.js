@@ -6,7 +6,8 @@ import { makeTerrain } from './terrain.js';
 import { KITS } from './config.js';
 
 export const TRACK_CENTRES = 4;
-export const laneFor = (dir) => (dir === 'out' ? -TRACK_CENTRES / 2 : TRACK_CENTRES / 2);
+// left-hand running (a British railway): the outbound line is on the left of the route's direction (+lateral)
+export const laneFor = (dir) => (dir === 'out' ? TRACK_CENTRES / 2 : -TRACK_CENTRES / 2);
 export const SEA_LEVEL = 0;
 
 export const RING = {
@@ -16,12 +17,12 @@ export const RING = {
 
 // centre: where the place's kit is put (its own origin), turned by rot; ground: the station's level (= its line end)
 export const PLACES = {
-  city: { name: 'Downtown City', kit: KITS.city, centre: { x: -30, z: 0 }, y: 8, rot: 0, ground: 8, size: [150, 118],
+  city: { name: 'Downtown City', kit: KITS.city, centre: { x: 128, z: -74 }, y: 8, rot: 0, ground: 8, size: [150, 118],
     build: { city: { seed: 11, blocks: [2, 2], boundary: false } },
     stations: [{ leg: 'city-ocean', end: 'start', role: 'departure', platformLength: 120 }] },
   // the coast kit's beach is at its own y = 0 and its sea lies to its +z: turned half round so the sea faces -z, and
   // raised 1.2 m so its shoreline meets our sea level. The station is behind its dunes at 3 m.
-  ocean: { name: 'Oceanside', kit: KITS.ocean, centre: { x: 2012, z: -176 }, y: 1.2, rot: Math.PI, ground: 3, size: [44, 50],
+  ocean: { name: 'Oceanside', kit: KITS.ocean, centre: { x: 1902, z: -198 }, y: 1.2, rot: Math.PI, ground: 3, size: [44, 50],
     build: {},
     // more of the seafront east of the composed place, in the kit's own frame (world east is its -x, the sea its +z)
     extras: [
@@ -57,7 +58,7 @@ export const COAST = {
     { x: -900, z: -420, top: 9, kind: 0.4 }, { x: 100, z: -330, top: 10, kind: 0.5 }, { x: 500, z: -210, top: 14, kind: 0.7 },
     { x: 720, z: -215, top: 12.5, kind: 1 }, { x: 920, z: -262, top: 16.5, kind: 1 }, { x: 1120, z: -278, top: 16.5, kind: 1 },
     { x: 1320, z: -268, top: 12.5, kind: 1 }, { x: 1500, z: -238, top: 9, kind: 1 }, { x: 1660, z: -215, top: 6, kind: 0.8 },
-    { x: 1820, z: -200, top: 3.5, kind: 0.3 }, { x: 1960, z: -192, top: 1.5, kind: 0 }, { x: 2160, z: -192, top: 1.5, kind: 0 },
+    { x: 1820, z: -214, top: 3.5, kind: 0.3 }, { x: 1960, z: -212, top: 1.5, kind: 0 }, { x: 2160, z: -209, top: 1.5, kind: 0 },
     { x: 2360, z: -265, top: 11, kind: 0.6 }, { x: 3200, z: -380, top: 16, kind: 0.9 },
   ],
 };
@@ -69,8 +70,8 @@ export function stationPads() {
   const pads = [];
   for (const place of Object.values(PLACES)) for (const st of place.stations) {
     const r = legRoute(st.leg), s0 = st.end === 'start' ? 0 : r.length, dir = st.end === 'start' ? 1 : -1;
-    const mid = r.offsetAt(s0 + dir * 60, laneFor('out') - 12);
-    pads.push({ x: mid.x, z: mid.z, w: 20, d: 130, rot: mid.yaw, y: place.ground - 0.05, kind: 'station' });
+    const mid = r.offsetAt(s0 + dir * 60, laneFor('out') + Math.sign(laneFor('out')) * 7);
+    pads.push({ x: mid.x, z: mid.z, w: 10, d: 130, rot: mid.yaw, y: place.ground - 0.05, blend: 6, kind: 'station' });
   }
   return pads;
 }
