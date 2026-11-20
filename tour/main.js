@@ -15,6 +15,8 @@ import { buildTerminus, BUFFER_GAP, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
 import { canGetOut, nearestBoardable } from './walk.js';
 import { reverseRoute } from './route.js';
+import { makeSkyDome } from './sky-dome.js';
+import { skyAt, ringPosition } from './sky.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
 
@@ -48,7 +50,8 @@ async function boot() {
 
   setLoading('lighting');
   const { stage } = await kitModule(KITS.railway, 'stage.mjs');
-  const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160 });
+  const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160, sky: false, fog: false });
+  const skyDome = makeSkyDome(scene, camera);
 
   setLoading('building Downtown City and Oceanside');
   const routes = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
@@ -212,7 +215,7 @@ async function boot() {
   }
 
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { train, drive, player, views, places, termini, seamCheck: (id) => seamCheck(places[id], terrain), snap });
+  Object.assign(window.__tour, { train, drive, player, views, places, termini, skyDome, skyAt, seamCheck: (id) => seamCheck(places[id], terrain), snap });
   Object.defineProperties(window.__tour, { run: { get: () => run }, mode: { get: () => mode }, walkWorld: { get: () => (at ? walkWorld() : null) } });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
   function snap(pos, at, fov = 50) {
@@ -226,6 +229,8 @@ async function boot() {
   }
   hideLoading();
   const clock = new THREE.Clock();
+  let skyPos = null, lastStage = -1;
+  const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), lightDir = new THREE.Vector3();
   const head = {};
   renderer.setAnimationLoop(() => {
     fit();
@@ -239,9 +244,21 @@ async function boot() {
     if (controls) controls.update();
     else if (mode === 'foot') player.update(dt, footInput(), walkWorld());
     else views.update(dt, train);
+    // the sky: where you are on the ring sets the time of day
+    const want = mode === 'foot' ? ringPosition({ place: at.place.id })
+      : ringPosition({ leg: 'city-ocean', fraction: run.dir === 'out' ? drive.s / run.route.length : 1 - drive.s / run.route.length });
+    skyPos = skyPos === null ? want : skyPos + (want - skyPos) * Math.min(1, dt * 1.5);
+    const sky = skyAt(skyPos);
+    if (Math.abs(sky.stage - lastStage) > 0.003) { look.setTime(sky.stage); lastStage = sky.stage; }
+    skyDome.update(sky, sunDir, dt);
+    scene.background = null;
+    scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
     for (const p of Object.values(places)) p.tick(clock.elapsedTime);
     anchor.position.copy(controls ? controls.target : mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.cars[0].holder.position);
     look.update();
+    // point the key light along our sun (or, after dark, a high moon) so shadows agree with the sky
+    lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
+    look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     renderer.render(scene, camera);
   });
 }
