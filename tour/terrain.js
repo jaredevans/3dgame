@@ -6,6 +6,7 @@ export const BED_DROP = 0.05;   // ground sits this far below a route's formatio
 const BED_HALF = 6;             // metres either side of the route centre held exactly at the bed
 const BED_BLEND = 30;           // then blending back to natural ground over this many metres
 const PAD_BLEND = 20;
+const PATCH_BLEND = 25;
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -85,7 +86,19 @@ function indexCoast(coast) {
   };
 }
 
-export function makeTerrain({ routes = [], pads = [], coast = null, base = 8, seaLevel = 0, seed = 1 } = {}) {
+// world point -> a placed thing's own frame (three.js rotation.y = rot about its origin x, z)
+function toLocal(px, pz, o) {
+  const dx = px - o.x, dz = pz - o.z, c = Math.cos(o.rot ?? 0), sn = Math.sin(o.rot ?? 0);
+  return [dx * c - dz * sn, dx * sn + dz * c];
+}
+// how far a local point lies outside a centred rectangle of half sizes hx, hz (0 inside)
+const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), Math.max(0, Math.abs(lz) - hz));
+
+// pads: circles { x, z, r, y } or rectangles { x, z, w, d, rot, y }, held flat at y.
+// patches: a placed kit's own ground { x, y, z, rot, drop, sample(lx, lz) -> { h, d } | null }: h is the kit's ground at
+// the nearest point of its land, d how far outside its land the point is (0 on it). On its land ours follows the kit's,
+// sunk by `drop` so the kit's ground covers ours; off it, ours blends out from the land's edge height.
+export function makeTerrain({ routes = [], pads = [], patches = [], coast = null, base = 8, seaLevel = 0, seed = 1 } = {}) {
   const nearests = routes.map((r) => indexRoute(r));
   const coastAt = coast ? indexCoast(coast) : null;
   const SEA_FLOOR = seaLevel - 7;
@@ -117,8 +130,15 @@ export function makeTerrain({ routes = [], pads = [], coast = null, base = 8, se
     }
     if (bestW < 1) h = lerp(bedY, h, bestW);
     for (const p of pads) {
-      const d = Math.hypot(x - p.x, z - p.z);
-      if (d < p.r + PAD_BLEND) h = lerp(p.y, h, smooth(p.r, p.r + PAD_BLEND, d));
+      let d;
+      if (p.r !== undefined) d = Math.max(0, Math.hypot(x - p.x, z - p.z) - p.r);
+      else { const [lx, lz] = toLocal(x, z, p); d = outside(lx, lz, p.w / 2, p.d / 2); }
+      if (d < PAD_BLEND) h = lerp(p.y, h, smooth(0, PAD_BLEND, d));
+    }
+    for (const p of patches) {
+      const [lx, lz] = toLocal(x, z, p), r = p.sample(lx, lz);
+      if (!r || r.d >= PATCH_BLEND) continue;
+      h = lerp(p.y + r.h - (p.drop ?? 0), h, smooth(0, PATCH_BLEND, r.d));
     }
     return h;
   }
@@ -128,7 +148,10 @@ export function makeTerrain({ routes = [], pads = [], coast = null, base = 8, se
   function regionAt(x, z) {
     const h = heightAt(x, z);
     if (h < seaLevel) return 'sea';
-    for (const p of pads) if (p.kind === 'paving' && Math.hypot(x - p.x, z - p.z) < p.r) return 'paving';
+    for (const p of pads) {
+      if (p.kind !== 'paving') continue;
+      if (p.r !== undefined ? Math.hypot(x - p.x, z - p.z) < p.r : (([lx, lz]) => outside(lx, lz, p.w / 2, p.d / 2) === 0)(toLocal(x, z, p))) return 'paving';
+    }
     const sx = heightAt(x + 2, z) - heightAt(x - 2, z), sz = heightAt(x, z + 2) - heightAt(x, z - 2);
     if (Math.hypot(sx, sz) / 4 > 0.75) return 'rock';
     if (coastAt && coastDistance(x, z) < 30 && h < seaLevel + 5) return 'sand';

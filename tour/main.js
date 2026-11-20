@@ -10,27 +10,26 @@ import { buildTrain, poseTrain } from './vehicles.js';
 import { COUPLING_GAP } from './consist.js';
 import { TRAIN_SPECS, stepTrain } from './drive.js';
 import { horn } from './audio.js';
+import { buildPlace, seamCheck } from './places.js';
+import { buildTerminus, BUFFER_GAP } from './stations.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
 
-const BUFFER_GAP = 1.5;   // metres between the end of the line and a buffer face
-const STOP_SHORT = 12;    // the stopping point is this far short of the buffers
-
-// a run: a train driving forwards along `route` (a leg, or a reversed view of one) in the outbound lane
-function makeRun(route, trainLength, destination) {
+// a run: a train driving forwards along `route` (a leg, or a reversed view of one) in the outbound lane, to `platform`
+function makeRun(route, trainLength, destination, platform) {
   return {
-    route, lane: laneFor('out'), destination,
+    route, lane: laneFor('out'), destination, platform,
     limits: { sMin: trainLength + BUFFER_GAP, sMax: route.length - BUFFER_GAP },
-    stopS: route.length - BUFFER_GAP - STOP_SHORT,
+    stopS: platform.stopS,
   };
 }
 
-const fail = (err) => { console.error(err); showLoadError(loadError(err?.url ?? 'a tour module', err)); };
+const fail = (err) => { console.error(err); showLoadError(err?.url ? loadError(err.url, err) : `Something went wrong: ${err?.message ?? err}`); };
 addEventListener('unhandledrejection', (e) => fail(e.reason));
 const params = new URLSearchParams(location.search);
 
 async function boot() {
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: params.has('debug') });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   document.body.prepend(renderer.domElement);
@@ -48,15 +47,25 @@ async function boot() {
   const { stage } = await kitModule(KITS.railway, 'stage.mjs');
   const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160 });
 
-  setLoading('shaping the land');
-  const terrain = worldTerrain();
+  setLoading('building Downtown City and Oceanside');
   const routes = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
+  const places = {};
+  for (const id of ['city', 'ocean']) { places[id] = await buildPlace(id); scene.add(places[id].group); look.shadows(places[id].group); }
+  const termini = {
+    city: await buildTerminus(routes['city-ocean'], 'start', { name: PLACES.city.name }),
+    ocean: await buildTerminus(routes['city-ocean'], 'end', { name: PLACES.ocean.name }),
+  };
+  for (const t of Object.values(termini)) { scene.add(t.group); look.shadows(t.group); }
+
+  setLoading('shaping the land');
+  const terrain = worldTerrain({ patches: Object.values(places).map((p) => p.patch).filter(Boolean) });
   const near = (x, z) => Object.values(routes).some((r) => {
     for (let s = 0; s <= r.length; s += 50) { const p = r.at(s); if (Math.hypot(p.x - x, p.z - z) < 600) return true; }
     return false;
   });
   scene.add(buildTerrain(terrain, { x0: -1280, z0: -1536, x1: 3328, z1: 1024, fine: near }));
   scene.add(buildSea(SEA_LEVEL));
+  for (const p of Object.values(places)) for (const e of await p.addExtras(terrain)) look.shadows(e);
 
   setLoading('laying track');
   for (const r of Object.values(routes)) { scene.add(buildTrack(r, laneFor('out'))); scene.add(buildTrack(r, laneFor('back'))); }
@@ -68,7 +77,7 @@ async function boot() {
   look.shadows(train.group);
   const trainLength = train.cars.reduce((a, c) => a + c.length, 0) + COUPLING_GAP * (train.cars.length - 1);
   // the run: which route the train drives (always forwards on it), its lane, and where the buffers stop it
-  const run = makeRun(routes['city-ocean'], trainLength, PLACES.ocean.name);
+  const run = makeRun(routes['city-ocean'], trainLength, PLACES.ocean.name, termini.ocean.platform);
   const drive = { s: run.limits.sMin, v: 0, throttle: 0 };
   poseTrain(train, run.route, drive.s, 0, run.lane);
 
@@ -116,7 +125,17 @@ async function boot() {
   }
 
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { train, drive, run, views });
+  Object.assign(window.__tour, { train, drive, run, views, places, termini, seamCheck: (id) => seamCheck(places[id], terrain), snap });
+  // developer aid: render a still from any viewpoint into an overlay (click it to close)
+  function snap(pos, at, fov = 50) {
+    const cam = new THREE.PerspectiveCamera(fov, innerWidth / innerHeight, 0.1, 8000);
+    cam.position.set(...pos); cam.lookAt(...at);
+    renderer.render(scene, cam);
+    let img = document.getElementById('snap');
+    if (!img) { img = document.createElement('img'); img.id = 'snap'; img.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:50'; img.onclick = () => img.remove(); document.body.append(img); }
+    img.src = renderer.domElement.toDataURL();
+    return 'ok';
+  }
   hideLoading();
   const clock = new THREE.Clock();
   const head = {};
@@ -130,6 +149,7 @@ async function boot() {
     hud();
     if (controls) controls.update();
     else views.update(dt, train);
+    for (const p of Object.values(places)) p.tick(clock.elapsedTime);
     anchor.position.copy(controls ? controls.target : train.cars[0].holder.position);
     look.update();
     renderer.render(scene, camera);

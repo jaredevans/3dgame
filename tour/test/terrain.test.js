@@ -23,6 +23,29 @@ test('terrain honours pads', () => {
   near(terrain.heightAt(925, 410), 7, 0.01);
 });
 
+test('rectangular pads, turned', () => {
+  const t = makeTerrain({ pads: [{ x: 500, z: 500, w: 100, d: 40, rot: Math.PI / 2, y: 5 }], base: 8, seed: 3 });
+  near(t.heightAt(500, 545), 5, 0.01);     // turned 90°: the 100 m side runs along z
+  assert.ok(Math.abs(t.heightAt(545, 500) - 5) > 0.01, 'outside the turned pad');
+});
+
+test('a patch takes its own ground inside and blends out from its edge', () => {
+  // a kit's ground: a slope in its own frame over a 40 m square of land, placed at (1000, 2, 1000) turned half round.
+  // sample(lx, lz) gives the height at the nearest point of its land and how far outside the land the point is.
+  const clamp = (v) => Math.max(-20, Math.min(20, v));
+  const patch = {
+    x: 1000, y: 2, z: 1000, rot: Math.PI, drop: 0.2,
+    sample: (lx, lz) => ({ h: clamp(lz) * 0.1, d: Math.hypot(lx - clamp(lx), lz - clamp(lz)) }),
+  };
+  const t = makeTerrain({ patches: [patch], base: 8, seed: 3 });
+  // inside: kit local (0, 10) is world (1000, 990) after the half turn; kit ground there is 1, world 3, sunk 0.2
+  near(t.heightAt(1000, 990), 2 + 1 - 0.2, 0.01);
+  // just outside the edge it matches the kit's edge height
+  near(t.heightAt(1000, 1000 - 20.5), 2 + 2 - 0.2, 0.15);
+  // and far away it's natural ground again
+  near(t.heightAt(1000, 1100), makeTerrain({ base: 8, seed: 3 }).heightAt(1000, 1100), 0.01);
+});
+
 test('terrain blends out of the track bed smoothly', () => {
   // walking straight out from the track, no 1 m step is steeper than 1 in 1
   const s = route.length / 2, a = route.at(s);
