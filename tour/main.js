@@ -10,6 +10,8 @@ import { buildTrain, poseTrain } from './vehicles.js';
 import { COUPLING_GAP } from './consist.js';
 import { TRAIN_SPECS, stepTrain } from './drive.js';
 import { horn } from './audio.js';
+import { makeCameras, fitCab } from './cameras.js';
+import { makeDieselCab } from './cabs/diesel.js';
 
 const BUFFER_GAP = 1.5;   // metres between the end of the line and a buffer face
 const STOP_SHORT = 12;    // the stopping point is this far short of the buffers
@@ -74,6 +76,10 @@ async function boot() {
   scene.add(anchor);
   look.follow(anchor);
 
+  // ---- views: the cab and the drone ----
+  const views = makeCameras(camera, renderer.domElement, { heightAt: terrain.heightAt });
+  views.attachCab(fitCab(renderer, train.cars[0], makeDieselCab()));
+
   // ---- input ----
   const keys = new Set();
   let throttleSteps = 0;
@@ -83,6 +89,9 @@ async function boot() {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') throttleSteps++;
     if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
     if (e.code === 'KeyH') horn(spec.sound);
+    if (e.code === 'KeyV') views.cycle();
+    if (e.code === 'Digit1') views.set('cab');
+    if (e.code === 'Digit2') views.set('drone');
     if (e.code === 'Space') e.preventDefault();
   });
   addEventListener('keyup', (e) => keys.delete(e.code));
@@ -107,7 +116,7 @@ async function boot() {
   }
 
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { train, drive, run });
+  Object.assign(window.__tour, { train, drive, run, views });
   hideLoading();
   const clock = new THREE.Clock();
   const head = {};
@@ -120,13 +129,7 @@ async function boot() {
     poseTrain(train, run.route, drive.s, drive.s - before, run.lane);
     hud();
     if (controls) controls.update();
-    else {
-      // TEMP until Task 6: a chase view behind and above the engine
-      run.route.offsetAt(drive.s - 30, run.lane, head);
-      camera.position.set(head.x - Math.sin(head.yaw) * 12, head.y + 9, head.z - Math.cos(head.yaw) * 12);
-      run.route.offsetAt(drive.s + 40, run.lane, head);
-      camera.lookAt(head.x, head.y + 2, head.z);
-    }
+    else views.update(dt, train);
     anchor.position.copy(controls ? controls.target : train.cars[0].holder.position);
     look.update();
     renderer.render(scene, camera);

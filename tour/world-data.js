@@ -39,8 +39,8 @@ export const LEGS = {
 export const COAST = {
   points: [
     { x: -900, z: -420, top: 9, kind: 0.4 }, { x: 100, z: -330, top: 10, kind: 0.5 }, { x: 500, z: -210, top: 14, kind: 0.7 },
-    { x: 720, z: -245, top: 20, kind: 1 }, { x: 920, z: -295, top: 26, kind: 1 }, { x: 1120, z: -310, top: 28, kind: 1 },
-    { x: 1320, z: -300, top: 26, kind: 1 }, { x: 1500, z: -275, top: 21, kind: 1 }, { x: 1660, z: -255, top: 15, kind: 0.8 },
+    { x: 720, z: -215, top: 12.5, kind: 1 }, { x: 920, z: -262, top: 16.5, kind: 1 }, { x: 1120, z: -278, top: 17.5, kind: 1 },
+    { x: 1320, z: -268, top: 17, kind: 1 }, { x: 1500, z: -238, top: 13.5, kind: 1 }, { x: 1660, z: -222, top: 10.5, kind: 0.8 },
     { x: 1820, z: -250, top: 9, kind: 0.3 }, { x: 1960, z: -250, top: 7, kind: 0 }, { x: 2160, z: -250, top: 7, kind: 0 },
     { x: 2360, z: -265, top: 11, kind: 0.6 }, { x: 3200, z: -380, top: 16, kind: 0.9 },
   ],
