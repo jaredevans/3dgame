@@ -67,3 +67,20 @@ test('the leg is about 90 seconds', () => {
   const t = idealLegTime(legRoute('city-ocean').length, spec);
   assert.ok(t >= 80 && t <= 100, `${t.toFixed(1)} s`);
 });
+
+test('getting out with the throttle open leaves the train standing', async () => {
+  const { leaveCab, trainInput } = await import('../drive.js');
+  // stopped at a platform by holding the brake, throttle still at 30%
+  let st = leaveCab({ s: 99.6, v: 0, throttle: 0.3 });
+  assert.equal(st.throttle, 0); assert.equal(st.v, 0);
+  for (let t = 0; t < 200; t += 1 / 60) st = stepTrain(st, trainInput({ driving: false, brakeKey: false, throttleSteps: 3 }), 1 / 60, spec, open);
+  assert.equal(st.s, 99.6);
+  assert.equal(st.v, 0);
+});
+
+test('nobody driving means the brake is on and the throttle untouched', async () => {
+  const { trainInput } = await import('../drive.js');
+  assert.deepEqual(trainInput({ driving: false, brakeKey: false, throttleSteps: 4 }), { throttleDelta: 0, brake: true });
+  assert.deepEqual(trainInput({ driving: true, brakeKey: false, throttleSteps: 4 }), { throttleDelta: 4, brake: false });
+  assert.deepEqual(trainInput({ driving: true, brakeKey: true, throttleSteps: 0 }), { throttleDelta: 0, brake: true });
+});

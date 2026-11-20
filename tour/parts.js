@@ -26,11 +26,13 @@ export async function part(kitId, key, params = {}) {
 
 // ---- the loading screen ----
 const $ = (id) => document.getElementById(id);
-export function setLoading(text) { const el = $('loadStep'); if (el) el.textContent = text; }
+let errorShown = false;   // once an error is up, later loading steps don't cover it
+export function setLoading(text) { const el = $('loadStep'); if (el && !errorShown) el.textContent = text; }
 export function showLoadError(msg) {
   const box = $('loading');
-  if (!box) return;
+  if (!box || errorShown) return;
   box.classList.add('error');
   setLoading(msg);
+  errorShown = true;
 }
 export function hideLoading() { $('loading')?.remove(); }

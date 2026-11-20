@@ -85,6 +85,12 @@ export async function buildPlace(id) {
       return extras;
     },
     groundAt(x, z) { const [lx, lz] = toLocal(x, z); return def.y + (kitPlace.groundAt(lx, lz) ?? 0); },
+    // standing on the kit's own ground: its island's land if it has one, else its footprint
+    onLand(x, z) {
+      const [lx, lz] = toLocal(x, z);
+      if (land) { const r = land.sample(lx, lz); return !!r && r.d === 0 && (kitPlace.groundAt(lx, lz) ?? -Infinity) >= LAND_MIN; }
+      return lx >= b.min.x && lx <= b.max.x && lz >= b.min.z && lz <= b.max.z;
+    },
     contains(x, z, margin = 0) {
       const [lx, lz] = toLocal(x, z);
       return lx >= b.min.x - margin && lx <= b.max.x + margin && lz >= b.min.z - margin && lz <= b.max.z + margin;

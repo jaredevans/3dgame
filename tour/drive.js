@@ -47,3 +47,11 @@ export function idealLegTime(length, spec) {
   const vPeak = Math.sqrt((2 * length * spec.accel * spec.brake) / (spec.accel + spec.brake));
   return vPeak / spec.accel + vPeak / spec.brake;
 }
+
+// getting out: the train is left standing, throttle shut
+export function leaveCab(state) { return { s: state.s, v: 0, throttle: 0 }; }
+
+// what the train hears this frame: nobody in the cab means the brake is on and the throttle is left alone
+export function trainInput({ driving, brakeKey, throttleSteps }) {
+  return driving ? { throttleDelta: throttleSteps, brake: !!brakeKey } : { throttleDelta: 0, brake: true };
+}

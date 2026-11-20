@@ -10,12 +10,13 @@ import { buildTerrain, buildSea } from './terrain-mesh.js';
 import { buildTrack } from './track-mesh.js';
 import { buildTrain, poseTrain } from './vehicles.js';
 import { COUPLING_GAP } from './consist.js';
-import { TRAIN_SPECS, stepTrain } from './drive.js';
+import { TRAIN_SPECS, stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
 import { buildPlace, seamCheck } from './places.js';
 import { buildTerminus, BUFFER_GAP, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
 import { canGetOut, nearestBoardable } from './walk.js';
+import { makeWalkWorld } from './walk-world.js';
 import { reverseRoute } from './route.js';
 import { makeSkyDome } from './sky-dome.js';
 import { skyAt, ringPosition } from './sky.js';
@@ -80,7 +81,9 @@ async function boot() {
   };
   const ring = { places: RING.places.filter((id) => PLACES[id]), legs: RING.legs.filter((id) => LEGS[id]), length: (id) => routes[id].length };
   const streamer = makeStreamer(builders, { onError: fail });
-  await streamer.want(wantedSet({ place: 'city' }, ring));
+  // the first places and leg are needed to start at all: if one failed, its error is already on screen; stop here
+  const first = await streamer.want(wantedSet({ place: 'city' }, ring));
+  if (first.failed.length || !termini.city || !termini.ocean) return;
 
   setLoading('shaping the land');
   const terrain = worldTerrain({ patches: Object.values(places).map((p) => p.patch).filter(Boolean) });
@@ -132,19 +135,9 @@ async function boot() {
     poseTrain(train, run.route, drive.s, 0, run.lane);
     pendingTurn = false;
   }
-  function walkWorld() {
-    const { place, terminus } = at;
-    const radius = place.id === 'city' ? 130 : 75;
-    return {
-      blocked: (x, z, r) => place.blocked(x, z, r) || terminus.walk.blocked(x, z, r),
-      heightAt: (x, z) => terminus.walk.platformY(x, z) ?? (place.contains(x, z, 2) ? place.groundAt(x, z) : terrain.heightAt(x, z)),
-      inBounds: (x, z) => {
-        if (terminus.walk.onTrack(x, z)) return false;
-        if (terrain.heightAt(x, z) < SEA_LEVEL + 0.2 && !place.contains(x, z)) return false;
-        return Math.hypot(x - place.def.centre.x, z - place.def.centre.z) < radius || terminus.walk.inStation(x, z);
-      },
-    };
-  }
+  const walkWorld = () => makeWalkWorld({
+    place: at.place, terminus: at.terminus, terrain, seaLevel: SEA_LEVEL, radius: at.place.id === 'city' ? 130 : 75,
+  });
   // where you can get out: the platform you're heading for, or the one you haven't left yet
   const stopHere = () => (canGetOut(drive, run.platform) ? run.to : canGetOut(drive, run.originPlatform) ? run.from : null);
   function getOut() {
@@ -152,6 +145,7 @@ async function boot() {
     at = { place: places[here], terminus: termini[here] };
     const p = run.route.offsetAt(drive.s - 8, run.lane - 2.6);
     player.enter(p.x, p.z, p.yaw, p.y + PLATFORM_TOP);
+    Object.assign(drive, leaveCab(drive));
     mode = 'foot';
     pendingTurn = here === run.to;   // arrived: it turns round for the trip back; not yet left: it's ready to go
     views.setDriving(false);
@@ -252,7 +246,7 @@ async function boot() {
     fit();
     const dt = clock.getDelta();
     const before = drive.s;
-    Object.assign(drive, stepTrain(drive, { throttleDelta: throttleSteps, brake: mode === 'drive' && keys.has('Space') }, dt, spec, run.limits));
+    Object.assign(drive, stepTrain(drive, trainInput({ driving: mode === 'drive', brakeKey: keys.has('Space'), throttleSteps }), dt, spec, run.limits));
     throttleSteps = 0;
     if (mode === 'foot' && pendingTurn && Math.hypot(player.state.x - train.cars[0].holder.position.x, player.state.z - train.cars[0].holder.position.z) > 30) turnTrain();
     poseTrain(train, run.route, drive.s, drive.s - before, run.lane);
