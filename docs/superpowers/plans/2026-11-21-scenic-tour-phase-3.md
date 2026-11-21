@@ -646,7 +646,7 @@ test('standstill: no trackside, no division by speed', () => { /* v 0: kinds wit
 **Interfaces:**
 - Consumes: `makeDirector` (Task 9); `eventsFor` (Task 1); `route.offsetAt`; `terrain.heightAt`.
 - Produces:
-  - `makeCameras(...)` gains `director` mode in `MODES = ['cab', 'drone', 'director']`.
+  - `makeCameras(...)` gains `director` mode in `MODES = ['cab', 'nose', 'drone', 'director']` (the nose view was added at the owner's request before this task; keep it), and `4` picks the nose view.
   - `update(dt, train, ctx)` takes `ctx = { legS, dir, v, route (leg route, leg-s), length, showpieces, started }` when the director is on.
 
 **Framing:**

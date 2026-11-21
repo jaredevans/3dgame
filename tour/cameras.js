@@ -1,8 +1,12 @@
-// Driving views: the cab (first person from the driver's seat) and the drone (orbiting the train).
-// V cycles, 1 cab, 2 drone (3 is kept for the director, Phase 3).
+// Driving views: the cab (first person from the driver's seat), the nose (riding just above the front of the train, a
+// clear view down the line ahead) and the drone (orbiting the train). V cycles them; 1 cab, 2 drone (3 is kept for the
+// director, Phase 3).
 import * as THREE from 'three';
 
-const MODES = ['cab', 'drone'];
+const MODES = ['cab', 'nose', 'drone'];
+// the nose view: this far above the top of the leading car, and back from its very front (on a long sloping nose, the
+// front is its tip), looking a touch down the line
+const NOSE = { up: 0.9, back: 0.4, pitch: -0.05 };
 const CAB_YAW = THREE.MathUtils.degToRad(150), CAB_PITCH = THREE.MathUtils.degToRad(35);
 
 export function makeCameras(camera, dom, { heightAt }) {
@@ -16,7 +20,7 @@ export function makeCameras(camera, dom, { heightAt }) {
     if (!look.dragging) return;
     const dx = (e.clientX - px) / innerHeight, dy = (e.clientY - py) / innerHeight;
     px = e.clientX; py = e.clientY;
-    if (mode === 'cab') {
+    if (mode === 'cab' || mode === 'nose') {
       look.yaw = THREE.MathUtils.clamp(look.yaw - dx * 2.4, -CAB_YAW, CAB_YAW);
       look.pitch = THREE.MathUtils.clamp(look.pitch - dy * 2.0, -CAB_PITCH, CAB_PITCH);
     } else {
@@ -34,23 +38,36 @@ export function makeCameras(camera, dom, { heightAt }) {
     mode = m;
     cab?.clip(mode === 'cab');
     if (cab) cab.interior.visible = mode === 'cab';
-    camera.near = mode === 'cab' ? 0.05 : 0.3;
+    camera.near = mode === 'cab' ? 0.05 : mode === 'nose' ? 0.1 : 0.3;
     camera.updateProjectionMatrix();
   }
 
   const q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ'), v = new THREE.Vector3(), mid = new THREE.Vector3();
+  // the mouse looks round from the cab or the nose; let go, the view eases back ahead
+  function settleLook(dt, rest) {
+    if (look.dragging) return;
+    look.idle += dt;
+    if (look.idle > 0.4) { const k = 1 - Math.exp(-dt * 1.6); look.yaw += (0 - look.yaw) * k; look.pitch += (rest - look.pitch) * k; }
+  }
+  // the camera at `at` in a vehicle holder's own frame, looking along its +z (turned by the mouse)
+  function ride(holder, at, pitch) {
+    holder.updateMatrixWorld();
+    camera.position.copy(at).applyMatrix4(holder.matrixWorld);
+    holder.getWorldQuaternion(q);
+    // the vehicle faces +z; a camera looks down -z, so turn it round first
+    e.set(pitch, Math.PI + look.yaw, 0);
+    camera.quaternion.copy(q).multiply(new THREE.Quaternion().setFromEuler(e));
+  }
   function update(dt, train) {
     if (mode === 'cab' && cab) {
-      if (!look.dragging) {
-        look.idle += dt;
-        if (look.idle > 0.4) { const k = 1 - Math.exp(-dt * 1.6); look.yaw += (0 - look.yaw) * k; look.pitch += (-0.04 - look.pitch) * k; }
-      }
-      cab.holder.updateMatrixWorld();
-      camera.position.copy(cab.seat).applyMatrix4(cab.holder.matrixWorld);
-      cab.holder.getWorldQuaternion(q);
-      // the vehicle faces +z; a camera looks down -z, so turn it round first
-      e.set(look.pitch, Math.PI + look.yaw, 0);
-      camera.quaternion.copy(q).multiply(new THREE.Quaternion().setFromEuler(e));
+      settleLook(dt, -0.04);
+      ride(cab.holder, cab.seat, look.pitch);
+      return;
+    }
+    if (mode === 'nose') {
+      settleLook(dt, -0.04);
+      const lead = train.cars[0];
+      ride(lead.holder, v.set(0, lead.box.max.y + NOSE.up, lead.box.max.z - NOSE.back), look.pitch + 0.04 + NOSE.pitch);
       return;
     }
     // drone: orbit the middle of the train, following it smoothly
