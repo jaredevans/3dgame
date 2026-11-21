@@ -472,10 +472,24 @@ async function boot() {
     };
   }
   const actorErrors = new Set();
-  function act(actor, f) {
-    try { actor.update(f); } catch (err) {   // an actor that throws is reported (each different error once); the rest go on
+  function act(actor, f, what = 'update') {
+    try { return actor[what](f); } catch (err) {   // an actor that throws is reported (each different error once); the rest go on
       const key = String(err?.stack ?? err);
       if (!actorErrors.has(key)) { actorErrors.add(key); console.error(err); }
+      return null;
+    }
+  }
+  // what the active events along your run add to the sky (actors' weather(f): a shower's clouds and haze), on top of its own
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  function addWeather(sky) {
+    const actors = state.mode === 'drive' && evOn ? legActors(run.leg) : null;
+    if (!actors) return;
+    for (const [id, on] of evOn.active) {
+      const a = actors.get(id);
+      const w = a?.weather ? act(a, actorFrame(run.leg, id, on, 0), 'weather') : null;
+      if (!w) continue;
+      sky.cloudCover = clamp01(sky.cloudCover + (w.cloudCover ?? 0));
+      sky.haze = clamp01(sky.haze + (w.haze ?? 0));
     }
   }
   // the current leg's active actors (and once more, with on: null, those whose event just ended); every built leg's
@@ -834,6 +848,7 @@ async function boot() {
       for (const t of Object.values(fleet.trains)) t.model.night?.(look.night);   // a train's own lit windows
     }
     dimmer.update(Math.round(tunnelDark() * 100) / 100);   // in steps of 1%, so lights are written only as it changes
+    addWeather(sky);
     skyDome.update(sky, sunDir, dt);
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;

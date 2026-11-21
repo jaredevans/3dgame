@@ -1,21 +1,24 @@
 // The actors that play a leg's events (events.js): each EventDef's `actor` names a builder in ACTORS, which each leg's
 // file (or a shared one, as the level crossing) registers into by its own map.
 //   builder(ctx) -> Promise<Actor>, ctx = { leg, route (legRoute(leg), in leg-s), def, terrain, slicer, kit }
-//   Actor = { group, update(f), dispose?() }, update called each frame only while its event is active (or always, for
+//   Actor = { group, update(f), weather?(f), dispose?() }, update called each frame only while its event is active (or always, for
 //   an `always` one), with f = { legS, dir, here, dt, time, on: { t, u } | null, react, camera, train: { front, v,
 //   length }, night, sunDir }. `here` is true while you're driving a run on the actor's leg (legS, dir and react are
 //   null otherwise); `on` is its event's progress while that's active on your run, else null.
 //   The contract: `on: null` hides only the event-driven moving parts (the waiting cars, a passing train); the group
 //   itself stays in the scene. An `always` actor keeps its static parts shown whatever `on` and `here` are (it is
 //   updated on foot and from other legs too, with on: null and here: false).
+//   weather(f) -> { cloudCover?, haze? } | null: what an active event adds to the sky this frame (a shower's clouds), asked
+//   before the sky is drawn, with the same f.
 import * as THREE from 'three';
 import { KITS } from '../config.js';
 import { part } from '../parts.js';
 import { legRoute } from '../world-data.js';
 import { EVENTS } from '../events.js';
 import { crossings } from './crossing.js';
+import { climb } from './climb.js';
 
-export const ACTORS = { ...crossings };
+export const ACTORS = { ...crossings, ...climb };
 
 // -> { group, actors: Map<id, Actor>, dispose() }: the actors of a leg's events, built one after another a frame apart
 // (slicer.frame()). One whose build fails is warned about and left out; one not yet written (a later task's) is skipped.
