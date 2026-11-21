@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { laneOf } from '../world-data.js';
 import { buildTrain, poseTrain } from '../vehicles.js';
 import { loadAnimal, clipFor } from './animals.js';
-import { rainbowArc, arcAboveHorizon } from './paths.js';
+import { rainbowArc, arcAboveHorizon, workTrainStep, WORK } from './paths.js';
 
 // 1 over u 0..a, falling to 0 over b..1 (a and b the ends of the fades in and out)
 const fade = (u, a, b) => Math.max(0, Math.min(1, u / a, (1 - u) / (1 - b)));
@@ -24,7 +24,9 @@ const warnOut = (what, def, leg, err) =>
 // loading gauge, KIT.md, but no train runs on it here, both runs keeping to the town-side line, journey.js.) On a back
 // run, on the same line, it shows green, facing away
 const SIGNAL_OUT = 2.6;
-const WORK = { at: 700, speed: 6, far: 320 };   // the work train: its front's leg-s while the signal is red, m/s once green, hidden this far ahead of you
+// the work train (where it is and when it's shown: paths.js workTrainStep) stops this far short of the leg's end, out of
+// the Mountain's platform. It runs for your whole out run, not just the event's window, so it's seen clearing the viaduct
+const WORK_SHORT = 122;
 const WORK_CARS = [
   ['diesel-shunter', { colorway: 'works-grey', livery: 'deep-green', wear: 0.5 }],
   ['hopper-wagon', { colorway: 'engineers-olive', load: 'full', wear: 0.5 }],
@@ -55,25 +57,25 @@ async function buildSignal({ leg, route, def, terrain, slicer, kit }) {
     work.group.visible = false;
     group.add(work.group);
   } catch (err) { warnOut('work train', def, leg, err); }
-  let workS = WORK.at;
+  let workS = WORK.at, aspect = 'red';
+  const workEnd = route.length - WORK_SHORT;
 
   return {
     group,
     update(f) {
-      // the aspect the reaction says on your out run (red until its approach arms and you've stood by it); green on a
-      // back run, the post's back to you
-      const aspect = f.dir === 'back' ? 'green' : f.react?.aspect ?? 'red';
+      // the aspect the reaction says on your out run (red until its approach arms and you've stood by it; the last one
+      // shown while there's no word, as a jump starts its reactions afresh); green on a back run, the post's back to you
+      aspect = f.dir === 'back' ? 'green' : f.react?.aspect ?? aspect;
       aspects.red.visible = aspect === 'red';
       aspects.green.visible = aspect === 'green';
       if (!work) return;
-      // stands on the viaduct while it's red, then runs on towards the Mountain; only on your out run, inside the event
-      const out = f.on && f.dir === 'out';
-      if (!out || aspect === 'red') workS = WORK.at;
-      if (!out) { work.group.visible = false; return; }
-      const before = workS;
-      if (aspect === 'green') workS = Math.min(route.length, workS + WORK.speed * f.dt);
-      work.group.visible = workS - f.legS <= WORK.far;
-      if (work.group.visible) poseTrain(work, route, workS, workS - before, lane);
+      // only on your out run: it stands on the viaduct while it's red, then runs on towards the Mountain
+      if (!f.here || f.dir !== 'out') { workS = WORK.at; work.group.visible = false; return; }
+      if (f.legS === null) return;   // (your run's first frame: no word yet where you are)
+      const before = workS, next = workTrainStep({ s: workS, legS: f.legS, aspect, dt: f.dt, end: workEnd });
+      workS = next.s;
+      work.group.visible = next.shown;
+      if (next.shown) poseTrain(work, route, workS, workS - before, lane);
     },
     dispose() { if (work) work.group.visible = false; },
   };
@@ -192,10 +194,11 @@ function buildRain({ leg, terrain }) {
 
 // ---- the rainbow ----
 // seven bands, red outermost at 42 degrees from the antisolar point (radius 400 m), violet 2 degrees in: a thin, flat
-// torus segment (an annulus facing you, each band one strip of it) cut where it meets the horizon; the whole stands
-// round the camera, opposite the sun
+// torus segment (an annulus facing you, each band one strip of it). It stands round the camera, opposite the sun, placed
+// as if the sun stood at most `sunUp` high (this leg's midday sun is 50-62 degrees up, where a real rainbow would be
+// under the horizon): its top some 12 degrees up, its ends cut where they meet the horizon then. Cut once, when built
 const RAINBOW = {
-  radius: 400, width: 2 * Math.PI / 180, opacity: 0.35,
+  radius: 400, width: 2 * Math.PI / 180, opacity: 0.35, sunUp: 30 * Math.PI / 180,
   bands: ['#ff2a1a', '#ff8a1a', '#ffe81a', '#3ad13a', '#2a8cff', '#3a3aff', '#9a3aff'],
 };
 
@@ -208,46 +211,32 @@ function buildRainbow({ leg }) {
   const mat = new THREE.MeshBasicMaterial({
     vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
   });
-  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+  const parts = RAINBOW.bands.map((hex, i) => {
+    const a = R - i * step, arc = 2 * arcAboveHorizon(RAINBOW.sunUp, a);
+    // centred on its top (the mesh's +y, kept up by lookAt), facing the camera (its +z)
+    const g = new THREE.RingGeometry(D * Math.tan(a - step / 2), D * Math.tan(a + step / 2), Math.ceil(arc * 40), 1,
+      Math.PI / 2 - arc / 2, arc);
+    const c = new THREE.Color(hex), n = g.attributes.position.count, col = new Float32Array(n * 3);
+    for (let k = 0; k < n; k++) col.set([c.r, c.g, c.b], k * 3);
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  });
+  const mesh = new THREE.Mesh(mergeGeometries(parts), mat);
+  for (const g of parts) g.dispose();
   mesh.frustumCulled = false;
   mesh.visible = false;
   mesh.userData.own = true;
   group.add(mesh);
-  let builtFor = null;   // the sun's elevation the bands were cut for
-  const cut = (el) => {
-    const parts = RAINBOW.bands.map((hex, i) => {
-      const a = R - i * step, arc = 2 * arcAboveHorizon(el, a);
-      if (arc <= 0) return null;
-      // centred on its top (the mesh's +y, kept up by lookAt), facing the camera (its +z)
-      const g = new THREE.RingGeometry(D * Math.tan(a - step / 2), D * Math.tan(a + step / 2), Math.max(8, Math.ceil(arc * 40)), 1,
-        Math.PI / 2 - arc / 2, arc);
-      const c = new THREE.Color(hex), n = g.attributes.position.count, col = new Float32Array(n * 3);
-      for (let k = 0; k < n; k++) col.set([c.r, c.g, c.b], k * 3);
-      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      return g;
-    }).filter(Boolean);
-    mesh.geometry.dispose();
-    mesh.geometry = parts.length ? mergeGeometries(parts) : new THREE.BufferGeometry();
-    for (const g of parts) g.dispose();
-    builtFor = el;
-  };
-  let told = false;
   const centre = new THREE.Vector3();
   return {
     group,
     update(f) {
-      if (!f.on) { mesh.visible = false; return; }
-      const el = Math.asin(Math.max(-1, Math.min(1, f.sunDir.y / (f.sunDir.length() || 1))));
-      if (el < 0 || el > R) {   // no rainbow with the sun down, or higher than its arc: the event's a no-show
-        mesh.visible = false;
-        if (!told) {
-          told = true;
-          console.info(`No rainbow along ${leg}: the sun is ${Math.round(el * 180 / Math.PI)} degrees up, and a rainbow needs it between 0 and 42`);
-        }
-        return;
-      }
-      if (builtFor === null || Math.abs(el - builtFor) > 0.5 * Math.PI / 180) cut(el);
-      const { centre: c } = rainbowArc(f.sunDir);
+      const sun = f.sunDir, n = sun.length() || 1;
+      const el = Math.asin(Math.max(-1, Math.min(1, sun.y / n)));
+      if (!f.on || el < 0) { mesh.visible = false; return; }   // (none with the sun down)
+      // the sun as if no higher than sunUp, on its own bearing
+      const up = Math.min(el, RAINBOW.sunUp), flat = Math.hypot(sun.x, sun.z) || 1;
+      const { centre: c } = rainbowArc({ x: sun.x / flat * Math.cos(up), y: Math.sin(up), z: sun.z / flat * Math.cos(up) });
       const cam = f.camera.position;
       mesh.position.copy(cam).addScaledVector(centre.set(c.x, c.y, c.z), D);
       mesh.lookAt(cam);
@@ -264,9 +253,9 @@ const EAGLE = {
   out: 40, up: [25, 40], circle: 18, airspeed: 9,
   flapEvery: 9, flapFor: 2.2, beatHz: 1.3, beat: 0.55, dihedral: 0.12, bank: 0.35,
 };
-const brown = new THREE.MeshStandardMaterial({ color: '#3b2a1c', roughness: 0.9 });
-const white = new THREE.MeshStandardMaterial({ color: '#ece8de', roughness: 0.9 });
-const yellow = new THREE.MeshStandardMaterial({ color: '#e0b020', roughness: 0.7 });
+const brown = new THREE.MeshStandardMaterial({ color: '#3b2a1c', roughness: 0.9, flatShading: true });
+const white = new THREE.MeshStandardMaterial({ color: '#ece8de', roughness: 0.9, flatShading: true });
+const yellow = new THREE.MeshStandardMaterial({ color: '#e0b020', roughness: 0.7, flatShading: true });
 
 function makeEagle() {
   const bird = new THREE.Group();

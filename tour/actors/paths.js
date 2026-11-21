@@ -17,3 +17,16 @@ export function arcAboveHorizon(elevation, radius) {
   const c = Math.tan(elevation) / Math.tan(radius);
   return c >= 1 ? 0 : Math.acos(Math.max(-1, c));
 }
+
+// the climb's work train beyond the red signal: its front's leg-s while the signal is red, and m/s once green. It stays
+// shown until it has left the viaduct (its front past `clear`), then hides once more than `far` ahead of your front; it
+// stops at `end` (short of the Mountain's platform), and hides once you're within `near` of it (or past it, after a
+// jump), so you never run through it
+export const WORK = { at: 700, speed: 6, clear: 950, far: 320, near: 60 };
+
+// { s: its front's leg-s, legS: your front's, aspect, dt, end } -> { s, shown }
+export function workTrainStep({ s, legS, aspect, dt, end }) {
+  s = aspect === 'red' ? WORK.at : Math.min(end, s + WORK.speed * dt);
+  const gap = s - legS;
+  return { s, shown: gap >= WORK.near && (s <= WORK.clear || gap <= WORK.far) };
+}

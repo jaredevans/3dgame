@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clipFor } from '../actors/clips.js';
-import { rainbowArc, arcAboveHorizon } from '../actors/paths.js';
+import { rainbowArc, arcAboveHorizon, workTrainStep } from '../actors/paths.js';
 
 const COW = ['Walk', 'Idle', 'Run'];
 const DOLPHIN = ['Swim', 'Idle', 'Swim fast'];
@@ -66,4 +66,24 @@ test('the arc reaches down to the horizon: a half circle with the sun on it, non
   // its ends lie on the horizon: an arc point's height is -sin(e) cos(R) + cos(e) sin(R) cos(phi)
   const e = 20 * deg, phi = arcAboveHorizon(e, R);
   close(-Math.sin(e) * Math.cos(R) + Math.cos(e) * Math.sin(R) * Math.cos(phi), 0, 1e-12);
+});
+
+// the climb's work train (actors/paths.js workTrainStep): stands at 700 while red, then runs on at 6 m/s
+const step = (s, legS, aspect, dt = 0.1, end = 983) => workTrainStep({ s, legS, aspect, dt, end });
+test('the work train stands on the viaduct while the signal is red, and runs on at 6 m/s once green', () => {
+  assert.deepEqual(step(812, 388, 'red'), { s: 700, shown: true });
+  close(step(700, 388, 'green', 0.1).s, 700.6);
+});
+test('it stays shown until it has left the viaduct, then hides once more than 320 m ahead of you', () => {
+  assert.equal(step(900, 388, 'green', 0).shown, true);    // 512 m ahead, still on the viaduct
+  assert.equal(step(949, 388, 'green', 0).shown, true);
+  assert.equal(step(951, 388, 'green', 0).shown, false);   // off it, 563 m ahead
+  assert.equal(step(951, 640, 'green', 0).shown, true);    // 311 m ahead
+});
+test('it never runs into the Mountain\'s platform, and hides rather than let you run through it', () => {
+  assert.equal(step(982.9, 900, 'green', 1, 983).s, 983);
+  assert.equal(step(983, 900, 'green', 1, 983).s, 983);
+  assert.equal(step(983, 930, 'green', 0, 983).shown, false);   // 53 m ahead
+  assert.equal(step(800, 900, 'green', 0).shown, false);        // behind you (a jump past it)
+  assert.equal(step(800, 735, 'green', 0).shown, true);
 });
