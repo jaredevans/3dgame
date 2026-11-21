@@ -11,10 +11,10 @@ const place = {
   onLand: (x, z) => Math.abs(x) < 10 && Math.abs(z) < 10,
   groundAt: (x, z) => (Math.abs(x) < 10 && Math.abs(z) < 10 ? 1.2 : -10.5),
 };
-const terminus = { walk: { onTrack: () => false, inStation: () => false, platformY: () => null, blocked: () => null } };
+const terminus = { walk: { onTrack: () => false, rays: () => [], townSide: () => false, platformY: () => null, blocked: () => null } };
 // land everywhere at +3, except the sea beyond x = 30
 const terrain = { heightAt: (x) => (x > 30 ? -2 : 3) };
-const world = makeWalkWorld({ place, termini: [terminus], terrain, seaLevel: 0, radius: 75 });
+const world = makeWalkWorld({ place, termini: [terminus], terrain, seaLevel: 0 });
 
 test('on the kit\'s land you stand on its ground', () => {
   assert.equal(world.heightAt(0, 0), 1.2);
@@ -22,18 +22,22 @@ test('on the kit\'s land you stand on its ground', () => {
 
 test('inside the kit\'s box but off its land you stand on the terrain, not its underside', () => {
   assert.equal(world.heightAt(15, 0), 3);
-  assert.ok(world.inBounds(15, 0));
+});
+
+test('off the town\'s land and away from its stations you may not walk', () => {
+  assert.ok(world.inBounds(5, 5));
+  assert.equal(world.inBounds(15, 0), false);
 });
 
 test('the sea is out of bounds, inside the box or out of it', () => {
   assert.equal(world.inBounds(35, 0), false);
-  const seaInBox = makeWalkWorld({ place: { ...place, onLand: () => false }, termini: [terminus], terrain: { heightAt: () => -0.3 }, seaLevel: 0, radius: 75 });
+  const seaInBox = makeWalkWorld({ place: { ...place, onLand: () => false }, termini: [{ walk: { ...terminus.walk, townSide: () => true } }], terrain: { heightAt: () => -0.3 }, seaLevel: 0 });
   assert.equal(seaInBox.inBounds(15, 0), false);
 });
 
 test('platforms and the track still rule near the station', () => {
-  const station = { walk: { onTrack: (x) => x > 50, inStation: () => true, platformY: (x) => (x > 40 && x <= 50 ? 4.2 : null), blocked: () => null } };
-  const w = makeWalkWorld({ place, termini: [station], terrain, seaLevel: 0, radius: 75 });
+  const station = { walk: { onTrack: (x) => x > 50, rays: () => [], townSide: () => true, platformY: (x) => (x > 40 && x <= 50 ? 4.2 : null), blocked: () => null } };
+  const w = makeWalkWorld({ place, termini: [station], terrain, seaLevel: 0 });
   assert.equal(w.heightAt(45, 0), 4.2);
   assert.equal(w.inBounds(55, 0), false);
 });
@@ -45,26 +49,27 @@ const stationAt = (axis, y) => {
   const near = (x, z) => Math.abs(along(x, z) - 100) <= 60;
   return { walk: {
     onTrack: (x, z) => near(x, z) && across(x, z) < 3.6,
-    inStation: (x, z) => near(x, z) && across(x, z) <= 30,
+    rays: () => [],
+    townSide: (x, z) => near(x, z) && across(x, z) >= 3.5 && across(x, z) <= 30,
     platformY: (x, z) => (near(x, z) && across(x, z) >= 3.5 && across(x, z) <= 8 ? y : null),
     blocked: (x, z) => (Math.hypot(x - (axis === 'x' ? 100 : 12), z - (axis === 'x' ? 12 : 100)) < 2 ? `building ${axis}` : null),
   } };
 };
 
 test('a place\'s world merges both its stations', () => {
-  const w = makeWalkWorld({ place, termini: [stationAt('x', 4.2), stationAt('z', 5.1)], terrain: land, seaLevel: 0, radius: 20 });
+  const w = makeWalkWorld({ place, termini: [stationAt('x', 4.2), stationAt('z', 5.1)], terrain: land, seaLevel: 0, });
   assert.equal(w.heightAt(100, 5), 4.2, 'first station\'s platform');
   assert.equal(w.heightAt(5, 100), 5.1, 'second station\'s platform');
   assert.equal(w.inBounds(100, 0), false, 'first station\'s track');
   assert.equal(w.inBounds(0, 100), false, 'second station\'s track');
-  assert.ok(w.inBounds(100, 20) && w.inBounds(20, 100), 'both stations are in bounds beyond the walking radius');
+  assert.ok(w.inBounds(100, 20) && w.inBounds(20, 100), 'both stations\' approaches');
   assert.equal(w.blocked(100, 12, 0.35), 'building x');
   assert.equal(w.blocked(12, 100, 0.35), 'building z');
-  assert.equal(w.inBounds(60, 60), false, 'between them, outside the radius');
+  assert.equal(w.inBounds(60, 60), false, 'between them, off the town\'s land');
 });
 
 test('a place with only one station built yet', () => {
-  const w = makeWalkWorld({ place, termini: [stationAt('x', 4.2), undefined], terrain: land, seaLevel: 0, radius: 20 });
+  const w = makeWalkWorld({ place, termini: [stationAt('x', 4.2), undefined], terrain: land, seaLevel: 0, });
   assert.equal(w.heightAt(100, 5), 4.2);
   assert.equal(w.heightAt(5, 100), 3, 'no platform where the other station will be');
   assert.ok(w.inBounds(0, 100) === false && w.inBounds(100, 20));

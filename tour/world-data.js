@@ -15,6 +15,8 @@ export const laneOf = (legId) => LEGS[legId].side * TRACK_CENTRES / 2;
 // Phase 1's lanes on city-ocean: left-hand running (a British railway), the outbound line on the left (+lateral)
 export const laneFor = (dir) => (dir === 'out' ? laneOf('city-ocean') : -laneOf('city-ocean'));
 export const SEA_LEVEL = 0;
+// a place's extra parts (Oceanside's seafront) are its town too: the ground this far round each one
+export const EXTRA_REACH = 6;
 
 // the places whose kits the page builds so far; a leg is built once both its ends are
 export const BUILT = ['city', 'ocean', 'mountain', 'west'];
@@ -27,11 +29,11 @@ export const RING = {
 // centre: where the place's kit is put (its own origin), turned by rot; y: the level its kit's ground 0 goes at;
 // ground: its stations' formation level (= its lines' ends); size: its footprint [x, z] in its kit's own frame, centred
 // `offset` from its origin; landMin: an island kit's ground below this (kit metres) is its underside, not land (-2 if
-// not given); walkRadius: how far from its centre you may walk, beyond its stations (75 m if not given). Each place has
-// two stations on two sides of its town: the arrival of the leg from the previous place and the departure of the leg to
-// the next, each with its town beside it.
+// not given). Each place has two stations on two sides of its town: the arrival of the leg from the previous place and
+// the departure of the leg to the next, each with its town beside it. On foot you keep to the town's land and its
+// stations' approaches (station-walk.js), so going on always means walking through the town.
 export const PLACES = {
-  city: { name: 'Downtown City', kit: KITS.city, centre: { x: 128, z: -74 }, y: 8, rot: 0, ground: 8, size: [150, 118], walkRadius: 130,
+  city: { name: 'Downtown City', kit: KITS.city, centre: { x: 128, z: -74 }, y: 8, rot: 0, ground: 8, size: [150, 118],
     build: { city: { seed: 11, blocks: [2, 2], boundary: false } },
     // departures along the south edge, arrivals from the Futuristic place along the north edge
     stations: [
@@ -66,7 +68,7 @@ export const PLACES = {
   // village stands just below the platforms, its far side falling to the land round it over the patch's blend. Its
   // footprint keeps 20 m from both lines.
   mountain: { name: 'Mountain', kit: KITS.mountain, centre: { x: 2500, z: 680 }, y: 32.5, rot: 130 * Math.PI / 180, ground: 22,
-    size: [112, 112], offset: [-4.5, -1.5], landMin: -21, walkRadius: 110,
+    size: [112, 112], offset: [-4.5, -1.5], landMin: -21,
     build: {},
     // the climb from Oceanside arrives along the north side; the Canyon Express leaves down the east side
     stations: [
@@ -83,7 +85,7 @@ export const PLACES = {
   // ground there. Raised 16.3 m, the level of the rim within 50 m of either platform, so the street is level with the
   // platform tops.
   west: { name: 'Wild West', kit: KITS.west, centre: { x: 2940, z: 1950 }, y: 16.3, rot: 0, ground: 15,
-    size: [94, 102], offset: [-2, 0.5], landMin: -4.5, walkRadius: 100,
+    size: [94, 102], offset: [-2, 0.5], landMin: -4.5,
     build: {},
     // the Canyon Express comes down the east side; the bullet train leaves along the south side, heading west
     stations: [

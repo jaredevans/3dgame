@@ -2,7 +2,7 @@
 // and its platforms, and you can walk from one of a place's stations to the other.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEGS, PLACES, BUILT, SEA_LEVEL, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
+import { LEGS, PLACES, BUILT, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { makeWalkWorld } from '../walk-world.js';
 import { BODY } from '../walk.js';
@@ -47,57 +47,83 @@ test("no place's footprint, nor any of its extra parts, comes onto a line or its
   }
 });
 
-// Walking through the town. Without kits in Node, the town is the place's footprint (and its extra parts), each with a
-// few metres round it; a station is its platforms and its forecourt beside them on the town's side, with its building
-// standing in it. A walk from one platform to the other may go only there, and must pass through the town: a town
-// behind its stations, or across a line from one of them, has no such walk.
-const TOWN_MARGIN = 6, EXTRA_REACH = 6;
+// Walking through the town, in the page's own walk world (makeWalkWorld and each station's stationWalk, as main.js
+// builds them). Without kits in Node, the town's land is the place's footprint rectangle, no margin; a station's
+// building stands in it where buildTerminus puts it. From the middle of one town-side platform to the other there must
+// be a way on foot, and every such way must cross the town's land: none goes round it, past the buffer ends or along
+// the lines.
 const stubPlace = (def, terrain) => {
-  const f = footprint(def);
-  return { def, blocked: () => null, onLand: (x, z) => f.outside(x, z) === 0, groundAt: (x, z) => terrain.heightAt(x, z) };
+  const f = footprint(def), spots = (def.extras ?? []).map((e) => f.toWorld(e.x, e.z));
+  const onLand = (x, z) => f.outside(x, z) === 0;
+  // the town: its land, and the ground round its extra parts (Oceanside's seafront), as places.js has it
+  const inTown = (x, z) => onLand(x, z) || spots.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= EXTRA_REACH);
+  return { def, blocked: () => null, onLand, inTown, groundAt: (x, z) => terrain.heightAt(x, z) };
 };
 // the middle of a station's platform on its town side
 function platformMiddle(st) {
   const r = legRoute(st.leg), w = platformWindow(r.length, st.end, st.platformLength), lane = laneOf(st.leg);
   return r.offsetAt((w.sFrom + w.sTo) / 2, Math.sign(lane) * 5.75);
 }
-
-// breadth first on a 2 m grid, from the middle of one platform to the middle of the other, through the town.
+export const ROUND_THE_TOWN = 'a way between the stations goes round the town', NO_WAY = 'no way between the stations through the town';
 // def: the place's data (PLACES[id], or a variant of it)
 export function walkThroughTown(def) {
-  const terrain = worldTerrain(), f = footprint(def);
-  const stations = def.stations.map((st) => stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true }));
-  const world = makeWalkWorld({ place: stubPlace(def, terrain), termini: stations.map((walk) => ({ walk })), terrain, seaLevel: SEA_LEVEL, radius: def.walkRadius ?? 75 });
-  const extras = (def.extras ?? []).map((e) => f.toWorld(e.x, e.z));
-  const town = (x, z) => f.outside(x, z) <= TOWN_MARGIN || extras.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= EXTRA_REACH);
-  const station = (x, z) => stations.some((w) => w.platformY(x, z) !== null || w.forecourt(x, z));
-  const ok = (x, z) => (town(x, z) || station(x, z)) && world.inBounds(x, z) && !world.blocked(x, z, BODY);
+  const terrain = worldTerrain(), place = stubPlace(def, terrain);
+  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true }) }));
+  const world = makeWalkWorld({ place, termini, terrain, seaLevel: SEA_LEVEL });
+  const ok = (x, z) => world.inBounds(x, z) && !world.blocked(x, z, BODY);
   const [a, b] = def.stations.map(platformMiddle);
   if (!ok(a.x, a.z) || !ok(b.x, b.z)) return { ok: false, why: 'a platform middle is not walkable' };
-  const STEP = 2, key = (i, j, t) => `${i},${j},${t}`, seen = new Set([key(0, 0, 0)]), queue = [[0, 0, 0]];
-  let reachedTown = false, reachedOther = false;
-  for (let q = 0; q < queue.length && queue.length < 400000; q++) {
-    const [i, j, t] = queue[q], x = a.x + i * STEP, z = a.z + j * STEP;
-    if (Math.hypot(x - b.x, z - b.z) <= STEP) { reachedOther = true; if (t) return { ok: true, cells: queue.length }; }
-    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + di * STEP, nz = z + dj * STEP;
-      if (!ok(nx, nz) || !ok(x + di * STEP / 2, z + dj * STEP / 2)) continue;
-      const nt = t || (town(nx, nz) ? 1 : 0), k = key(i + di, j + dj, nt);
-      if (seen.has(k)) continue;
-      reachedTown ||= nt === 1;
-      seen.add(k); queue.push([i + di, j + dj, nt]);
+  // breadth first on a 2 m grid from a to b, stepping only where `may` allows (and through the half step between)
+  const reaches = (may) => {
+    const STEP = 2, seen = new Set(['0,0']), queue = [[0, 0]];
+    for (let q = 0; q < queue.length && queue.length < 400000; q++) {
+      const [i, j] = queue[q], x = a.x + i * STEP, z = a.z + j * STEP;
+      if (Math.hypot(x - b.x, z - b.z) <= STEP) return true;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + di * STEP, nz = z + dj * STEP, k = `${i + di},${j + dj}`;
+        if (seen.has(k) || !may(nx, nz) || !may(x + di * STEP / 2, z + dj * STEP / 2)) continue;
+        seen.add(k); queue.push([i + di, j + dj]);
+      }
     }
-  }
-  return { ok: false, why: reachedTown ? 'the town does not lead on to the other platform' : reachedOther ? 'the platforms meet without passing the town' : 'the town is not reached from the platform' };
+    return false;
+  };
+  if (reaches((x, z) => ok(x, z) && !place.inTown(x, z))) return { ok: false, why: ROUND_THE_TOWN };
+  if (!reaches(ok)) return { ok: false, why: NO_WAY };
+  return { ok: true };
 }
 
-for (const id of ['ocean', 'mountain', 'west']) {
+for (const id of ['city', 'ocean', 'mountain', 'west']) {
   test(`a walk exists between the two stations, through the town: ${PLACES[id].name}`, () => {
     assert.ok(PLACES[id].size, `${PLACES[id].name} has no footprint to walk through`);
     const r = walkThroughTown(PLACES[id]);
     assert.ok(r.ok, `no way on foot through ${PLACES[id].name} between its stations: ${r.why}`);
   });
 }
+
+test("a station's approach runs from its town-side platform to the town's land, and no further", () => {
+  const def = PLACES.mountain, place = stubPlace(def, worldTerrain()), st = def.stations[0];   // the climb's arrival
+  const walk = stationWalk(st.leg, st.end, { platformLength: st.platformLength }), r = legRoute(st.leg);
+  const w = platformWindow(r.length, st.end, st.platformLength), town = Math.sign(laneOf(st.leg)), mid = (w.sFrom + w.sTo) / 2;
+  const reach = walk.rays(place.inTown), at = (s, across) => { const q = r.offsetAt(s, town * across); return walk.townSide(q.x, q.z, reach); };
+  // out from the platform's middle to the land, which begins within the approach's reach
+  let land = null;
+  for (let a = 3.5; a <= 100 && land === null; a += 0.5) { const q = r.offsetAt(mid, town * a); if (place.onLand(q.x, q.z)) land = a; }
+  assert.ok(land !== null, 'the land is not out from the platform');
+  assert.ok(at(mid, 5.75) && at(mid, land - 1), 'the platform and the ground between it and the land');
+  assert.equal(at(mid, -5.75), false, 'the far platform');
+  assert.equal(at(w.sTo + 3, 10), false, 'past the buffer end of the platform');
+  assert.equal(at(w.sFrom - 3, 10), false, 'past the other end of the platform');
+  assert.equal(at(mid, land + 30), false, 'beyond the land, out from the platform');
+});
+
+test("a town set back in the corner between its two platforms is still crossed, not gone round", () => {
+  // Oceanside turned 10°: its land's corner stands back from both lines, where the lines out from the two platforms
+  // to the land would meet off it, round the town
+  for (const deg of [190, 200]) {
+    const r = walkThroughTown({ ...PLACES.ocean, rot: deg * Math.PI / 180 });
+    assert.ok(r.ok, `Oceanside turned to ${deg}°: ${r.why}`);
+  }
+});
 
 // the check fails where it should: towns put where travelling on would not take you through them
 const moved = (id, centre) => ({ ...PLACES[id], centre });
@@ -114,11 +140,10 @@ test('no walk through a town across a line from one of its stations', () => {
   assert.equal(walkThroughTown(moved('ocean', { x: 2060, z: -150 })).ok, false);
 });
 test('no walk through a town that stands back from both its stations', () => {
-  // Mountain 120 m further from both lines: its footprint no longer meets either forecourt
+  // Mountain 120 m further from both lines: no line out from either platform meets its land
   assert.equal(walkThroughTown(moved('mountain', { x: 2420, z: 760 })).ok, false);
 });
 // the Wild West: its town where the walk from the Canyon Express's platform to the bullet train's would not pass through it
-const NOT_REACHED = 'the town is not reached from the platform';
 test('no walk through the Wild West put across a line, past the buffers or back from its stations', () => {
   assert.ok(PLACES.west.size, 'the Wild West has no footprint to move');
   for (const [what, centre] of [
@@ -129,6 +154,6 @@ test('no walk through the Wild West put across a line, past the buffers or back 
   ]) {
     const r = walkThroughTown(moved('west', centre));
     assert.equal(r.ok, false, `a walk was found through the Wild West ${what}`);
-    assert.equal(r.why, NOT_REACHED, what);
+    assert.ok([ROUND_THE_TOWN, NO_WAY].includes(r.why), `${what}: ${r.why}`);
   }
 });

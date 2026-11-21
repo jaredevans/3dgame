@@ -220,7 +220,7 @@ async function boot() {
 
   const walkWorld = () => makeWalkWorld({
     place: places[state.place], termini: PLACES[state.place].stations.map((st) => termini[`${state.place}:${st.leg}`]),
-    terrain, seaLevel: SEA_LEVEL, radius: PLACES[state.place].walkRadius ?? 75,
+    terrain, seaLevel: SEA_LEVEL,
   });
   // where you can get out: the platform you're heading for, or the one you haven't left yet
   const stopHere = () => journey.stopAt(run, drive);
