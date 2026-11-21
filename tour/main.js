@@ -1,36 +1,32 @@
-// Scenic Tour: boot, loop, input and HUD.
+// Scenic Tour: boot, loop, input and HUD around the journey (journey.js): drive any leg either way, get out at a
+// place, walk, and board one of the two trains waiting there.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
-import { LEGS, PLACES, RING, BUILT, worldTerrain, legRoute, laneFor, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, BUILT, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { buildTerrain, buildSea } from './terrain-mesh.js';
 import { buildTrack } from './track-mesh.js';
-import { buildTrain, poseTrain } from './vehicles.js';
-import { COUPLING_GAP } from './consist.js';
-import { TRAIN_SPECS, stepTrain, leaveCab, trainInput } from './drive.js';
+import { poseTrain } from './vehicles.js';
+import { stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
 import { buildPlace, seamCheck } from './places.js';
-import { buildTerminus, BUFFER_GAP, PLATFORM_TOP } from './stations.js';
+import { buildTerminus, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
-import { canGetOut, nearestBoardable } from './walk.js';
+import { nearestBoardable } from './walk.js';
 import { makeWalkWorld } from './walk-world.js';
-import { reverseRoute } from './route.js';
+import { makeJourney } from './journey.js';
+import { makeFleet } from './fleet.js';
+import { makeKeys } from './keys.js';
 import { makeSkyDome } from './sky-dome.js';
 import { skyAt, ringPosition } from './sky.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
 
-// a run: a train driving forwards along `route` (a leg, or a reversed view of one) on `lane`, to `platform`
-function makeRun(route, trainLength, destination, platform, lane = laneFor('out')) {
-  return {
-    route, lane, destination, platform,
-    limits: { sMin: trainLength + BUFFER_GAP, sMax: route.length - BUFFER_GAP },
-    stopS: platform.stopS,
-  };
-}
+const CABS = { diesel: makeDieselCab };
+const WALK_RADIUS = { city: 130 };   // how far from a place's centre you may walk (beyond its stations); 75 m elsewhere
 
 const fail = (err) => { console.error(err); showLoadError(err?.url ? loadError(err.url, err) : `Something went wrong: ${err?.message ?? err}`); };
 addEventListener('unhandledrejection', (e) => fail(e.reason));
@@ -56,36 +52,52 @@ async function boot() {
   const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160, sky: false, fog: false });
   const skyDome = makeSkyDome(scene, camera);
 
-  // ---- places and legs load through the streamer, by id: only the places whose kits are wired in, and their legs ----
+  // ---- places, legs and trains load through the streamer, by id: only the places whose kits are wired in, the legs
+  // between them, and those legs' trains (`train:<leg>`) ----
   const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to);
   const builtLegs = Object.keys(LEGS).filter(legBuilt);
   const routes = Object.fromEntries(builtLegs.map((id) => [id, legRoute(id)]));
-  const places = {}, termini = {};
+  const journey = makeJourney({ legs: LEGS, places: PLACES });
+  const fleet = makeFleet({ scene, look, journey });
+  const places = {}, termini = {};   // termini keyed `${place}:${leg}`
   const builders = {};
   for (const id of BUILT) builders[id] = async () => {
     setLoading(`building ${PLACES[id].name}`);
     const place = await buildPlace(id);
     scene.add(place.group); look.shadows(place.group);
-    // the place's stations: a terminus at its end of each leg it serves
+    // the place's stations: a terminus at its end of each built leg it serves
+    const ids = [];
     for (const st of PLACES[id].stations.filter((s) => legBuilt(s.leg))) {
-      const t = await buildTerminus(routes[st.leg], st.end, { name: PLACES[id].name });
+      const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength });
       scene.add(t.group); look.shadows(t.group);
-      termini[id] = t;
+      termini[`${id}:${st.leg}`] = t; ids.push(`${id}:${st.leg}`);
     }
     places[id] = place;
-    return { dispose() { place.dispose(); termini[id]?.group.removeFromParent(); delete places[id]; delete termini[id]; } };
+    return { dispose() { place.dispose(); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
   };
-  for (const id of builtLegs) builders[id] = async () => {
-    setLoading('laying track');
-    const tracks = [buildTrack(routes[id], laneFor('out')), buildTrack(routes[id], laneFor('back'))];
-    for (const t of tracks) scene.add(t);
-    return { dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } } };
-  };
+  for (const id of builtLegs) {
+    builders[id] = async () => {
+      setLoading('laying track');
+      const tracks = [buildTrack(routes[id], laneOf(id)), buildTrack(routes[id], -laneOf(id))];
+      for (const t of tracks) scene.add(t);
+      return { dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } } };
+    };
+    builders[`train:${id}`] = () => fleet.build(id);
+  }
   const ring = { places: RING.places.filter((id) => BUILT.includes(id)), legs: RING.legs.filter((id) => builtLegs.includes(id)), length: (id) => routes[id].length };
   const streamer = makeStreamer(builders, { onError: fail });
-  // the first places and leg are needed to start at all: if one failed, its error is already on screen; stop here
-  const first = await streamer.want(wantedSet({ place: 'city' }, ring));
-  if (first.failed.length || !termini.city || !termini.ocean) return;
+  // what's near you: places and legs, and the trains on those legs (the one you're in always among them)
+  const wanted = (where) => {
+    const set = wantedSet(where, ring);
+    for (const id of [...set]) if (builtLegs.includes(id)) set.add(`train:${id}`);
+    return set;
+  };
+  // you start in the cab of the Seaside Excursion at City's south platform
+  let state = journey.start('city-ocean', 'out');
+  const firstRun = journey.runRoute(state.leg, state.dir);
+  // the first places, leg and train are needed to start at all: if one failed, its error is already on screen; stop here
+  const first = await streamer.want(wanted({ place: state.place }));
+  if (first.failed.length || !fleet.trains[state.leg] || !termini[`${firstRun.from}:${state.leg}`] || !termini[`${firstRun.to}:${state.leg}`]) return;
 
   setLoading('shaping the land');
   const terrain = worldTerrain({ patches: Object.values(places).map((p) => p.patch).filter(Boolean) });
@@ -97,102 +109,104 @@ async function boot() {
   scene.add(buildSea(SEA_LEVEL));
   for (const p of Object.values(places)) for (const e of await p.addExtras(terrain)) look.shadows(e);
 
-  setLoading('the Seaside Excursion');
-  const spec = TRAIN_SPECS.cityOcean;
-  const train = await buildTrain({ name: spec.name, cars: spec.cars });
-  scene.add(train.group);
-  look.shadows(train.group);
-  const trainLength = train.cars.reduce((a, c) => a + c.length, 0) + COUPLING_GAP * (train.cars.length - 1);
-  // the run: which route the train drives (always forwards on it), its lane, and where the buffers stop it
-  // a run in either direction along the leg: 'out' City -> Oceanside, 'back' on the other line, Oceanside -> City
-  const flip = (p, L) => ({ sFrom: L - p.sTo, sTo: L - p.sFrom, stopS: L - p.stopS });
-  const leg = routes['city-ocean'];
-  function runFor(dir) {
-    const r = dir === 'out'
-      ? makeRun(leg, trainLength, PLACES.ocean.name, termini.ocean.platform)
-      // back the same way on the same, town-side line: on the reversed view that line's offset changes sign
-      : makeRun(reverseRoute(leg), trainLength, PLACES.city.name, flip(termini.city.platform, leg.length), -laneFor('out'));
-    const originPlatform = dir === 'out' ? termini.city.platform : flip(termini.ocean.platform, leg.length);
-    return Object.assign(r, { dir, to: dir === 'out' ? 'ocean' : 'city', from: dir === 'out' ? 'city' : 'ocean', originPlatform });
-  }
-  let run = runFor('out');
-  const drive = { s: run.limits.sMin, v: 0, throttle: 0 };
-  poseTrain(train, run.route, drive.s, 0, run.lane);
-
   const anchor = new THREE.Object3D();
   scene.add(anchor);
   look.follow(anchor);
 
   // ---- views: the cab and the drone ----
   const views = makeCameras(camera, renderer.domElement, { heightAt: terrain.heightAt });
-  views.attachCab(fitCab(renderer, train.cars[0], makeDieselCab()));
 
-  // ---- you: driving, or on foot at a station ----
-  const player = await makePlayer(scene, camera, renderer.domElement, look);
-  let mode = 'drive', at = null, pendingTurn = false;   // at: { place, terminus } where you got out
-
-  // turn the train round for the trip back: it waits on the other line, facing home
-  function turnTrain() {
-    run = runFor(run.dir === 'out' ? 'back' : 'out');
-    Object.assign(drive, { s: run.limits.sMin, v: 0, throttle: 0 });
-    poseTrain(train, run.route, drive.s, 0, run.lane);
-    pendingTurn = false;
+  // ---- the train you drive: its run (journey.runRoute) and where its front is along it ----
+  const drive = { s: 0, v: 0, throttle: 0 };
+  let train = null, run = null;
+  function take(leg, dir) {
+    const t = fleet.trains[leg];
+    if (t.run.dir !== dir) fleet.park(leg, dir);   // turned round for the trip back: it waits on its run's start
+    train = t; run = t.run;
+    Object.assign(drive, { s: t.s, v: 0, throttle: 0 });
+    if (!CABS[t.spec.cab]) throw new Error(`no ${t.spec.cab} cab for the ${t.spec.name} yet`);
+    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab]());
+    views.attachCab(t.cab);
   }
+  take(state.leg, state.dir);
+
+  // ---- you: driving, or on foot in a place ----
+  const player = await makePlayer(scene, camera, renderer.domElement, look);
+  let pendingTurn = null;   // the train you came on: { leg, dir } it turns round to once you've walked away from it
+
   const walkWorld = () => makeWalkWorld({
-    place: at.place, terminus: at.terminus, terrain, seaLevel: SEA_LEVEL, radius: at.place.id === 'city' ? 130 : 75,
+    place: places[state.place], termini: PLACES[state.place].stations.map((st) => termini[`${state.place}:${st.leg}`]),
+    terrain, seaLevel: SEA_LEVEL, radius: WALK_RADIUS[state.place] ?? 75,
   });
   // where you can get out: the platform you're heading for, or the one you haven't left yet
-  const stopHere = () => (canGetOut(drive, run.platform) ? run.to : canGetOut(drive, run.originPlatform) ? run.from : null);
+  const stopHere = () => journey.stopAt(run, drive);
   function getOut() {
     const here = stopHere();
-    at = { place: places[here], terminus: termini[here] };
-    // step out onto the platform: on the outer side of the line you're on, a little behind the cab
-    const p = run.route.offsetAt(drive.s - 8, run.lane + Math.sign(run.lane) * 2.6);
+    state = journey.getOut(state, here);
+    // step out onto the platform beside the line, a little behind the cab
+    const out = journey.stepOut(run, drive.s), p = run.route.offsetAt(out.s, out.lateral);
     player.enter(p.x, p.z, p.yaw, p.y + PLATFORM_TOP);
     Object.assign(drive, leaveCab(drive));
-    mode = 'foot';
-    pendingTurn = here === run.to;   // arrived: it turns round for the trip back; not yet left: it's ready to go
+    train.s = drive.s;
+    // the two trains waiting here: yours stays at its platform (turning round for the trip back once you're away from
+    // it, if you've arrived); the other is put at its station
+    pendingTurn = null;
+    for (const w of journey.trainsAt(state, here).filter((w) => legBuilt(w.leg))) {
+      if (w.leg === train.leg) { if (w.dir !== run.dir) pendingTurn = w; } else fleet.wait(w.leg, w.dir);
+    }
     views.setDriving(false);
     $('driver').classList.remove('on');
   }
-  function trainPoints() {
+  function turnPending() {
+    if (!pendingTurn) return;
+    fleet.park(pendingTurn.leg, pendingTurn.dir);
+    if (pendingTurn.leg === train.leg) { run = train.run; Object.assign(drive, { s: train.s, v: 0, throttle: 0 }); }
+    pendingTurn = null;
+  }
+  function trainPoints(model) {
     const pts = [];
-    for (const c of train.cars) {
+    for (const c of model.cars) {
       const h = c.holder, f = new THREE.Vector3(0, 0, c.front - 1).applyMatrix4(h.matrixWorld), r = new THREE.Vector3(0, 0, c.front - c.length + 1).applyMatrix4(h.matrixWorld);
       for (let k = 0; k <= 4; k++) pts.push({ x: f.x + (r.x - f.x) * k / 4, z: f.z + (r.z - f.z) * k / 4 });
     }
     return pts;
   }
-  function board() {
-    if (pendingTurn) turnTrain();
+  // the waiting train you're beside, if any: { leg, dir, station, to }, on a built leg whose train is loaded
+  const boardable = () => nearestBoardable(player.state, journey.trainsAt(state, state.place)
+    .filter((w) => legBuilt(w.leg) && fleet.trains[w.leg])
+    .map((w) => ({ ...w, stopped: true, cars: trainPoints(fleet.trains[w.leg].model) })));
+  function board(w) {
+    turnPending();
+    state = journey.board(state, w.leg, w.dir);
+    take(w.leg, w.dir);
     player.exit();
-    mode = 'drive';
+    keys.ignoreHeld();   // a key you were holding (W, walking up to it) is not throttle until you press it again
     views.setDriving(true);
     $('driver').classList.add('on');
   }
 
-  const keys = new Set();
+  const keys = makeKeys();
   let throttleSteps = 0;
   addEventListener('keydown', (e) => {
     if (e.repeat && !/Arrow|Key[WS]/.test(e.code)) return;
-    keys.add(e.code);
+    keys.down(e.code);
     if (e.code === 'Space') e.preventDefault();
+    if (keys.ignored(e.code)) return;   // still held from before you boarded
     if (e.code === 'KeyE') {
-      if (mode === 'drive' && stopHere()) getOut();
-      else if (mode === 'foot' && boardable()) board();
+      if (state.mode === 'drive' && stopHere()) getOut();
+      else if (state.mode === 'foot') { const w = boardable(); if (w) board(w); }
       return;
     }
-    if (mode !== 'drive') return;
+    if (state.mode !== 'drive') return;
     if (e.code === 'KeyW' || e.code === 'ArrowUp') throttleSteps++;
     if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
-    if (e.code === 'KeyH') horn(spec.sound);
+    if (e.code === 'KeyH') horn(train.spec.sound);
     if (e.code === 'KeyV') views.cycle();
     if (e.code === 'Digit1') views.set('cab');
     if (e.code === 'Digit2') views.set('drone');
   });
-  addEventListener('keyup', (e) => keys.delete(e.code));
+  addEventListener('keyup', (e) => keys.up(e.code));
   addEventListener('blur', () => keys.clear());
-  const boardable = () => nearestBoardable(player.state, [{ name: spec.name, stopped: Math.abs(drive.v) < 0.05, cars: trainPoints() }]);
   const footInput = () => ({
     fwd: (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
     right: (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
@@ -203,17 +217,18 @@ async function boot() {
   $('driver').classList.add('on');
   function hud() {
     let prompt = '';
-    if (mode === 'drive') {
+    if (state.mode === 'drive') {
+      const to = PLACES[run.to].name, here = stopHere();
       $('spd').textContent = Math.round(Math.abs(drive.v) * 3.6);
       $('thr').textContent = `throttle ${Math.round(drive.throttle * 100)}%${drive.v < -0.05 ? ' · reversing' : ''}`;
       const toGo = run.stopS - drive.s;
-      $('dist').textContent = toGo > 1 ? `${run.destination} ${Math.round(toGo)} m` : `${run.destination}: stop here`;
-      if (stopHere()) prompt = `Get out at ${PLACES[stopHere()].name} (E)`;
-      $('mode').textContent = `${spec.name} to ${run.destination}`;
+      $('dist').textContent = toGo > 1 ? `${to} ${Math.round(toGo)} m` : `${to}: stop here`;
+      if (here) prompt = `Get out at ${PLACES[here].name} (E)`;
+      $('mode').textContent = `${train.spec.name} to ${to}`;
     } else {
-      const nextDest = pendingTurn ? PLACES[run.from].name : run.destination;
-      if (boardable()) prompt = `Board the ${spec.name} to ${nextDest} (E)`;
-      $('mode').textContent = `On foot in ${at.place.def.name}`;
+      const w = boardable();
+      if (w) prompt = `Board the ${fleet.trains[w.leg].spec.name} to ${PLACES[w.to].name} (E)`;
+      $('mode').textContent = `On foot in ${PLACES[state.place].name}`;
     }
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
@@ -229,8 +244,11 @@ async function boot() {
   }
 
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { train, drive, player, views, places, termini, skyDome, skyAt, streamer, seamCheck: (id) => seamCheck(places[id], terrain), snap });
-  Object.defineProperties(window.__tour, { run: { get: () => run }, mode: { get: () => mode }, walkWorld: { get: () => (at ? walkWorld() : null) } });
+  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap });
+  Object.defineProperties(window.__tour, {
+    run: { get: () => run }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
+    pendingTurn: { get: () => pendingTurn }, walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
+  });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
   function snap(pos, at, fov = 50) {
     const cam = new THREE.PerspectiveCamera(fov, innerWidth / innerHeight, 0.1, 8000);
@@ -247,25 +265,26 @@ async function boot() {
   const clock = new THREE.Clock();
   let skyPos = null, lastStage = -1;
   const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), lightDir = new THREE.Vector3();
-  const head = {};
-  renderer.setAnimationLoop(() => {
+  // one frame (the debug hook can step it by hand when the page is hidden and frames don't come)
+  function frame(dt) {
     fit();
-    const dt = clock.getDelta();
-    const before = drive.s;
-    Object.assign(drive, stepTrain(drive, trainInput({ driving: mode === 'drive', brakeKey: keys.has('Space'), throttleSteps }), dt, spec, run.limits));
+    if (state.mode === 'drive') {
+      const before = drive.s;
+      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space'), throttleSteps }), dt, train.spec, train.limits));
+      train.s = drive.s;
+      poseTrain(train.model, run.route, drive.s, drive.s - before, run.lane);
+    }
     throttleSteps = 0;
-    if (mode === 'foot' && pendingTurn && Math.hypot(player.state.x - train.cars[0].holder.position.x, player.state.z - train.cars[0].holder.position.z) > 30) turnTrain();
-    poseTrain(train, run.route, drive.s, drive.s - before, run.lane);
+    const front = train.model.cars[0].holder.position;
+    if (state.mode === 'foot' && pendingTurn && Math.hypot(player.state.x - front.x, player.state.z - front.z) > 30) turnPending();
     hud();
     if (controls) controls.update();
-    else if (mode === 'foot') player.update(dt, footInput(), walkWorld());
-    else views.update(dt, train);
-    // keep what's near you loaded (Phase 1's ring is small enough that this is everything)
-    if (mode === 'foot') streamer.want(wantedSet({ place: at.place.id }, ring));
-    else streamer.want(wantedSet({ leg: 'city-ocean', s: run.dir === 'out' ? drive.s : run.route.length - drive.s, back: run.dir === 'back' }, ring));
-    // the sky: where you are on the ring sets the time of day
-    const want = mode === 'foot' ? ringPosition({ place: at.place.id })
-      : ringPosition({ leg: 'city-ocean', fraction: run.dir === 'out' ? drive.s / run.route.length : 1 - drive.s / run.route.length });
+    else if (state.mode === 'foot') player.update(dt, footInput(), walkWorld());
+    else views.update(dt, train.model);
+    // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
+    const where = journey.where(state, run, drive.s);
+    streamer.want(wanted(where));
+    const want = ringPosition(where);
     skyPos = skyPos === null ? want : skyPos + (want - skyPos) * Math.min(1, dt * 1.5);
     const sky = skyAt(skyPos);
     if (Math.abs(sky.stage - lastStage) > 0.003) { look.setTime(sky.stage); lastStage = sky.stage; }
@@ -273,13 +292,14 @@ async function boot() {
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
     for (const p of Object.values(places)) p.tick(clock.elapsedTime);
-    anchor.position.copy(controls ? controls.target : mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.cars[0].holder.position);
+    anchor.position.copy(controls ? controls.target : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : front);
     look.update();
     // point the key light along our sun (or, after dark, a high moon) so shadows agree with the sky
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     renderer.render(scene, camera);
-  });
+  }
+  renderer.setAnimationLoop(() => frame(clock.getDelta()));
 }
 
 boot().catch(fail);

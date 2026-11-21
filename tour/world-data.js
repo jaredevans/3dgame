@@ -8,6 +8,7 @@ import { KITS } from './config.js';
 
 export const TRACK_CENTRES = 4;
 export const BUFFER_GAP = 1.5;   // metres from a line's end to its buffer face; a platform starts there
+export const STOP_SHORT = 12;    // a train's stopping point is this far short of the buffers
 // each leg's town side (side: +1 left of its direction, -1 right): its trains run both ways on the line on that side
 export const laneOf = (legId) => LEGS[legId].side * TRACK_CENTRES / 2;
 // Phase 1's lanes on city-ocean: left-hand running (a British railway), the outbound line on the left (+lateral)
@@ -220,6 +221,13 @@ export function stationFrame(placeId, role) {
   const r = legRoute(st.leg), half = BUFFER_GAP + st.platformLength / 2;
   const p = r.at(st.end === 'start' ? half : r.length - half);
   return { x: p.x, z: p.z, y: p.y, yaw: p.yaw, side: LEGS[st.leg].side, leg: st.leg, end: st.end };
+}
+
+// a terminus's platform window and stopping point at one end ('start' | 'end') of a route `length` long, in its s
+export function platformWindow(length, end, platformLength = 120) {
+  const atEnd = end === 'end';
+  const sFrom = atEnd ? length - BUFFER_GAP - platformLength : BUFFER_GAP;
+  return { sFrom, sTo: sFrom + platformLength, stopS: atEnd ? length - BUFFER_GAP - STOP_SHORT : BUFFER_GAP + STOP_SHORT };
 }
 
 // the flat ground a terminus needs: the platform side of its line end, out to the station building

@@ -6,10 +6,13 @@ import { stepWalker, RUN } from './walk.js';
 
 export async function makePlayer(scene, camera, dom, look) {
   const figure = await part(KITS.railway, 'engine-driver', { colorway: 'driver', oilCan: false });
-  const { animate } = await kitModule(KITS.railway, 'clips.mjs');
-  // the clips come from Polyfork's CDN; without them the figure glides in its rest pose rather than failing
+  // the clips come from Polyfork's CDN; without them (or without clips.mjs itself) the figure glides in its rest pose
+  // rather than stopping the tour
   let anim = { locomotion() {}, update() {} };
-  try { anim = await animate(figure); } catch (err) { console.warn('walking clips unavailable', err); }
+  try {
+    const { animate } = await kitModule(KITS.railway, 'clips.mjs');
+    anim = await animate(figure);
+  } catch (err) { console.warn('walking clips unavailable', err); }
   figure.visible = false;
   scene.add(figure);
   look?.shadows(figure);

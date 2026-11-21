@@ -1,37 +1,38 @@
 // A terminus at one end of a leg: both lines end at buffer stops, each with a platform on its outer side; the station
-// building, canopy, lamps, benches and running-in board stand on the outbound line's platform.
+// building, canopy and running-in boards stand on the town-side line's platform (the leg's side: left of its direction
+// for side +1, right for side -1), where its trains come and go both ways.
 // Countryside Railway parts are drawn relative to the track centre line, running +z, on the LEFT (+x) of it, with the
 // formation level at their y = 0: so they go on the line, turned to the side they belong on.
 import * as THREE from 'three';
 import { KITS } from './config.js';
 import { part } from './parts.js';
-import { laneFor, BUFFER_GAP } from './world-data.js';
+import { legRoute, laneOf, platformWindow, BUFFER_GAP, STOP_SHORT } from './world-data.js';
 
-export { BUFFER_GAP };            // metres from the line's end to a buffer face (world-data holds it)
-export const STOP_SHORT = 12;    // the stopping point is this far short of the buffers
+export { BUFFER_GAP, STOP_SHORT };   // the buffer gap and stopping point (world-data holds them)
 export const PLATFORM_TOP = 1.175;
 const PIECE = 4;
 
-// where a piece goes: `s` is the piece's start along the route, `side` +1 left of the lane, -1 right of it
-function place(obj, route, s, lane, side, along = 0, y = 0) {
-  const p = route.offsetAt(side > 0 ? s : s + PIECE, lane);
-  obj.position.set(p.x, p.y + y, p.z);
+// where a piece goes: `s` is the piece's start along the route, `side` +1 left of the lane, -1 right of it (turned
+// round). `extent` is the piece's own z range: a turned piece is anchored so it still covers s .. s + its length.
+function place(obj, route, s, lane, side, extent = [0, PIECE]) {
+  const p = route.offsetAt(side > 0 ? s : s + extent[0] + extent[1], lane);
+  obj.position.set(p.x, p.y, p.z);
   obj.rotation.y = side > 0 ? p.yaw : p.yaw + Math.PI;
-  if (along) obj.translateZ(along);
   return obj;
 }
 
-// end: 'start' or 'end' of the route. Returns the platform each lane's train uses, in this route's s.
-export async function buildTerminus(route, end, { name = '', colorway = 'red-brick' } = {}) {
+// leg: the leg id; end: 'start' or 'end' of it. Returns the platform its trains use there, in the leg's s.
+export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120 } = {}) {
+  const route = legRoute(leg);
   const group = new THREE.Group();
   group.name = `terminus ${name}`;
   const L = route.length, atEnd = end === 'end';
   const buffersS = atEnd ? L : 0;
-  // platform runs over the 120 m nearest the buffers
-  const p0 = atEnd ? L - BUFFER_GAP - 120 : BUFFER_GAP, p1 = p0 + 120;
-  const lanes = { out: laneFor('out'), back: laneFor('back') };
-  // the outer side of each line: the outbound line is the left-hand one, so its platform (and the town) is on the left
-  const sides = { out: Math.sign(lanes.out), back: Math.sign(lanes.back) };
+  // the platform runs over the stretch nearest the buffers
+  const { sFrom: p0, sTo: p1, stopS } = platformWindow(L, end, platformLength);
+  // the town-side line (the leg's trains, both ways) and the other one; each platform is on its line's outer side
+  const lanes = { town: laneOf(leg), other: -laneOf(leg) };
+  const sides = { town: Math.sign(lanes.town), other: Math.sign(lanes.other) };
   const parts = (key, params) => part(KITS.railway, key, params);
 
   const tmpl = {
@@ -67,23 +68,22 @@ export async function buildTerminus(route, end, { name = '', colorway = 'red-bri
       }
     }
   }
-  // the station building and canopy, on the outbound platform at the buffer end
-  const out = lanes.out, side = sides.out;
+  // the station building and canopy, on the town-side platform at the buffer end
+  const town = lanes.town, side = sides.town;
   const building = await parts('station-building', { colorway, hallLength: 14, canopy: false, houseStoreys: 2 });
-  place(building, route, atEnd ? p1 - 18 : p0 + 2, out, side);
+  const bb = new THREE.Box3().setFromObject(building);
+  place(building, route, atEnd ? p1 - 18 : p0 + 2, town, side, [bb.min.z, bb.max.z]);
   group.add(building);
-  for (let k = 0; k < 8; k++) group.add(place(tmpl.canopy.clone(), route, atEnd ? p1 - 4 * (k + 1) - 18 : p0 + 18 + 4 * k, out, side));
+  for (let k = 0; k < 8; k++) group.add(place(tmpl.canopy.clone(), route, atEnd ? p1 - 4 * (k + 1) - 18 : p0 + 18 + 4 * k, town, side));
   for (const s of [atEnd ? p0 + 30 : p1 - 30, atEnd ? p1 - 50 : p0 + 50]) {
     const board = await parts('running-in-board', { colorway: 'cream', length: 4 });
-    const q = route.offsetAt(s, out + side * 5.2);
+    const q = route.offsetAt(s, town + side * 5.2);
     board.position.set(q.x, q.y + PLATFORM_TOP, q.z);
-    board.rotation.y = q.yaw + Math.PI / 2;
+    board.rotation.y = q.yaw + side * Math.PI / 2;   // as on the left, turned round for the right
     group.add(board);
   }
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
-  // what a stopped train needs: the platform window and the stopping point, in this route's s
-  const stopS = atEnd ? L - BUFFER_GAP - STOP_SHORT : BUFFER_GAP + STOP_SHORT;
 
   // for walking: solid things (not the platforms and canopies you walk on and under), and the station's own frame
   group.updateMatrixWorld(true);
