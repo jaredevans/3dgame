@@ -18,6 +18,7 @@ const CARS = { 'city-ocean': ['city', ['veh-compact-car', 'veh-taxi']], 'future-
 const WAIT = [8, 14];                     // the waiting cars' distances back from the boom
 const CAR_SPEED = 8;                      // m/s once the road is open
 const KEEP_LEFT = 1.05;                   // a car's lane centre off the road's middle (left-hand traffic; the cars are 2 m wide)
+const GATE_RATE = 0.5;                    // the booms' swing, a full one a 2 s (react.js's gatesPerSec)
 const BELL_NEAR = 300;                    // the bell rings while the train's front is this near
 const ROAD_COLOR = '#5d5a55';
 const roadMat = new THREE.MeshStandardMaterial({ color: ROAD_COLOR, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
@@ -104,7 +105,12 @@ export async function buildCrossing({ leg, route, def, terrain, slicer, kit }) {
     for (const [k, back] of WAIT.entries()) {
       await slicer.frame();
       const key = carKeys[side > 0 ? k : 1 - k];
-      const obj = await kit(carKit, key, {});
+      // the cars are optional: one that can't be made is left out, and the crossing works without it
+      let obj;
+      try { obj = await kit(carKit, key, {}); } catch (err) {
+        console.warn(`The ${key} at the ${def.id} along ${leg} was left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`);
+        continue;
+      }
       obj.visible = false;
       group.add(obj);
       cars.push({ obj, side, u0: side * (Math.max(...lanes) + POST + back), v: side * KEEP_LEFT });
@@ -117,7 +123,7 @@ export async function buildCrossing({ leg, route, def, terrain, slicer, kit }) {
     c.obj.rotation.set(-Math.atan2(roadY(ahead, c.v) - roadY(behind, c.v), 4), heading(c.side), 0, 'YXZ');
   };
 
-  let phase = 'wait', closed = false, t = 0, bell = 0;
+  let phase = 'wait', closed = false, t = 0, bell = 0, shown = 0;   // shown: how far down the booms are drawn
   const centre = new THREE.Vector3(P.x, P.y, P.z);
   const setGates = (g) => { for (const b of booms) b.rotation.x = -(1 - g) * Math.PI / 2; };
   setGates(0);
@@ -126,20 +132,23 @@ export async function buildCrossing({ leg, route, def, terrain, slicer, kit }) {
     group,
     update(f) {
       if (!f.on) {   // the event's over (or you got out): booms up, the cars gone, back in place next time
-        setGates(0);
+        setGates(0); shown = 0;
         for (const c of cars) c.obj.visible = false;
         phase = 'wait'; closed = false; t = 0; bell = 0;
         return;
       }
       const gates = f.react?.gates ?? 0;
-      setGates(gates);
-      if (gates > 0.5) closed = true;
+      // the booms swing at the gates' own pace (react.js), so gates already down when the event starts (the train set
+      // off from Oceanside, 245 m short, before its window) are seen coming down
+      shown = gates > shown ? Math.min(gates, shown + GATE_RATE * f.dt) : Math.max(gates, shown - GATE_RATE * f.dt);
+      setGates(shown);
+      if (shown > 0.5) closed = true;
       // the bell, once a second, while the booms are down and the train is near
       if (gates > 0 && f.train.front.distanceTo(centre) <= BELL_NEAR) {
         bell -= f.dt;
         if (bell <= 0) { sound('bell'); bell = 1; }
       } else bell = 0;
-      if (phase === 'wait' && closed && gates === 0) { phase = 'go'; t = 0; }
+      if (phase === 'wait' && closed && shown === 0) { phase = 'go'; t = 0; }   // once the booms are up again
       if (phase === 'go') t += f.dt;
       for (const c of cars) {
         const u = phase === 'go' ? c.u0 - c.side * CAR_SPEED * t : c.u0;

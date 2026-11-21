@@ -306,7 +306,7 @@ async function boot() {
     }) : null;
     // its events' actors (`built.actors`, by event id, is what the reactions ask after: have())
     events = EVENTS[id]?.length ? scenery(async ({ gone }) => {
-      const e = await buildEventActors(id, { terrain, slicer });
+      const e = await buildEventActors(id, { terrain, slicer, gone });
       const s = { group: e.group, actors: e.actors, dispose: () => { e.dispose(); unload.add(e.group); } };   // freed with the rest, at a standstill
       if (gone()) return s;   // (left out meanwhile: not drawn, just let go)
       shadows(e.group); await warm(e.group);
@@ -461,11 +461,12 @@ async function boot() {
     reactions = makeReactions(defs.filter((e) => e.react), run.dir, { length: train.length, spec: train.spec });
     evOn = evOut = evLegS = null;
   }
-  // what an actor is told each frame (on: its event's { t, u } while it's active, else null)
+  // what an actor is told each frame (on: its event's { t, u } while it's active, else null; here: you're driving a run
+  // on its leg)
   function actorFrame(leg, id, on, dt) {
     const mine = state.mode === 'drive' && run.leg === leg;
     return {
-      legS: mine ? evLegS : null, dir: mine ? run.dir : null, dt, time: clock.elapsedTime, on,
+      legS: mine ? evLegS : null, dir: mine ? run.dir : null, here: mine, dt, time: clock.elapsedTime, on,
       react: mine ? evOut?.states.get(id) ?? null : null, camera,
       train: { front: train.model.cars[0].holder.position, v: drive.v, length: train.length }, night: look.night, sunDir,
     };
@@ -734,9 +735,11 @@ async function boot() {
     await wantLand(h.x, h.z, true);
     landBoot.ms = Math.round(performance.now() - t0); landBoot.chunks = land.ids.length;
   }
-  // the first leg's event actors, built straight through (slicer.sync) behind the loading screen
+  // the first leg's event actors, built straight through (slicer.sync) behind the loading screen; for BOOT_ACTORS s at
+  // most (a slow CDN), then they carry on in the background under their usual deadline
+  const BOOT_ACTORS = 20;
   setLoading('setting the scene');
-  await streamer.get(state.leg)?.events?.ready;
+  await Promise.race([streamer.get(state.leg)?.events?.ready, new Promise((r) => setTimeout(r, BOOT_ACTORS * 1000))]);
   landSliced = true;
   slicer.sync = false;
   streamer.stall = STALL;   // from now on, a build with nothing coming in for this long couldn't be loaded

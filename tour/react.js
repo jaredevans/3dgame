@@ -9,7 +9,7 @@ const DT_MAX = 0.1;
 const FAR = 800;            // a reaction forgets the train once it is this far from its place
 const MOVING = 1, STOPPED = 0.05;
 
-const CROSSING = { gatesPerSec: 0.5, closeBehind: 350, hornFrom: 80, hornTo: 400 };
+const CROSSING = { arm: 700, gatesPerSec: 0.5, closeBehind: 350, hornFrom: 80, hornTo: 400 };
 const SIGNAL = { arm: 700, standNear: 200, standSecs: 3, gap: 12 };
 const CATTLE = { arm: 700, hornTo: 500, standNear: 120, standSecs: 4, clearSecs: 5, stillThere: 0.6, gap: 20 };
 
@@ -17,7 +17,7 @@ const CATTLE = { arm: 700, hornTo: 500, standNear: 120, standSecs: 4, clearSecs:
 export const mustBrake = (brakeTo, v, spec) => v > STOPPED && brakeTo <= (v * v) / (2 * 0.8 * spec.brake) + v * 0.5;
 
 const fresh = {
-  crossing: () => ({ gates: 0, heard: false }),
+  crossing: () => ({ gates: 0, heard: false, armed: false }),
   signal: () => ({ aspect: 'red', t: 0, armed: false, stopT: 0 }),
   cattle: () => ({ on: true, leaving: 0, armed: false, stopT: 0 }),
   speed: () => ({ inside: false, topKmh: 0 }),
@@ -52,10 +52,13 @@ export function makeReactions(defs, dir, { length, spec = { brake: 1 } }) {
       const still = Math.abs(v) < STOPPED, moving = Math.abs(v) > MOVING;
 
       if (r.kind === 'crossing') {
-        const target = d >= -length && d <= CROSSING.closeBehind ? 1 : 0;
+        // armed once the train moves towards it, as the signal and the cattle are: one standing at a platform near it
+        // (Oceanside's, on the run back) leaves its gates up and asks for no horn
+        if (!s.armed && moving && d >= 0 && d <= CROSSING.arm) s.armed = true;
+        const target = s.armed && d >= -length && d <= CROSSING.closeBehind ? 1 : 0;
         const dg = CROSSING.gatesPerSec * dt;
         s.gates = target > s.gates ? Math.min(target, s.gates + dg) : Math.max(target, s.gates - dg);
-        const inHorn = d >= CROSSING.hornFrom && d <= CROSSING.hornTo;
+        const inHorn = s.armed && d >= CROSSING.hornFrom && d <= CROSSING.hornTo;
         if (horn && inHorn && !s.heard) { s.heard = true; toast('Heard at the crossing'); }
         if (inHorn && !s.heard) prompt('Level crossing ahead: sound the horn (H)');
       } else if (r.kind === 'signal') {

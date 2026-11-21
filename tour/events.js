@@ -21,8 +21,9 @@ export const EVENTS = {
     ev('dolphins', 900, 1300, { shot: { kind: 'heli', at: 1100, lateral: 90 } }),
     ev('boats', 0, 1927, { always: true }),
     // (at: the one stretch near the Oceanside end where both lines lie within 1.5 m of the natural ground for 15 m
-    // either side; the window runs 400 m-ish either side of it, for the gates closing ahead and the cars crossing after)
-    ev('crossing', 1210, 1900, {
+    // either side; the window runs 400 m before it, for the gates closing ahead, and on to 1800 for the cars crossing
+    // after, short of Oceanside's platform)
+    ev('crossing', 1210, 1800, {
       react: { kind: 'crossing', at: { out: 1610, back: 1610 } },
       shot: { kind: 'trackside', at: 1610, lateral: -10 },
     }),

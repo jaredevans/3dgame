@@ -176,6 +176,24 @@ test('crossing: the gates close from 350 m out and open again behind the train',
   for (let i = 0; i < 25; i++) o = r.step(frame(1600, 10));         // d -100, past the train's length
   assert.equal(o.states.get('crossing').gates, 0);
 });
+// a train standing at the platform near a crossing (Oceanside's, 245 m short of city-ocean's on the run back) leaves
+// its gates up and asks for no horn: the crossing is armed, like the signal and the cattle, only once the train moves
+test('crossing: a train standing still near it leaves the gates up, and they close once it moves', () => {
+  const r = makeReactions([crossing], 'back', { length: 70 });
+  let o;
+  for (let i = 0; i < 100; i++) {
+    o = r.step(frame(1745, 0, { horn: i === 50 }));                 // d 245, standing
+    assert.equal(o.states.get('crossing').gates, 0);
+    assert.equal(o.prompt, null);
+    assert.equal(o.toast, null);
+  }
+  assert.equal(o.states.get('crossing').heard, false);
+  o = r.step(frame(1744, 2));                                       // sets off
+  assert.ok(o.states.get('crossing').gates > 0);
+  assert.equal(o.prompt, 'Level crossing ahead: sound the horn (H)');
+  for (let i = 0; i < 25; i++) o = r.step(frame(1740, 2));
+  assert.equal(o.states.get('crossing').gates, 1);
+});
 test('speed: tops recorded inside, toast on leaving', () => {
   const r = makeReactions([speedDef], 'out', { length: 50 });
   r.step(frame(900, 60));
