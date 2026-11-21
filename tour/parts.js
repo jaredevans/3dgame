@@ -1,5 +1,5 @@
 // Loading self-hosted Polyfork kit modules and parts. Every failure names the URL it tried.
-import { kitUrl } from './config.js';
+import { kitUrl, CDN } from './config.js';
 
 const modules = new Map();
 
@@ -21,6 +21,22 @@ export async function part(kitId, key, params = {}) {
   const mod = await kitModule(kitId, `${key}.mjs`);
   const obj = await mod.createAsset(params);
   obj.userData.partKey = key;
+  return obj;
+}
+
+// a part from Polyfork's CDN by its asset id (as index.html loads its town's): its module loaded once
+export async function cdnPart(assetId, params = {}) {
+  const url = `${CDN}${assetId}.mjs`;
+  if (!modules.has(url)) {
+    modules.set(url, import(url).catch((err) => {
+      modules.delete(url);
+      const e = new Error(err?.message ?? String(err));
+      e.url = url;
+      throw e;
+    }));
+  }
+  const obj = await (await modules.get(url)).createAsset(params);
+  obj.userData.partKey = assetId;
   return obj;
 }
 

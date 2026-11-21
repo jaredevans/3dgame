@@ -189,6 +189,9 @@ export const LEGS = {
     // past the town's edge (s 120) where ordinary track runs on into the suburbs; then the long bridge over the river
     // (see FEATURES), in pale stone
     structures: [{ kind: 'guideway', s0: 0, s1: 160, grade: true }, { kind: 'viaduct', s0: 495, s1: 705, stone: 'limestone' }],
+    // its suburbs (suburbs.js): streets of houses either side, from past the guideway's end to the river's valley, and
+    // from beyond it to where the downtown towers begin
+    suburbs: [[200, 430], [780, 1800]],
     // north-north-east out of the Futuristic place through the suburbs, a long right-hand curve, and in heading
     // east along the north edge of Downtown City
     points: [

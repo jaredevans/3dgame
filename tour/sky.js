@@ -7,7 +7,7 @@ const K = (at, stage, zenith, horizon, sunElevationDeg, sunAzimuthDeg, cloudCove
   ({ at, stage, zenith: hex(zenith), horizon: hex(horizon), sunElevationDeg, sunAzimuthDeg, cloudCover, haze, sun: hex(sun), stars });
 
 export const SKY_KEYS = [
-  K(0.0, 0.04, '#3f86cf', '#cfe4f1', 32, 110, 0.38, 0.30, '#fff4dc'),          // City: bright morning, puffy clouds
+  K(0.0, 0.04, '#3f86cf', '#cfe4f1', 32, 100, 0.38, 0.30, '#fff4dc'),          // City: bright morning, puffy clouds
   K(1.0, 0.00, '#3a80d2', '#d5e8f3', 50, 145, 0.42, 0.25, '#fffaf0'),          // Oceanside: late morning, sparkling sea
   K(1.5, 0.00, '#3478cd', '#d9e7ef', 62, 180, 0.30, 0.20, '#ffffff'),          // midday, high wisps
   K(2.0, 0.06, '#3b7dc9', '#dfe9ee', 50, 215, 0.22, 0.14, '#fff6e6'),          // Mountain: crisp early afternoon
@@ -15,8 +15,13 @@ export const SKY_KEYS = [
   K(2.9, 0.52, '#3d5193', '#f4985c', 4, 268, 0.45, 0.35, '#ffb070'),           // sunset over the red rock
   K(3.4, 0.74, '#1d2754', '#c06a5e', -6, 285, 0.35, 0.30, '#ff9a6a', 0.3),     // dusk
   K(4.0, 1.00, '#060a1c', '#1a2148', -30, 300, 0.15, 0.20, '#c8d4ff', 1),      // Futuristic: night, stars
-  K(4.5, 0.86, '#122047', '#5d6298', -10, 80, 0.20, 0.25, '#ffc8a8', 0.5),     // pre-dawn blue
-  K(4.8, 0.55, '#4a6aa8', '#f3a97b', 3, 95, 0.30, 0.30, '#ffc890', 0.05),      // sunrise behind the skyline
+  // the Metro Glide's leg: the sun comes up over Downtown City's towers as the line swings round towards it, and stays
+  // low behind them, as the cab sees them ahead, until the train is in among them (its azimuth follows the City's bearing
+  // from the line: 91 degrees where the sun rises, 82 at 4.8, 66 at 4.89)
+  K(4.5, 0.86, '#122047', '#5d6298', -10, 95, 0.20, 0.25, '#ffc8a8', 0.5),     // pre-dawn blue
+  K(4.72, 0.64, '#3a5893', '#e99a80', 0, 91, 0.28, 0.29, '#ffbf92', 0.15),     // the sun on the horizon behind the skyline
+  K(4.8, 0.55, '#4a6aa8', '#f3a97b', 3, 82, 0.30, 0.30, '#ffc890', 0.05),      // sunrise behind the skyline
+  K(4.89, 0.34, '#5f86c2', '#f7c493', 8, 66, 0.33, 0.30, '#ffdcae'),           // still low over the towers, coming in
 ];
 
 const lerp = (a, b, t) => a + (b - a) * t;

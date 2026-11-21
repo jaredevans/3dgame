@@ -18,6 +18,9 @@ export const KITS = {
   nature: 'nature-forest-kit-f29d6a',
 };
 
+// Polyfork's free per-part CDN, for the few parts whose kit isn't self-hosted (the suburbs' Neighborhood Pathways houses)
+export const CDN = 'https://polyfork.dev/cdn/';
+
 export function kitUrl(kitId, file, base = KIT_BASE) {
   return `${base}${kitId}/${file}`;
 }

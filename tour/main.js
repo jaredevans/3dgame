@@ -11,6 +11,7 @@ import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
 import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK } from './chunks.js';
 import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
+import { buildSuburbs } from './suburbs-mesh.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
 import { poseTrain } from './vehicles.js';
@@ -100,7 +101,7 @@ async function boot() {
     places[id] = place;
     return { dispose() { place.dispose(); if (place.patch) terrain.removePatch(place.patch); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
   };
-  // a leg: its two lines' track, and its viaducts, tunnels, trestles and guideways (with any river they cross)
+  // a leg: its two lines' track, its viaducts, tunnels, trestles and guideways (with any river they cross), and its suburbs
   async function buildLeg(id) {
     const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
     const tracks = lanes.map((lane) => buildTrack(route, lane, route.sections));   // none on its guideways
@@ -111,9 +112,13 @@ async function boot() {
     look.shadows(structures);
     scene.add(structures);
     terrain.addStructures(route);   // its portals now fill the ground left out across them
+    // its suburbs (suburbs.js), if it runs through any
+    const suburbs = LEGS[id].suburbs ? await buildSuburbs(id, terrain) : null;
+    if (suburbs) { look.shadows(suburbs); scene.add(suburbs); }
     return { structures, dispose() {
       for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); }
       structures.userData.dispose();
+      suburbs?.userData.dispose();
       terrain.removeStructures(route);
     } };
   }

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { skyAt, SKY_KEYS, ringPosition } from '../sky.js';
+import { PLACES, legRoute } from '../world-data.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 const same = (a, b) => { for (const k of Object.keys(a)) if (Array.isArray(a[k])) a[k].forEach((v, i) => near(v, b[k][i], 1e-9, k)); else near(a[k], b[k], 1e-9, k); };
@@ -60,4 +61,29 @@ test('the sky eases the short way round the ring', async () => {
     const at = ((p % 5) + 5) % 5;
     assert.ok(at >= 4.99 || at <= 0.01, `the sky went round to ${at.toFixed(2)}`);
   }
+});
+
+// the Metro Glide's leg runs from pre-dawn blue into sunrise behind the skyline: the sun comes up over Downtown City as
+// the train comes in, and while it is low (up to 9 degrees) it stands behind the City's towers as seen from the cab (within
+// the footprint's width as it looks from there, and the City in the cab's view ahead), then City's morning is bright
+test("the sun comes up behind Downtown City's skyline as the Metro Glide comes in", () => {
+  const r = legRoute('future-city'), L = r.length, city = PLACES.city, half = Math.hypot(...city.size) / 2;
+  const deg = (a) => a * 180 / Math.PI, turn = (a) => ((a % 360) + 540) % 360 - 180;
+  let rose = null, low = 0;
+  for (let s = 0; s <= L - 100; s += 5) {
+    const k = skyAt(4 + s / L);
+    if (k.sunElevationDeg < 0) { assert.equal(rose, null, `the sun set again at s=${s}`); continue; }
+    rose ??= s;
+    if (s <= L - 200) assert.ok(k.sunElevationDeg <= 12, `the sun is ${k.sunElevationDeg.toFixed(1)} degrees up at s=${s}, not low over the skyline`);
+    if (k.sunElevationDeg > 9) continue;
+    low++;
+    const p = r.at(s), bearing = deg(Math.atan2(city.centre.x - p.x, city.centre.z - p.z));
+    const width = deg(Math.atan(half / Math.hypot(city.centre.x - p.x, city.centre.z - p.z)));
+    assert.ok(Math.abs(turn(bearing - deg(p.yaw))) <= 35, `s=${s}: the City is ${turn(bearing - deg(p.yaw)).toFixed(0)} degrees off ahead`);
+    assert.ok(Math.abs(turn(k.sunAzimuthDeg - bearing)) <= width + 3, `s=${s}: the sun ${turn(k.sunAzimuthDeg - bearing).toFixed(1)} degrees off the City (its towers span ${width.toFixed(1)})`);
+  }
+  assert.ok(rose !== null && rose >= 0.6 * L && rose <= 0.8 * L, `the sun rises at s=${rose}, of ${L.toFixed(0)}`);
+  assert.ok(low >= 40, `the sun low over the skyline for ${low * 5} m`);
+  // and City's morning stays bright
+  assert.ok(skyAt(0).stage < 0.1 && skyAt(0).sunElevationDeg >= 25 && skyAt(0).stars === 0, 'City at bright morning');
 });
