@@ -44,6 +44,16 @@ test('every react point is at least 300 m from the start of each run it is on', 
   }
   assert.ok(checked >= 7);
 });
+test('every event that is not always carries a shot, and so does the signal', () => {
+  for (const leg of RING.legs) {
+    for (const e of EVENTS[leg]) {
+      if (e.always && e.id !== 'signal') continue;
+      assert.equal(typeof e.shot?.kind, 'string', `${leg} ${e.id}`);
+    }
+  }
+  const signal = EVENTS['ocean-mountain'].find((e) => e.id === 'signal');
+  assert.deepEqual(signal.shot, { kind: 'below', at: 771 });
+});
 test('aheadOf mirrors on a back run', () => {
   assert.equal(aheadOf(300, 400, 'out'), 100);
   assert.equal(aheadOf(500, 400, 'back'), 100);

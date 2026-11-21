@@ -33,7 +33,7 @@ export const EVENTS = {
     ev('signal', 200, 760, {
       dirs: ['out'], always: true,
       react: { kind: 'signal', at: { out: 400 } },
-      shot: { kind: 'trackside', at: 400, lateral: -6 },
+      shot: { kind: 'below', at: 771 },
     }),
     ev('eagle', 640, 1000, { shot: { kind: 'heli', at: 820, lateral: 70 } }),
     showpiece('portal', 434, 700, { kind: 'portal', at: 642 }, { dirs: ['out'] }),
@@ -55,7 +55,7 @@ export const EVENTS = {
   ],
   'west-future': [
     ev('farm', 0, 4144, { always: true }),
-    ev('speed', 700, 3400, { react: { kind: 'speed', s0: 800, s1: 3300 } }),
+    ev('speed', 700, 3400, { react: { kind: 'speed', s0: 800, s1: 3300 }, shot: { kind: 'chase', at: 2050 } }),
     ev('bullet', 1500, 2300, { shot: { kind: 'trackside', at: 1900, lateral: -8 } }),
     ev('rocket', 1900, 2900, { shot: { kind: 'wide', at: 2400, lateral: 200 } }),
     ev('drones', 3000, 3700, { shot: { kind: 'heli', at: 3350, lateral: 60 } }),
