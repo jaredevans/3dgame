@@ -39,7 +39,8 @@ export function makeSlicer({ now = () => performance.now() } = {}) {
 // is let go first, it is freed as soon as it's ready, never added. If it isn't in after `deadline` seconds of frames
 // (tick(dt), once a frame: a hidden tab runs none, and builds none of its slices either), it's left out (warned about)
 // and let go if it lands after all. Let go (dispose()) before it's in, it's left out: settled.
-// -> { dispose(), tick(dt), settled (in, or left out), ready: promise (true if added) }
+// -> { dispose(), tick(dt), settled (in, or left out), built (what its build returned, once added; else null), ready:
+// promise (true if added) }
 export function scenery(build, { add, warn = console.warn, deadline = Infinity }) {
   let gone = false, built = null, settled = false, waited = 0;
   const ready = (async () => {
@@ -55,6 +56,7 @@ export function scenery(build, { add, warn = console.warn, deadline = Infinity }
   return {
     ready, dispose,
     get settled() { return settled; },
+    get built() { return built; },
     tick(dt) {
       if (settled || gone) return;
       waited += dt;

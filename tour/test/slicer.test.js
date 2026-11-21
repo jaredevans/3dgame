@@ -109,3 +109,17 @@ test('optional scenery left out before it is in is settled at once, and never ad
   assert.deepEqual(added, []);
   assert.equal(freed, 1);
 });
+
+// what the build returned is on the handle once it's in (the page reads a leg's event actors from it), and gone once
+// it's let go
+test("optional scenery's built is what its build returned, once added, and null before and after", async () => {
+  let release;
+  const s = scenery(() => new Promise((r) => { release = r; }), { add() {} });
+  assert.equal(s.built, null);
+  const made = { group: 'actors', actors: new Map([['crossing', {}]]), dispose() {} };
+  release(made);
+  await s.ready;
+  assert.equal(s.built, made);
+  s.dispose();
+  assert.equal(s.built, null);
+});

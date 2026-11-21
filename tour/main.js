@@ -15,6 +15,9 @@ import { loadScenery, sceneryGroup, sceneryWarmup, disposeScenery } from './scen
 import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
 import { buildSuburbs } from './suburbs-mesh.js';
+import { buildEventActors } from './actors/index.js';
+import { EVENTS, eventsFor, makeEventTrack } from './events.js';
+import { makeReactions, mustBrake } from './react.js';
 import { makeSlicer, scenery } from './slicer.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
@@ -244,33 +247,37 @@ async function boot() {
   const slicer = makeSlicer();
   const SCENERY_SLICE = 4;
   // a leg: its two lines' track, and its viaducts, tunnels, trestles and guideways (with any river they cross), built
-  // where it may land (ctx.still()). Its suburbs, if it runs through any, follow in the background: the leg never waits
-  // on them (its train does), and if they can't be built (their parts come from Polyfork's CDN), or aren't in after
-  // SUBURBS_DEADLINE s of frames, it goes on without them. Nothing is left half-added if the leg's build fails, and the
-  // ground fill across its portals (terrain.addStructures: one flag per route) is put in and taken out only by the build
-  // that owns it, never by one that stalled and landed late.
+  // where it may land (ctx.still()). Its extras, its suburbs if it runs through any and its events' actors
+  // (actors/index.js), follow in the background: the leg never waits on them (its train does), and if they can't be
+  // built (their parts come from Polyfork's CDN), or aren't in after SUBURBS_DEADLINE s of frames, it goes on without
+  // them. Nothing is left half-added if the leg's build fails, and the ground fill across its portals
+  // (terrain.addStructures: one flag per route) is put in and taken out only by the build that owns it, never by one
+  // that stalled and landed late.
   const SUBURBS_DEADLINE = 30;
   const legOwner = {};   // leg -> the build of it whose structures stand
   async function buildLeg(id, ctx) {
     await ctx.still();
     const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
     const tracks = lanes.map((lane) => buildTrack(route, lane, route.sections));   // none on its guideways
-    let structures = null, suburbs = null;
+    let structures = null, suburbs = null, events = null;
     const thing = {
-      structures: null, suburbs: null,
-      // done once its suburbs are in (or left out): the train along it waits for that, so they're never built as you
+      structures: null, suburbs: null, events: null,
+      // done once its extras are in (or left out): the train along it waits for that, so they're never built as you
       // drive
-      settled: () => !suburbs || suburbs.settled,
-      tick: (dt) => suburbs?.tick(dt),
-      // its train is boarded before its suburbs are in (you waited WAIT_MAX s): they're left out, optional scenery
-      leaveOutSuburbs() {
-        if (!suburbs || suburbs.settled) return;
-        console.warn(`The suburbs along ${id} were left out: not in when its train set off`);
-        suburbs.dispose();
+      settled: () => (!suburbs || suburbs.settled) && (!events || events.settled),
+      tick: (dt) => { suburbs?.tick(dt); events?.tick(dt); },
+      // its train is boarded before its extras are in (you waited WAIT_MAX s): they're left out, optional scenery
+      leaveOutExtras() {
+        for (const [what, x] of [['suburbs', suburbs], ['event actors', events]]) {
+          if (!x || x.settled) continue;
+          console.warn(`The ${what} along ${id} were left out: not in when its train set off`);
+          x.dispose();
+        }
       },
       dispose() {
         unload.add(...tracks, ...(structures ? [structures] : []));   // freed at a standstill, with the kits' parts unless something drawn shares them
         suburbs?.dispose();
+        events?.dispose();
         if (disown(legOwner, id, thing)) terrain.removeStructures(route);
       },
     };
@@ -297,7 +304,18 @@ async function boot() {
       add: (g) => scene.add(g), deadline: SUBURBS_DEADLINE,
       warn: (err) => console.warn(`The suburbs along ${id} were left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`),
     }) : null;
-    Object.assign(thing, { structures, suburbs });
+    // its events' actors (`built.actors`, by event id, is what the reactions ask after: have())
+    events = EVENTS[id]?.length ? scenery(async ({ gone }) => {
+      const e = await buildEventActors(id, { terrain, slicer });
+      const s = { group: e.group, actors: e.actors, dispose: () => { e.dispose(); unload.add(e.group); } };   // freed with the rest, at a standstill
+      if (gone()) return s;   // (left out meanwhile: not drawn, just let go)
+      shadows(e.group); await warm(e.group);
+      return s;
+    }, {
+      add: (g) => scene.add(g), deadline: SUBURBS_DEADLINE,
+      warn: (err) => console.warn(`The event actors along ${id} were left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`),
+    }) : null;
+    Object.assign(thing, { structures, suburbs, events });
     return thing;
   }
   for (const id of legIds) {
@@ -431,12 +449,61 @@ async function boot() {
     t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));   // fitted as it loaded (fleet's prepare)
     return t;
   }
+  // ---- the events along the run you're driving (events.js), and how the world answers you (react.js): made afresh
+  // each time you take a train. Each leg's actors (actors/index.js) come in with its extras ----
+  let track = null, reactions = null, hornPressed = false;
+  let evOn = null, evOut = null, evLegS = null;   // this frame's events ({ active, started, ended }), the reactions' answer, the front's leg-s
+  const legActors = (leg) => streamer.get(leg)?.events?.built?.actors ?? null;
+  const eventDefs = Object.fromEntries(Object.entries(EVENTS).map(([leg, defs]) => [leg, new Map(defs.map((e) => [e.id, e]))]));
+  function startEvents() {
+    const defs = eventsFor(run.leg, run.dir);
+    track = makeEventTrack(defs);
+    reactions = makeReactions(defs.filter((e) => e.react), run.dir, { length: train.length, spec: train.spec });
+    evOn = evOut = evLegS = null;
+  }
+  // what an actor is told each frame (on: its event's { t, u } while it's active, else null)
+  function actorFrame(leg, id, on, dt) {
+    const mine = state.mode === 'drive' && run.leg === leg;
+    return {
+      legS: mine ? evLegS : null, dir: mine ? run.dir : null, dt, time: clock.elapsedTime, on,
+      react: mine ? evOut?.states.get(id) ?? null : null, camera,
+      train: { front: train.model.cars[0].holder.position, v: drive.v, length: train.length }, night: look.night, sunDir,
+    };
+  }
+  const actorErrors = new Set();
+  function act(actor, f) {
+    try { actor.update(f); } catch (err) {   // an actor that throws is reported (each different error once); the rest go on
+      const key = String(err?.stack ?? err);
+      if (!actorErrors.has(key)) { actorErrors.add(key); console.error(err); }
+    }
+  }
+  // the current leg's active actors (and once more, with on: null, those whose event just ended); every built leg's
+  // `always` ones
+  function updateActors(dt) {
+    for (const leg of legIds) {
+      const actors = legActors(leg);
+      if (!actors) continue;
+      const mine = state.mode === 'drive' && run.leg === leg && evOn;
+      for (const [id, a] of actors) {
+        const on = mine ? evOn.active.get(id) ?? null : null;
+        if (on || eventDefs[leg].get(id)?.always || (mine && evOn.ended.includes(id))) act(a, actorFrame(leg, id, on, dt));
+      }
+    }
+  }
+  // getting out (or jumping) inside an event's window ends it: each active actor is told so once, so nothing freezes in
+  // view
+  function endEvents() {
+    const actors = legActors(run.leg);
+    if (actors && evOn) for (const id of evOn.active.keys()) { const a = actors.get(id); if (a) act(a, actorFrame(run.leg, id, null, 0)); }
+    track = reactions = evOn = evOut = evLegS = null;
+  }
   function take(leg, dir) {
     const t = drivable(leg);
     if (t.run.dir !== dir) fleet.park(leg, dir);   // turned round for the trip back: it waits on its run's start
     train = t; run = t.run;
     Object.assign(drive, { s: t.s, v: 0, throttle: 0 });
     views.attachCab(t.cab);
+    startEvents();
   }
   take(state.leg, state.dir);
 
@@ -452,6 +519,7 @@ async function boot() {
   const stopHere = () => journey.stopAt(run, drive);
   function getOut() {
     const here = stopHere();
+    endEvents();   // no reactions on foot
     state = journey.getOut(state, here);
     // step out onto the platform beside the line, a little behind the cab
     const out = journey.stepOut(run, drive.s);
@@ -507,7 +575,7 @@ async function boot() {
     .map((w) => ({ ...w, stopped: true, cars: trainPoints(fleet.trains[w.leg].model) })));
   function board(w) {
     drivable(w.leg);
-    streamer.get(w.leg).leaveOutSuburbs();   // (boarded after waiting your longest on them: readyToLeave)
+    streamer.get(w.leg).leaveOutExtras();   // (boarded after waiting your longest on them: readyToLeave)
     turnPending();
     state = journey.board(state, w.leg, w.dir);
     take(w.leg, w.dir);
@@ -532,7 +600,7 @@ async function boot() {
     if (state.mode !== 'drive') return;
     if (e.code === 'KeyW' || e.code === 'ArrowUp') throttleSteps++;
     if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
-    if (e.code === 'KeyH') horn(train.spec.sound);
+    if (e.code === 'KeyH') { horn(train.spec.sound); hornPressed = true; }
     if (e.code === 'KeyV') views.cycle();
     if (e.code === 'Digit1') views.set('cab');
     if (e.code === 'Digit2') views.set('drone');
@@ -549,15 +617,22 @@ async function boot() {
   $('driver').classList.add('on');
   // how far: to the metre for the last 100 m, to 10 m below a kilometre, then in kilometres
   const distance = (m) => (m < 100 ? `${Math.round(m)} m` : m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
-  function hud() {
-    let prompt = '';
+  let toastLeft = 0, eventLine = '';
+  function hud(dt) {
+    let prompt = '', message = '';
     if (state.mode === 'drive') {
       const to = PLACES[run.to].name, here = stopHere();
       $('spd').textContent = Math.round(Math.abs(drive.v) * 3.6);
       $('thr').textContent = `throttle ${Math.round(drive.throttle * 100)}%${drive.v < -0.05 ? ' · reversing' : ''}`;
       const toGo = run.stopS - drive.s;
-      $('dist').textContent = toGo > 1 ? `${to} ${distance(toGo)}` : `${to}: stop here`;
+      // on the high-speed stretch, the top speed you've reached on it
+      const speed = evOut && [...evOut.states.values()].find((st) => st.inside);
+      $('dist').textContent = (toGo > 1 ? `${to} ${distance(toGo)}` : `${to}: stop here`) + (speed ? ` · top ${Math.round(speed.topKmh)} km/h` : '');
       if (here && arr.getOut) prompt = arr.hold ? 'Getting the next towns ready…' : `Get out at ${PLACES[here].name} (E)`;
+      else if (evOut?.prompt) prompt = evOut.prompt;
+      message = evOut?.message ?? '';
+      // a reaction's word (heard at the crossing, the signal's green, the top speed) for 3 s
+      if (evOut?.toast) { $('toast').textContent = evOut.toast; toastLeft = 3; }
       $('mode').textContent = `${train.spec.name} to ${to}`;
     } else {
       const w = boardable();
@@ -572,6 +647,9 @@ async function boot() {
     }
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
+    if (message !== eventLine) { eventLine = message; $('event').textContent = message; $('event').classList.toggle('on', !!message); }
+    toastLeft = Math.max(0, toastLeft - dt);
+    $('toast').classList.toggle('on', toastLeft > 0);
   }
 
   let controls = null;
@@ -606,7 +684,22 @@ async function boot() {
       return { chunks: sceneryGroups.size, meshes, pieces, layouts: layouts.size, on: sceneryOn.on };
     }, set: (on) => { sceneryOn.on = !!on; for (const g of sceneryGroups) g.visible = sceneryOn.on; } },
     walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
+    // the events active on the run you're driving, and the reactions' states
+    events: { get: () => ({ active: evOn ? [...evOn.active.keys()] : [], react: evOut ? Object.fromEntries(evOut.states) : {} }) },
   });
+  // developer aid: put your train, stopped, at leg-s `legS` on the run you're driving (within its limits), its events
+  // and reactions afresh; -> the leg-s it's at
+  function jump(legS) {
+    if (state.mode !== 'drive') throw new Error('jump works only while driving');
+    endEvents();
+    const s = run.dir === 'back' ? run.route.length - legS : legS;
+    Object.assign(drive, { s: Math.min(train.limits.sMax, Math.max(train.limits.sMin, s)), v: 0, throttle: 0 });
+    train.s = drive.s;
+    poseTrain(train.model, run.route, drive.s, 0, run.lane);
+    startEvents();
+    return journey.where(state, run, drive.s).s;
+  }
+  window.__tour.jump = jump;
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
   function snap(pos, at, fov = 50) {
     const cam = new THREE.PerspectiveCamera(fov, innerWidth / innerHeight, 0.1, 8000);
@@ -641,6 +734,9 @@ async function boot() {
     await wantLand(h.x, h.z, true);
     landBoot.ms = Math.round(performance.now() - t0); landBoot.chunks = land.ids.length;
   }
+  // the first leg's event actors, built straight through (slicer.sync) behind the loading screen
+  setLoading('setting the scene');
+  await streamer.get(state.leg)?.events?.ready;
   landSliced = true;
   slicer.sync = false;
   streamer.stall = STALL;   // from now on, a build with nothing coming in for this long couldn't be loaded
@@ -676,17 +772,24 @@ async function boot() {
     fit();
     if (state.mode === 'drive') {
       const before = drive.s;
-      // held at a platform: the brake on and the throttle shut, so the train sets off only when you open it again
-      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || arr.hold, throttleSteps: arr.hold ? 0 : throttleSteps }), dt, train.spec, train.limits));
-      if (arr.hold) drive.throttle = 0;
+      // the events along the run where the front is now, and the reactions to them (the horn, if you sounded it)
+      evLegS = journey.where(state, run, drive.s).s;
+      evOn = track.step({ legS: evLegS, dt });
+      evOut = reactions.step({ legS: evLegS, v: drive.v, dt, horn: hornPressed, have: (id) => !!legActors(run.leg)?.has(id) });
+      // the guard brakes for a stop ahead you aren't braking for (a red signal, cattle on the line), and holds it there
+      const guard = evOut.brakeTo !== null && (mustBrake(evOut.brakeTo, drive.v, train.spec) || evOut.brakeTo <= 0);
+      // held at a platform (or by the guard): the brake on and the throttle shut, so the train sets off only when you
+      // open it again
+      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || arr.hold || guard, throttleSteps: arr.hold || guard ? 0 : throttleSteps }), dt, train.spec, train.limits));
+      if (arr.hold || guard) drive.throttle = 0;
       train.s = drive.s;
       poseTrain(train.model, run.route, drive.s, drive.s - before, run.lane);
       train.cab?.interior.userData.speed?.(Math.abs(drive.v) * 3.6);   // a cab with a speed readout
     }
-    throttleSteps = 0;
+    throttleSteps = 0; hornPressed = false;
     const front = train.model.cars[0].holder.position;
     if (state.mode === 'foot' && pendingTurn && Math.hypot(player.state.x - front.x, player.state.z - front.z) > 30) turnPending();
-    hud();
+    hud(dt);
     if (controls) controls.update();
     else if (state.mode === 'foot') player.update(dt, footInput(), walkWorld());
     else views.update(dt, train.model);
@@ -732,6 +835,7 @@ async function boot() {
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
     for (const p of Object.values(places)) p.tick(clock.elapsedTime);
+    updateActors(dt);
     anchor.position.copy(here());
     look.update();
     redoDirty();

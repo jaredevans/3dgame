@@ -38,3 +38,48 @@ export function horn(kind) {
     o.connect(out); o.start(t0); o.stop(t0 + dur + 0.05);
   });
 }
+
+// event sounds: 'bell' (one ding of a crossing's bell), 'whoosh' (something fast going by), 'rumble' (a low roll, as
+// of rock or a heavy train) and 'roar' (a jet or a rocket). The noises are a filtered noise buffer; each stays under
+// 0.12 gain
+let noise = null;
+function noiseBuffer() {
+  if (noise) return noise;
+  const n = audio.sampleRate * 2;
+  noise = audio.createBuffer(1, n, audio.sampleRate);
+  const d = noise.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  return noise;
+}
+// a burst of noise through a filter: its gain rising over `attack` s to `peak`, held, then gone by `dur`
+function noiseBurst({ type, freq, to = freq, q = 0.7, peak, attack, dur }) {
+  const t0 = audio.currentTime, src = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
+  src.buffer = noiseBuffer(); src.loop = true;
+  f.type = type; f.Q.value = q;
+  f.frequency.setValueAtTime(freq, t0); f.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+  g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(peak, t0 + attack);
+  g.gain.setValueAtTime(peak, t0 + Math.max(attack, dur * 0.6)); g.gain.linearRampToValueAtTime(0, t0 + dur);
+  src.connect(f).connect(g).connect(audio.destination);
+  src.start(t0); src.stop(t0 + dur + 0.05);
+}
+const SOUNDS = {
+  bell() {
+    // a struck bell: a few inharmonic partials, ringing away
+    const t0 = audio.currentTime, out = audio.createGain();
+    out.gain.value = 0.07;
+    out.connect(audio.destination);
+    for (const [f, a, d] of [[1180, 1, 0.9], [2950, 0.45, 0.5], [4400, 0.2, 0.3]]) {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(a, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.001, t0 + d);
+      o.connect(g).connect(out); o.start(t0); o.stop(t0 + d + 0.05);
+    }
+  },
+  whoosh: () => noiseBurst({ type: 'bandpass', freq: 400, to: 2400, q: 1.2, peak: 0.1, attack: 0.5, dur: 1.4 }),
+  rumble: () => noiseBurst({ type: 'lowpass', freq: 160, to: 90, q: 0.9, peak: 0.11, attack: 0.4, dur: 2.5 }),
+  roar: () => noiseBurst({ type: 'lowpass', freq: 900, to: 300, q: 0.6, peak: 0.08, attack: 0.8, dur: 3.5 }),
+};
+export function sound(name) {
+  audio ||= new AudioContext();
+  SOUNDS[name]?.();
+}

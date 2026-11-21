@@ -6,6 +6,7 @@
 // metres, along its own x and z), turned by yaw (its +z towards (sin yaw, cos yaw)), standing on its ground at y; a
 // street tile or a car also lies on the ground's slope (pitch, roll); a house stands level on a plinth down to `plinth`.
 import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute } from './world-data.js';
+import { EVENTS } from './events.js';
 
 // distances out from the line's centre, on either side (metres)
 export const LAYOUT = {
@@ -19,6 +20,9 @@ export const LAYOUT = {
 export const CLEAR_LINE = 12;    // nothing nearer a line's centre than this
 export const CLEAR_RIVER = 120;  // nor this near a river's course (its valley's half-width and fade, and more)
 export const CLEAR_PLACE = 25;   // nor this near a place's footprint
+// a level crossing's road (actors/crossing.js): `width` wide, straight out `length` m either side of the line, square to
+// it at the crossing; nothing but the street stands within `half` of its middle
+export const ROAD = { width: 6, half: 5, length: 70 };
 // a house stands level on a plinth of dressed stone filling down to its ground's lowest point (the land rolls): its floor at
 // its footprint's highest ground, and only where that plinth is no taller than this
 export const PLINTH = 1.2;
@@ -89,7 +93,16 @@ export function* suburbLayoutJob(legId, terrain) {
   // a piece at s, `d` out on side `side` (+1 left), turned to face away from the line (out: true) or towards it
   const at = (s, d, side) => { route.offsetAt(s, side * d, p); return { x: p.x, z: p.z, lineYaw: route.at(s).yaw }; };
   const facing = (lineYaw, side, out) => lineYaw + (out ? side : -side) * Math.PI / 2;
-  const clear = (q) => [...corners(q), [q.x, q.z]].every(([x, z]) => clearGround(x, z, terrain));
+  // the level crossings' roads: { x, z, fx, fz } (where, and the line's heading there)
+  const roads = (EVENTS[legId] ?? []).filter((e) => e.react?.kind === 'crossing').map((e) => {
+    const c = route.at(e.react.at.out);
+    return { x: c.x, z: c.z, fx: Math.sin(c.yaw), fz: Math.cos(c.yaw) };
+  });
+  const offRoad = (x, z) => roads.every((r) => {
+    const along = (x - r.x) * r.fx + (z - r.z) * r.fz, across = (x - r.x) * r.fz - (z - r.z) * r.fx;
+    return Math.abs(along) >= ROAD.half || Math.abs(across) > ROAD.length;
+  });
+  const clear = (q) => [...corners(q), [q.x, q.z]].every(([x, z]) => clearGround(x, z, terrain) && (q.kind === 'street' || offRoad(x, z)));
   // stand a small piece on its ground: at its footprint's lowest point, so it never floats
   const put = (q) => {
     if (!clear(q)) return false;

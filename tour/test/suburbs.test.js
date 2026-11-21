@@ -96,3 +96,19 @@ test('no house stands on another, on the street, on a fence or on a car', () => 
     for (const o of solid) assert.ok(!overlap(houses[i], o), `a house on a ${o.kind}`);
   }
 });
+
+// the level crossing's road (actors/crossing.js) runs straight out from the line at the crossing, square to it: no
+// house, fence, tree, mailbox or car on it (the street it meets runs on across it)
+test('nothing but the street stands on the level crossing\'s road', async () => {
+  const { EVENTS } = await import('../events.js');
+  const { ROAD } = await import('../suburbs.js');
+  const at = EVENTS['future-city'].find((e) => e.react?.kind === 'crossing').react.at.out;
+  const p = route.at(at), fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+  for (const q of layout) {
+    if (q.kind === 'street') continue;
+    for (const [x, z] of [...corners(q), [q.x, q.z]]) {
+      const along = (x - p.x) * fx + (z - p.z) * fz, across = (x - p.x) * fz - (z - p.z) * fx;
+      assert.ok(Math.abs(along) >= ROAD.half || Math.abs(across) > ROAD.length, `a ${q.kind} on the crossing's road (${along.toFixed(1)}, ${across.toFixed(1)})`);
+    }
+  }
+});

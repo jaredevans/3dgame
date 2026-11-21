@@ -20,9 +20,11 @@ export const EVENTS = {
     ev('freight', 600, 1150, { shot: { kind: 'trackside', at: 875, lateral: -8 } }),
     ev('dolphins', 900, 1300, { shot: { kind: 'heli', at: 1100, lateral: 90 } }),
     ev('boats', 0, 1927, { always: true }),
-    ev('crossing', 1150, 1600, {
-      react: { kind: 'crossing', at: { out: 1500, back: 1500 } },
-      shot: { kind: 'trackside', at: 1500, lateral: -10 },
+    // (at: the one stretch near the Oceanside end where both lines lie within 1.5 m of the natural ground for 15 m
+    // either side; the window runs 400 m-ish either side of it, for the gates closing ahead and the cars crossing after)
+    ev('crossing', 1210, 1900, {
+      react: { kind: 'crossing', at: { out: 1610, back: 1610 } },
+      shot: { kind: 'trackside', at: 1610, lateral: -10 },
     }),
     showpiece('cliffs', 900, 1300, { kind: 'wide', at: 1100, lateral: 120 }),
   ],
@@ -66,9 +68,11 @@ export const EVENTS = {
     showpiece('bridge', 495, 705, { kind: 'below', at: 600 }),
     ev('traffic', 780, 1800, { shot: { kind: 'high-wide', at: 1290, lateral: 100 } }),
     ev('plane', 1100, 1500, { shot: { kind: 'trackside', at: 1300, lateral: -8, height: 1.2, fov: 60 } }),
-    ev('crossing', 1350, 1750, {
-      react: { kind: 'crossing', at: { out: 1650, back: 1650 } },
-      shot: { kind: 'trackside', at: 1650, lateral: -10 },
+    // (at: the only stretch of the leg where both lines lie within 1.5 m of the natural ground for 15 m either side;
+    // the line runs 3-6 m up on its bank further on. The suburbs keep off its road: suburbs.js ROAD)
+    ev('crossing', 715, 1515, {
+      react: { kind: 'crossing', at: { out: 1115, back: 1115 } },
+      shot: { kind: 'trackside', at: 1115, lateral: -10 },
     }),
     showpiece('skyline', 1700, 2083, { kind: 'wide', at: 1900, lateral: 120 }),
   ],
