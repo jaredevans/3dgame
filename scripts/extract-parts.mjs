@@ -7,9 +7,10 @@
 //   node scripts/extract-parts.mjs [path/to/polyfork-catalog.zip] [--to kits/parts]
 //
 // Which parts: every catalogue asset id written anywhere in tour/ (the suburbs' houses, the events' animals and props)
-// or in the Scenic Tour plans (parts a task is still to use), each as its .mjs and its .glb.
+// or in the Scenic Tour plans (parts a task is still to use), each as its .mjs and its .glb, and its -params.json
+// (its knobs and night map) from Polyfork's public CDN.
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -48,3 +49,16 @@ execFileSync('unzip', ['-o', '-q', zip, ...want, '-d', to]);
 const bytes = want.reduce((sum, f) => sum + statSync(join(to, f)).size, 0);
 console.log(`${used.size} parts (${want.length} files, ${(bytes / 1e6).toFixed(1)} MB) copied into ${relative(root, to)}/:`);
 console.log([...used].sort().join('\n'));
+
+// each part's <id>-params.json (its knobs and, for one that lights up after dark, its `night` map: which colour zones
+// glow, and how) isn't in the catalogue: it's public on Polyfork's CDN, so it's fetched from there
+let got = 0;
+for (const id of used) {
+  try {
+    const res = await fetch(`https://polyfork.dev/cdn/${id}-params.json`);
+    if (!res.ok) continue;
+    writeFileSync(join(to, `${id}-params.json`), await res.text());
+    got++;
+  } catch { /* offline: the parts work without it, only their night map is missing */ }
+}
+console.log(`${got} of ${used.size} parts' -params.json fetched from Polyfork's CDN`);
