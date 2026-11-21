@@ -197,11 +197,13 @@ export const FEATURES = [
 // snow on the massif above 60 m; red earth and sand in the desert; paving round the two cities; grass elsewhere
 export const BIOMES = [
   { kind: 'snow', x: 2650, z: 650, r: 900 },
+  // the snowy pass: the line tops out at 29 m on an embankment through low foothills, so snow here ignores altitude (line below the ground)
+  { kind: 'snow', x: 2670, z: 1140, r: 170, line: -50 },
   { kind: 'desert', x: 3000, z: 1900, r: 900 },
   { kind: 'desert', x: 2000, z: 1950, r: 700 },
   { kind: 'desert', x: 1000, z: 1800, r: 700 },
   { kind: 'desert', x: 250, z: 1600, r: 600 },
-  { kind: 'desert', x: 2950, z: 1350, r: 500 },
+  { kind: 'desert', x: 3050, z: 1550, r: 450 },
   { kind: 'urban', x: 128, z: -74, r: 30 },
   { kind: 'urban', x: -1050, z: 1200, r: 300 },
 ];

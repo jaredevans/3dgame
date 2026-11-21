@@ -117,8 +117,10 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
 
   const massifs = features.filter((f) => f.kind === 'massif');
   const mesas = features.filter((f) => f.kind === 'mesa');
-  const canyons = features.filter((f) => f.kind === 'canyon' && legs[f.leg]).map((f) => {
-    const route = legs[f.leg], reach = f.width / 2 + CANYON_RIM + CANYON_FADE + 20;
+  const canyons = features.filter((f) => f.kind === 'canyon').map((f) => {
+    const route = legs[f.leg];
+    if (!route) throw new Error(`canyon feature names leg '${f.leg}', which is not in \`legs\` (have: ${Object.keys(legs).join(', ') || 'none'})`);
+    const reach = f.width / 2 + CANYON_RIM + CANYON_FADE + 20;
     const bb = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
     for (let s = f.s0; s <= f.s1; s += 40) {
       const p = route.at(s);
@@ -199,7 +201,10 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
   function landAt(x, z) {
     const c = coastAt ? coastAt(x, z) : { d: Infinity, top: base, kind: 0 };
     const amp = 3 + Math.min(28, Math.max(0, c.d - 120) * 0.035);
-    const land = base + fbm(x / 380, z / 380, seed) * amp + Math.max(0, fbm(x / 900, z / 900, seed + 9)) * amp * 0.8;
+    let land = base + fbm(x / 380, z / 380, seed) * amp + Math.max(0, fbm(x / 900, z / 900, seed + 9)) * amp * 0.8;
+    // inland ground never dips to the sea: soft-floored at 1 m above it, fading out toward the coast's own profile
+    const F = seaLevel + 1;
+    if (land < F + 3) land = lerp(land, F + 3 * smooth(0, 1, (land - (F - 5)) / 8), smooth(100, 320, c.d));
     if (!coastAt) return land;
     // near the coast the land rises (or falls) to the coast's own top height
     const nearLand = lerp(c.top + fbm(x / 120, z / 120, seed + 3) * 1.2, land, smooth(40, 320, c.d));
@@ -240,13 +245,14 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
 
   function coastDistance(x, z) { return coastAt ? coastAt(x, z).d : Infinity; }
 
-  // which biome a point is in: the one it is deepest inside, with ragged edges; none -> grass
+  // which biome a point is in: the one it is deepest inside, with ragged edges (the ragging scales with the biome's size,
+  // so a small biome always holds its own centre and never reaches past 1.3 r); none -> grass. A snow biome with its own `line` (snowline, m) takes precedence over the others where it holds.
   function biomeAt(x, z) {
-    if (!biomes.length) return 'grass';
-    const jit = noise(x / 260, z / 260, seed + 21) * 140;
-    let best = 'grass', bk = 0;
-    for (const b of biomes) { const k = Math.hypot(x - b.x, z - b.z) - b.r + jit; if (k < bk) { bk = k; best = b.kind; } }
-    return best;
+    if (!biomes.length) return { kind: 'grass' };
+    const n = noise(x / 260, z / 260, seed + 21);
+    let best = null, bk = 0;
+    for (const b of biomes) { const k = Math.hypot(x - b.x, z - b.z) - b.r + n * Math.min(140, 0.3 * b.r); if (b.line !== undefined && k < 0) return b; if (k < bk) { bk = k; best = b; } }
+    return best ?? { kind: 'grass' };
   }
 
   function regionAt(x, z) {
@@ -257,9 +263,9 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
       if (p.r !== undefined ? Math.hypot(x - p.x, z - p.z) < p.r : (([lx, lz]) => outside(lx, lz, p.w / 2, p.d / 2) === 0)(toLocal(x, z, p))) return 'paving';
     }
     const sx = heightAt(x + 2, z) - heightAt(x - 2, z), sz = heightAt(x, z + 2) - heightAt(x, z - 2);
-    const slope = Math.hypot(sx, sz) / 4, biome = biomeAt(x, z);
+    const slope = Math.hypot(sx, sz) / 4, bm = biomeAt(x, z), biome = bm.kind;
     if (biome === 'snow') {
-      const line = SNOWLINE + noise(x / 90, z / 90, seed + 31) * 10;
+      const line = (bm.line ?? SNOWLINE) + noise(x / 90, z / 90, seed + 31) * Math.min(10, Math.abs(bm.line ?? SNOWLINE) / 2);
       if (h > line) return slope > 1.3 ? 'rock' : 'snow';
       if (h > line - 30 && slope > 0.55) return 'scree';
     } else if (biome === 'desert') {

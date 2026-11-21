@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
 import { makeTerrain, BED_DROP } from '../terrain.js';
-import { worldTerrain, LEGS } from '../world-data.js';
+import { worldTerrain, LEGS, FEATURES, PLACES, SEA_LEVEL, legRoute } from '../world-data.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 const route = makeRoute([{ x: 0, y: 10, z: 0 }, { x: 300, y: 16, z: 40 }, { x: 600, y: 12, z: 0 }]);
@@ -164,16 +164,81 @@ test('the world: features never lift ground above a bed, and stay clear of stati
   assert.ok(['sand', 'redrock'].includes(t.regionAt(3200, 2200)), t.regionAt(3200, 2200));
 });
 
-test('the world terrain stays walkable with its features', () => {
+test('the world terrain stays walkable: gentle near lines and places, no cliffs except the declared ones', () => {
   const t = worldTerrain();
+  // what is meant to be sheer, derived from the features themselves: the canyon's walls (its leg between s0..s1, width) and mesa edges
+  const cn = FEATURES.filter((f) => f.kind === 'canyon').map((f) => {
+    const r = legRoute(f.leg), pts = [];
+    for (let s = Math.max(0, f.s0 - 120); s <= Math.min(r.length, f.s1 + 120); s += 10) pts.push(r.at(s));
+    return { pts, reach: f.width / 2 + 70 };
+  });
+  const mesas = FEATURES.filter((f) => f.kind === 'mesa').map((m) => ({ ...m, e: Math.min(m.h / 3, 0.25 * m.r) + 4 }));
+  const lines = [];
+  for (const id of Object.keys(LEGS)) { const r = legRoute(id); for (let s = 0; s <= r.length; s += 20) lines.push(r.at(s)); }
+  for (const p of Object.values(PLACES)) lines.push({ x: p.centre.x, z: p.centre.z, r: 160 });
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  let worst = 0;
-  for (let i = 0; i < 30000; i++) {
-    const x = 1500 + rnd() * 2200, z = 0 + rnd() * 2400;
-    if (x > 2700 && x < 3100 && z > 1200 && z < 1750) continue;   // the canyon's walls are meant to be sheer
+  let worstNear = 0, worstFar = 0, counted = 0;
+  for (let i = 0; i < 120000; i++) {
+    const x = -1400 + rnd() * 5200, z = -300 + rnd() * 2900;
+    if (Math.abs(t.coastDistance(x, z)) < 100) continue;                                   // the coast profile has its own cliffs
+    if (cn.some((c) => c.pts.some((p) => Math.hypot(p.x - x, p.z - z) < c.reach))) continue;
+    if (mesas.some((m) => Math.abs(Math.hypot(x - m.x, z - m.z) - m.r) < m.e)) continue;
     const a = t.heightAt(x, z), step = Math.max(Math.abs(a - t.heightAt(x + 1, z)), Math.abs(a - t.heightAt(x, z + 1)));
-    worst = Math.max(worst, step);
+    counted++;
+    if (lines.some((p) => Math.hypot(p.x - x, p.z - z) < (p.r ?? 150))) worstNear = Math.max(worstNear, step);
+    else worstFar = Math.max(worstFar, step);
   }
-  assert.ok(worst <= 3, `steepest step ${worst.toFixed(2)} m per metre`);
+  assert.ok(counted > 50000, `sampled ${counted}`);
+  assert.ok(worstNear <= 2, `near a line or place: steepest ${worstNear.toFixed(2)} m per metre`);
+  assert.ok(worstFar <= 3, `elsewhere: steepest ${worstFar.toFixed(2)} m per metre`);
+});
+
+test('a canyon naming a leg that is not given throws', () => {
+  assert.throws(() => flat({ features: [{ kind: 'canyon', leg: 'nope', s0: 0, s1: 100, depth: 50, width: 20 }] }), /canyon.*'nope'/);
+  assert.throws(() => flat({ legs: { other: route }, features: [{ kind: 'canyon', leg: 'nope', s0: 0, s1: 100, depth: 50, width: 20 }] }), /other/);
+});
+
+test('a biome always holds its own centre and does not reach far past its radius', () => {
+  for (const r of [30, 80, 300, 900]) {
+    const t = flat({ biomes: [{ kind: 'urban', x: 500, z: -400, r }] });
+    assert.equal(t.regionAt(500, -400), 'paving', `r=${r} centre`);
+    let maxD = 0;
+    for (let a = 0; a < 6.283; a += 0.05) for (let d = 0; d < 1.6 * r; d += Math.max(1, r / 60)) {
+      if (t.regionAt(500 + Math.cos(a) * d, -400 + Math.sin(a) * d) === 'paving') maxD = Math.max(maxD, d);
+    }
+    assert.ok(maxD <= 1.31 * r, `r=${r}: paving reaches ${maxD.toFixed(0)}`);
+  }
+});
+
+test('inland ground never dips to the sea', () => {
+  const t = worldTerrain();
+  let seed = 17, low = Infinity, n = 0;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 60000; i++) {
+    const x = -1400 + rnd() * 5200, z = -300 + rnd() * 2900;
+    if (t.coastDistance(x, z) < 330) continue;      // inland of the coast's own profile (positive = land side)
+    n++; low = Math.min(low, t.heightAt(x, z));
+  }
+  assert.ok(n > 20000);
+  assert.ok(low >= SEA_LEVEL + 1 - 1e-6, `lowest inland ground ${low.toFixed(2)} m`);
+});
+
+test('the snowy pass: ground beside the highest stretch of Mountain -> Wild West reads snow', () => {
+  const t = worldTerrain(), r = legRoute('mountain-west');
+  let top = 0;
+  for (let s = 0; s <= r.length; s += 10) top = Math.max(top, r.at(s).y);
+  let checked = 0;
+  for (let s = 0; s <= r.length; s += 10) {
+    if (r.at(s).y < top - 1) continue;
+    for (const d of [-80, -50, -20, 20, 50, 80]) {
+      const q = r.offsetAt(s, d);
+      assert.equal(t.regionAt(q.x, q.z), 'snow', `s=${s} d=${d} at (${q.x.toFixed(0)}, ${q.z.toFixed(0)})`);
+      checked++;
+    }
+  }
+  assert.ok(checked >= 12, `checked ${checked}`);
+  // Phase 1's land (City <-> Oceanside) holds no snow
+  const co = legRoute('city-ocean');
+  for (let s = 0; s <= co.length; s += 40) for (const d of [-60, 60]) { const q = co.offsetAt(s, d); assert.notEqual(t.regionAt(q.x, q.z), 'snow'); }
 });
