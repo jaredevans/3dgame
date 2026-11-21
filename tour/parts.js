@@ -1,5 +1,5 @@
 // Loading self-hosted Polyfork kit modules and parts. Every failure names the URL it tried.
-import { kitUrl, CDN } from './config.js';
+import { kitUrl, PART_BASES } from './config.js';
 
 // modules by URL, each imported once. A load that hangs can be given up on (forgetPending(), when the build it was for
 // stalled): it's forgotten, and the next load of that URL imports it afresh under a query (?retry=n), since the browser's
@@ -46,9 +46,34 @@ export async function part(kitId, key, params = {}) {
   return obj;
 }
 
-// a part from Polyfork's CDN by its asset id (as index.html loads its town's): its module loaded once
+// load(url) from each base in turn until one works: the parts folder beside the kits, then Polyfork's public CDN. Taken
+// from a later base, onFallback(url) says so (the part wasn't copied out of the catalogue); if none works, the last
+// base's error is thrown. -> what load returned
+export async function firstOf(bases, file, load, onFallback = () => {}) {
+  let err = null;
+  for (const [i, base] of bases.entries()) {
+    try {
+      const got = await load(`${base}${file}`);
+      if (i > 0) onFallback(`${base}${file}`, `${bases[0]}${file}`);
+      return got;
+    } catch (e) { err = e; }
+  }
+  throw err;
+}
+const warned = new Set();
+// a part not self-hosted yet is said once: run scripts/extract-parts.mjs to copy it beside the kits
+export const fellBack = (url, wanted) => {
+  if (warned.has(wanted)) return;
+  warned.add(wanted);
+  console.warn(`${wanted} isn't self-hosted (run node scripts/extract-parts.mjs): loaded from ${url}`);
+};
+export const partBases = () => PART_BASES.map(absolute);
+
+// a single part by its Polyfork asset id (as index.html loads its town's): its module loaded once, from the parts folder
+// beside the kits, or Polyfork's public CDN if it isn't there
 export async function cdnPart(assetId, params = {}) {
-  const obj = await (await modules.load(`${CDN}${assetId}.mjs`)).createAsset(params);
+  const mod = await firstOf(partBases(), `${assetId}.mjs`, (url) => modules.load(url), fellBack);
+  const obj = await mod.createAsset(params);
   obj.userData.partKey = assetId;
   return obj;
 }

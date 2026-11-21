@@ -21,8 +21,13 @@ test('loadError names the URL', () => {
   assert.ok(msg.includes('./kits/x/y.mjs'));
 });
 
-test('the CDN base is Polyfork\'s, or ?cdn= with a trailing slash', async () => {
-  const { resolveCdnBase } = await import('../config.js');
-  assert.equal(resolveCdnBase(''), 'https://polyfork.dev/cdn/');
-  assert.equal(resolveCdnBase('?debug&cdn=https://blocked.invalid/cdn'), 'https://blocked.invalid/cdn/');
+test('single parts load from the parts folder beside the kits, then Polyfork\'s public CDN', async () => {
+  const { resolvePartBases, PUBLIC_CDN } = await import('../config.js');
+  assert.deepEqual(resolvePartBases(''), ['./kits/parts/', PUBLIC_CDN]);
+  assert.deepEqual(resolvePartBases('?kits=https://example.test/k'), ['https://example.test/k/parts/', PUBLIC_CDN]);
+});
+
+test('?cdn= loads single parts from there only, with a trailing slash', async () => {
+  const { resolvePartBases } = await import('../config.js');
+  assert.deepEqual(resolvePartBases('?debug&cdn=https://blocked.invalid/cdn'), ['https://blocked.invalid/cdn/']);
 });

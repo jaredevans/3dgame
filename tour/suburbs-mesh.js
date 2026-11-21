@@ -1,5 +1,6 @@
-// The suburbs beside a line (suburbs.js lays them out) built from the Neighborhood Pathways kit's parts, loaded from
-// Polyfork's CDN (that kit isn't self-hosted). Each different part is made once, its meshes merged into one shape, and
+// The suburbs beside a line (suburbs.js lays them out) built from the Neighborhood Pathways kit's parts, loaded one by one
+// from the parts folder beside the kits, or Polyfork's CDN (parts.js cdnPart: that kit isn't self-hosted whole). Each
+// different part is made once, its meshes merged into one shape, and
 // drawn as an InstancedMesh, one instance per piece (some thirty meshes for every house, fence and tree); each house
 // stands on a plinth of dressed stone down to its lowest ground (one more instanced box). Built a slice at a time
 // (slicer.js): the layout and the instances in small steps a frame, the parts one a frame, so no frame waits on it.

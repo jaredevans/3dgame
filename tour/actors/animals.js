@@ -1,9 +1,10 @@
-// Polyfork's CDN animals with their own authored clips: the GLB (its .mjs builds the model without them), loaded once
-// per id, each copy cloned with its skeleton and played by its own AnimationMixer.
+// Polyfork's animals with their own authored clips: the GLB (its .mjs builds the model without them), loaded once per
+// id from the parts folder beside the kits (or Polyfork's public CDN if it isn't there), each copy cloned with its
+// skeleton and played by its own AnimationMixer.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { CDN } from '../config.js';
+import { firstOf, fellBack, partBases } from '../parts.js';
 import { clipFor } from './clips.js';
 
 export { clipFor };
@@ -14,8 +15,8 @@ const loads = new Map();   // id -> promise of the gltf
 // -> { make() -> Animal }; throws an error naming the URL if the load fails (and forgets it, so it's tried again)
 export function loadAnimal(id) {
   if (!loads.has(id)) {
-    const url = `${CDN}${id}.glb`;
-    loads.set(id, loader.loadAsync(url).catch((err) => {
+    const bases = partBases(), url = `${bases[bases.length - 1]}${id}.glb`;
+    loads.set(id, firstOf(bases, `${id}.glb`, (u) => loader.loadAsync(u), fellBack).catch((err) => {
       loads.delete(id);
       const e = new Error(`could not load ${url}: ${err?.message ?? err}`);
       e.url = url;

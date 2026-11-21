@@ -18,13 +18,17 @@ export const KITS = {
   nature: 'nature-forest-kit-f29d6a',
 };
 
-// Polyfork's free per-part CDN, for the few parts whose kit isn't self-hosted (the suburbs' Neighborhood Pathways houses);
-// ?cdn=<base url> points it elsewhere (a mirror, or a dead host to check the tour carries on without them)
-export function resolveCdnBase(search) {
-  const base = new URLSearchParams(search).get('cdn') || 'https://polyfork.dev/cdn/';
-  return base.endsWith('/') ? base : base + '/';
+// Single Polyfork parts, for the few whose kit isn't self-hosted (the suburbs' Neighborhood Pathways houses, the events'
+// animals and props): self-hosted beside the kits, in <kits>/parts/ (scripts/extract-parts.mjs copies the ones the tour
+// uses out of the owner's Polyfork catalogue), with Polyfork's free public CDN behind it for any not copied yet.
+// ?cdn=<base url> loads them from there only (a mirror, or a dead host to check the tour carries on without them).
+export const PUBLIC_CDN = 'https://polyfork.dev/cdn/';
+const slash = (base) => (base.endsWith('/') ? base : base + '/');
+export function resolvePartBases(search) {
+  const cdn = new URLSearchParams(search).get('cdn');
+  return cdn ? [slash(cdn)] : [`${resolveKitBase(search)}parts/`, PUBLIC_CDN];
 }
-export const CDN = resolveCdnBase(globalThis.location?.search ?? '');
+export const PART_BASES = resolvePartBases(globalThis.location?.search ?? '');
 
 export function kitUrl(kitId, file, base = KIT_BASE) {
   return `${base}${kitId}/${file}`;

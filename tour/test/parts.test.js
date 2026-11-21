@@ -31,3 +31,16 @@ test('a failed import names its URL and is tried again on the next load', async 
   await assert.rejects(modules.load('http://x/c.mjs'), (e) => e.url === 'http://x/c.mjs' && /404/.test(e.message));
   assert.equal(await modules.load('http://x/c.mjs'), 'ok');
 });
+
+test('firstOf loads from the first base that has the file, saying so when it falls back', async () => {
+  const { firstOf } = await import('../parts.js');
+  const have = new Set(['https://cdn.test/b.mjs', './kits/parts/a.mjs']);
+  const load = async (url) => { if (!have.has(url)) throw new Error(`404 ${url}`); return url; };
+  const said = [];
+  const bases = ['./kits/parts/', 'https://cdn.test/'];
+  assert.equal(await firstOf(bases, 'a.mjs', load, (...a) => said.push(a)), './kits/parts/a.mjs');
+  assert.deepEqual(said, [], 'found where wanted: nothing said');
+  assert.equal(await firstOf(bases, 'b.mjs', load, (...a) => said.push(a)), 'https://cdn.test/b.mjs');
+  assert.deepEqual(said, [['https://cdn.test/b.mjs', './kits/parts/b.mjs']]);
+  await assert.rejects(firstOf(bases, 'c.mjs', load), /404 https:\/\/cdn\.test\/c\.mjs/, 'none has it: the last error');
+});

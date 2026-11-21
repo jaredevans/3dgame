@@ -72,7 +72,13 @@ If the kit server is on a different origin from the page, it must send CORS head
 
 `node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the City to Oceanside leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint, and `__tour.frame(dt)` to step the tour by hand.
 
-The suburbs along the Metro Glide's line use a few houses from Polyfork's free per-part CDN (not a self-hosted kit). `?cdn=<base url>` points those at a mirror; if they can't be loaded, the tour goes on without the suburbs.
+A few single parts aren't from those kits: the suburbs' houses along the Metro Glide's line, and the animals and props of the routes' events. They are self-hosted too, in `kits/parts/` beside the kits (so `?kits=` moves them with the kits). Copy them out of your Polyfork catalogue download with:
+
+```
+node scripts/extract-parts.mjs path/to/polyfork-catalog.zip
+```
+
+It copies every part the tour's code (or a Scenic Tour plan) names, and nothing else; run it again when the tour starts using another part. A part that isn't there yet is loaded from Polyfork's free public CDN instead, with a warning in the console. `?cdn=<base url>` loads these parts from that address only; if they can't be loaded, the tour goes on without them (the suburbs, or that event).
 
 ## Run it locally
 
