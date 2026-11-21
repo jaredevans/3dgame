@@ -262,6 +262,12 @@ async function boot() {
       // drive
       settled: () => !suburbs || suburbs.settled,
       tick: (dt) => suburbs?.tick(dt),
+      // its train is boarded before its suburbs are in (you waited WAIT_MAX s): they're left out, optional scenery
+      leaveOutSuburbs() {
+        if (!suburbs || suburbs.settled) return;
+        console.warn(`The suburbs along ${id} were left out: not in when its train set off`);
+        suburbs.dispose();
+      },
       dispose() {
         unload.add(...tracks, ...(structures ? [structures] : []));   // freed at a standstill, with the kits' parts unless something drawn shares them
         suburbs?.dispose();
@@ -282,9 +288,9 @@ async function boot() {
     scene.add(structures);
     own(legOwner, id, thing);
     terrain.addStructures(route);   // its portals now fill the ground left out across them
-    suburbs = LEGS[id].suburbs ? scenery(async () => {
+    suburbs = LEGS[id].suburbs ? scenery(async ({ gone }) => {
       const s = await buildSuburbs(id, terrain, slicer);
-      if (!s) return s;
+      if (!s || gone()) return s;   // (left out meanwhile: not drawn, just let go)
       shadows(s.group); await warm(s.group);
       return { group: s.group, dispose: () => unload.add(s.group) };   // freed with the rest, at a standstill
     }, {
@@ -501,6 +507,7 @@ async function boot() {
     .map((w) => ({ ...w, stopped: true, cars: trainPoints(fleet.trains[w.leg].model) })));
   function board(w) {
     drivable(w.leg);
+    streamer.get(w.leg).leaveOutSuburbs();   // (boarded after waiting your longest on them: readyToLeave)
     turnPending();
     state = journey.board(state, w.leg, w.dir);
     take(w.leg, w.dir);
@@ -702,9 +709,9 @@ async function boot() {
     // is one whose upload waits for it
     mayLand = !driving || (stopped && arr.build);
     streamer.landing = mayLand;
-    const clock = toDraw.length && !mayLand ? 0 : dt;
-    streamer.tick(clock);
-    for (const id of legIds) streamer.get(id)?.tick?.(clock);   // a leg's suburbs' bound
+    const waitDt = toDraw.length && !mayLand ? 0 : dt;
+    streamer.tick(waitDt);
+    for (const id of legIds) streamer.get(id)?.tick?.(waitDt);   // a leg's suburbs' bound
     const label = arr.cover ? `${arr.cover.arriving ? 'Arriving at' : 'Getting ready at'} ${PLACES[arr.cover.place].name}…` : '';
     if (label !== coverLabel) {
       coverLabel = label;

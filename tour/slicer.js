@@ -34,23 +34,24 @@ export function makeSlicer({ now = () => performance.now() } = {}) {
   };
 }
 
-// optional scenery built in the background beside something that doesn't wait for it: build() -> a promise of { group,
-// dispose() }; add(group) shows it once it's ready. If it fails, warn(err) and carry on without it; if what it belongs to
+// optional scenery built in the background beside something that doesn't wait for it: build({ gone }) -> a promise of
+// { group, dispose() } (gone(): it was let go meanwhile, so it can skip its last steps); add(group) shows it once ready. If it fails, warn(err) and carry on without it; if what it belongs to
 // is let go first, it is freed as soon as it's ready, never added. If it isn't in after `deadline` seconds of frames
 // (tick(dt), once a frame: a hidden tab runs none, and builds none of its slices either), it's left out (warned about)
-// and let go if it lands after all. -> { dispose(), tick(dt), settled (in, or left out), ready: promise (true if added) }
+// and let go if it lands after all. Let go (dispose()) before it's in, it's left out: settled.
+// -> { dispose(), tick(dt), settled (in, or left out), ready: promise (true if added) }
 export function scenery(build, { add, warn = console.warn, deadline = Infinity }) {
   let gone = false, built = null, settled = false, waited = 0;
   const ready = (async () => {
     try {
-      const s = await build();
+      const s = await build({ gone: () => gone });
       if (gone) { s?.dispose?.(); return false; }
       built = s;
       if (s) add(s.group);
       return !!s;
     } catch (err) { if (!gone) warn(err); return false; } finally { settled = true; }
   })();
-  const dispose = () => { gone = true; built?.dispose?.(); built = null; };
+  const dispose = () => { gone = true; settled = true; built?.dispose?.(); built = null; };
   return {
     ready, dispose,
     get settled() { return settled; },

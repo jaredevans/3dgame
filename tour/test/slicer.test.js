@@ -93,3 +93,19 @@ test('optional scenery not in after its deadline of frames is left out, and a hi
   await ok.ready;
   assert.equal(ok.settled, true);
 });
+
+// left out on purpose (the train you board along its leg doesn't wait for it): settled at once, the build told so (it can
+// skip its last steps), never added, and let go when it lands
+test('optional scenery left out before it is in is settled at once, and never added', async () => {
+  const added = [];
+  let freed = 0, release, gone;
+  const s = scenery((b) => { gone = b.gone; return new Promise((r) => { release = r; }); }, { add: (g) => added.push(g), deadline: 30 });
+  assert.equal(gone(), false);
+  s.dispose();
+  assert.equal(s.settled, true, 'left out: settled');
+  assert.equal(gone(), true, 'and the build can see it');
+  release({ group: 'late', dispose: () => freed++ });
+  assert.equal(await s.ready, false);
+  assert.deepEqual(added, []);
+  assert.equal(freed, 1);
+});

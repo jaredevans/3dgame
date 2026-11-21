@@ -91,6 +91,10 @@ test('a train may leave once what it needs is in, after a few seconds at most of
   assert.equal(readyToLeave('ocean-mountain', { has, busy: true, waited: WAIT_MAX }), true, 'waited long enough');
   assert.equal(readyToLeave('ocean-mountain', { has: (id) => id !== 'mountain' && has(id), busy: true, waited: 1e9 }), false,
     'never without what it needs');
-  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, settled: () => false, waited: 1e9 }), false,
-    'nor before its own suburbs are settled (in, or left out after their own bound)');
+  // its own suburbs are optional scenery: waited on like anything else, and once you've waited WAIT_MAX s you may go
+  // without them (the page leaves them out as you board)
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, settled: () => false, waited: WAIT_MAX - 0.1 }), false,
+    'its own suburbs still coming in: waited on a while');
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, settled: () => false, waited: WAIT_MAX }), true,
+    'but no longer than anything else');
 });

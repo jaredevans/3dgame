@@ -21,11 +21,12 @@ export const neededToDrive = (leg) => new Set([leg, ...ends(leg)]);
 export const WAIT_MAX = 8;
 
 // whether a train may leave along a leg (boarded, or setting off from a platform): what it needs is in (the train too),
-// its leg is settled (its suburbs built or left out), and nothing else is still being built, or you've waited WAIT_MAX s
-// on it: a build can't be stopped once begun, but what's left of it waits for a standstill (streamer.js still()), and
-// what's let go is freed at one. has(id): built; busy: anything still building; settled(leg); waited: s waited on it
+// and its leg is settled (its suburbs built or left out) and nothing else is still being built, or you've waited
+// WAIT_MAX s on them: a build can't be stopped once begun, but what's left of it waits for a standstill (streamer.js
+// still()), and what's let go is freed at one; the leg's own suburbs are optional scenery, left out as you board.
+// has(id): built; busy: anything still building; settled(leg); waited: s waited on it
 export function readyToLeave(leg, { has, busy, settled = () => true, waited = 0 }) {
-  return [...neededToDrive(leg), `train:${leg}`].every(has) && settled(leg) && (!busy || waited >= WAIT_MAX);
+  return [...neededToDrive(leg), `train:${leg}`].every(has) && ((settled(leg) && !busy) || waited >= WAIT_MAX);
 }
 
 export function wantedSet(where, ring) {
