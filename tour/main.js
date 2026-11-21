@@ -12,6 +12,7 @@ import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK }
 import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
 import { tunnelDepth } from './structures.js';
+import { makeDimmer } from './dimmer.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
@@ -351,12 +352,13 @@ async function boot() {
   hideLoading();
   const clock = new THREE.Clock();
   let skyPos = null, lastStage = -1;
-  // in a tunnel, from the cab, the daylight fades out (the lights at their time of day's strength, dimmed)
-  const lights = [];
-  scene.traverse((o) => { if (o.isLight) lights.push(o); });
-  let lightBase = lights.map((l) => l.intensity);
+  // in a tunnel, from the cab, the daylight fades out (dimmer.js keeps each light's time-of-day strength to go back to)
+  const dimmer = makeDimmer(() => { const ls = []; scene.traverse((o) => { if (o.isLight) ls.push(o); }); return ls; });
   const DARK = 0.85, DARK_IN = 25;   // dimmed this much once this many metres in
+  let darkOverride = null;           // the debug hook can force a darkness (null: work it out)
+  Object.assign(window.__tour, { dimmer, forceDark: (v) => { darkOverride = v; } });
   function tunnelDark() {
+    if (darkOverride !== null) return darkOverride;
     if (state.mode !== 'drive' || views.mode !== 'cab') return 0;
     const fwd = run.route.reversed ?? run.route, s = run.route.reversed ? run.route.length - drive.s : drive.s;
     const u = tunnelDepth(fwd.sections, s);
@@ -385,9 +387,8 @@ async function boot() {
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : skyPos + (want - skyPos) * Math.min(1, dt * 1.5);
     const sky = skyAt(skyPos);
-    if (Math.abs(sky.stage - lastStage) > 0.003) { look.setTime(sky.stage); lastStage = sky.stage; lightBase = lights.map((l) => l.intensity); }
-    const dark = tunnelDark();
-    lights.forEach((l, i) => { l.intensity = lightBase[i] * (1 - dark); });
+    if (Math.abs(sky.stage - lastStage) > 0.003) { dimmer.setTime(() => look.setTime(sky.stage)); lastStage = sky.stage; }
+    dimmer.update(Math.round(tunnelDark() * 100) / 100);   // in steps of 1%, so lights are written only as it changes
     skyDome.update(sky, sunDir, dt);
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
