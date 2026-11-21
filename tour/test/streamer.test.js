@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeStreamer } from '../streamer.js';
+import { makeStreamer, own, disown } from '../streamer.js';
 
 // things that log being built, shown and let go; ids 'g/name' are grouped by g
 const recorder = () => {
@@ -97,24 +97,179 @@ test('busy while anything wanted is still to be built, not for what failed', asy
 });
 
 // a build that never settles (an import or fetch that hangs) must not hold up the rest, nor leave the page busy for ever:
-// past its deadline it counts as failed (reported, so the "couldn't be loaded" paths take over), what's next is built,
-// and if it lands after all it's let go
-test('a build past its deadline counts as failed, the rest go on, and a late arrival is let go', async () => {
+// once nothing has come in for it for `stall` seconds of frames (tick(dt)) it counts as failed (reported, so the "couldn't
+// be loaded" paths take over), what's next is built, and if it lands after all it's let go
+const ticks = (s, seconds, dt = 0.1) => { for (let t = 0; t < seconds - 1e-9; t += dt) s.tick(dt); };
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+test('a build with no progress for its stall time counts as failed, the rest go on, and a late arrival is let go', async () => {
   const errors = [], { log, thing } = recorder();
   let land;
   const streamer = makeStreamer({
     hung: () => new Promise((done) => { land = () => done(thing('hung')); }),
     b: async () => thing('b'),
-  }, { onError: (e) => errors.push(e.message), deadline: 20 });
-  await streamer.want(new Set(['hung', 'b']));
-  assert.ok(streamer.failed('hung'), 'past its deadline: failed');
-  assert.match(errors[0], /hung took more than/);
+  }, { onError: (e) => errors.push(e.message), stall: 2 });
+  const p = streamer.want(new Set(['hung', 'b']));
+  await settle();
+  ticks(streamer, 1.9);
+  await settle();
+  assert.ok(!streamer.failed('hung'), 'not yet');
+  ticks(streamer, 0.2);
+  await p;
+  assert.ok(streamer.failed('hung'), 'nothing came in for 2 s: failed');
+  assert.match(errors[0], /hung/);
   assert.ok(streamer.has('b'), 'the next build went ahead');
   assert.equal(streamer.busy, false, 'not busy for ever');
   land();
-  await new Promise((r) => setTimeout(r, 0));
+  await settle();
   assert.deepEqual(log, ['+b#1', 'show b#1', '+hung#2', '-hung#2'], 'landed late, and let go');
   assert.equal(streamer.has('hung'), false);
+});
+
+// a slow download is not a hung one: a build that keeps making progress (a module in, a part loaded) is never failed,
+// however long it takes in all
+test('a build making steady progress is never failed, however long it takes', async () => {
+  const errors = [], { thing } = recorder();
+  let ctx, land;
+  const streamer = makeStreamer({ slow: (c) => { ctx = c; return new Promise((done) => { land = () => done(thing('slow')); }); } },
+    { onError: (e) => errors.push(e.message), stall: 45 });
+  const p = streamer.want(new Set(['slow']));
+  await settle();
+  for (let s = 0; s < 300; s += 10) { ticks(streamer, 10); ctx.progress(); }   // 5 minutes, something in every 10 s
+  streamer.progress();   // (the page's own signal: any resource coming in)
+  ticks(streamer, 44);
+  await settle();
+  assert.deepEqual(errors, []);
+  assert.ok(!streamer.failed('slow'));
+  land();
+  await p;
+  assert.ok(streamer.has('slow'));
+});
+
+// behind the boot loading screen, which shows its progress, nothing is given up on: a streamer made without a stall
+// time waits as long as it takes; the page gives it one after boot
+test('with no stall time (at boot) a build is waited for however long; given one, it is failed after it', async () => {
+  const errors = [];
+  let land;
+  const streamer = makeStreamer({
+    first: () => new Promise((done) => { land = () => done({ dispose() {} }); }),
+    later: () => new Promise(() => {}),
+  }, { onError: (e) => errors.push(e.message) });
+  assert.equal(streamer.stall, Infinity, 'no stall time unless given one');
+  const boot = streamer.want(new Set(['first']));
+  await settle();
+  ticks(streamer, 600, 1);
+  land();
+  await boot;
+  assert.ok(streamer.has('first') && errors.length === 0, 'ten minutes, and still waited for');
+  streamer.stall = 5;
+  const p = streamer.want(new Set(['first', 'later']));
+  await settle();
+  ticks(streamer, 5.1);
+  await p;
+  assert.ok(streamer.failed('later'));
+});
+
+// a hidden tab runs no frames: the stall time is frame time, so however long the tab is away nothing is given up on
+test('a hidden tab (no frames) does not use up the stall time', async () => {
+  const errors = [];
+  let land;
+  const streamer = makeStreamer({ a: () => new Promise((done) => { land = () => done({ dispose() {} }); }) },
+    { onError: (e) => errors.push(e.message), stall: 0.01 });
+  const p = streamer.want(new Set(['a']));
+  await new Promise((r) => setTimeout(r, 60));   // 60 ms of wall clock, six times its stall time, but no frames
+  land();
+  await p;
+  assert.deepEqual(errors, []);
+  assert.ok(streamer.has('a'));
+});
+
+// a build waits at still() for a moment it may land in (the page: at a standstill, behind the cover if one is up), so
+// what it does next (a kit built in one go, its upload) never lands on a moving frame; waiting there is not stalling.
+// If by then it's no longer wanted it's dropped, not failed: built again if it's wanted later
+test('a build waits at still() until it may land, without using up its stall time', async () => {
+  const errors = [], { log, thing } = recorder();
+  const streamer = makeStreamer({ a: async (ctx) => { log.push('fetched'); await ctx.still(); return thing('a'); } },
+    { onError: (e) => errors.push(e.message), stall: 1 });
+  streamer.landing = false;   // moving
+  const p = streamer.want(new Set(['a']));
+  await settle();
+  ticks(streamer, 30);
+  await settle();
+  assert.deepEqual(log, ['fetched'], 'downloaded, and waiting');
+  assert.equal(streamer.busy, true);
+  streamer.landing = true;    // a standstill
+  await p;
+  assert.deepEqual(log, ['fetched', '+a#1', 'show a#1']);
+  assert.deepEqual(errors, []);
+});
+
+test('a build no longer wanted when it may land is dropped, not failed, and built again when next wanted', async () => {
+  const errors = [], { log, thing } = recorder();
+  let builds = 0;
+  const streamer = makeStreamer({ a: async (ctx) => { builds++; await ctx.still(); return thing('a'); } },
+    { onError: (e) => errors.push(e.message), stall: 1 });
+  streamer.landing = false;
+  streamer.want(new Set(['a']));
+  await settle();
+  streamer.want(new Set());   // driven off: nothing new
+  streamer.landing = true;    // the next standstill, somewhere it isn't wanted
+  await settle(); await settle();
+  assert.equal(streamer.busy, false);
+  assert.deepEqual(log, [], 'never built');
+  assert.equal(streamer.failed('a'), false, 'not a failure');
+  assert.deepEqual(errors, []);
+  await streamer.want(new Set(['a']));
+  assert.equal(builds, 2);
+  assert.ok(streamer.has('a'));
+});
+
+// a build that timed out goes on in the background. Once its retry is live it must not overwrite what the live one put
+// in the page's shared maps, nor take it out when it's let go: each build is told whether it's still the current one,
+// writes only while it is, and takes out only what it put in (own / disown)
+test('a timed-out build landing after its retry neither overwrites nor deletes the live one', async () => {
+  const shared = {}, gates = [];
+  const streamer = makeStreamer({
+    p: (ctx) => new Promise((done) => gates.push(() => {
+      const me = { n: gates.length };
+      if (ctx.current()) own(shared, 'p', me);
+      done({ me, dispose() { disown(shared, 'p', me); } });
+    })),
+  }, { onError: () => {}, stall: 1 });
+  const first = streamer.want(new Set(['p']));
+  await settle();
+  ticks(streamer, 1.1);
+  await first;
+  assert.ok(streamer.failed('p'), 'the first build timed out');
+  streamer.retry();
+  const second = streamer.want(new Set(['p']));
+  await settle();
+  gates[1]();   // the retry lands
+  await second;
+  assert.equal(shared.p.n, 2);
+  gates[0]();   // and then the first, late
+  await settle();
+  assert.equal(shared.p.n, 2, 'not overwritten');
+  assert.equal(streamer.get('p').me.n, 2, 'the live one is still the retry');
+  assert.deepEqual(Object.keys(shared), ['p'], 'and not deleted by the late one going');
+  await streamer.want(new Set());
+  assert.deepEqual(Object.keys(shared), [], 'the live one takes out its own');
+});
+
+test('a build told it is no longer current stops at its next check, and what it threw is not a failure', async () => {
+  const errors = [];
+  let go, ctx0;
+  const streamer = makeStreamer({ a: async (ctx) => { ctx0 ??= ctx; await new Promise((r) => { go ??= r; }); ctx.check(); return { dispose() {} }; } },
+    { onError: (e) => errors.push(e.message), stall: 1 });
+  const p = streamer.want(new Set(['a']));
+  await settle();
+  ticks(streamer, 1.1);
+  await p;
+  assert.equal(ctx0.current(), false);
+  assert.equal(errors.length, 1, 'the time-out reported once');
+  go();
+  await settle();
+  assert.equal(errors.length, 1, 'its check throwing afterwards is not reported again');
 });
 
 test('failed builds are tried again when asked, a few times at most', async () => {
@@ -124,6 +279,18 @@ test('failed builds are tried again when asked, a few times at most', async () =
   for (let i = 0; i < 5; i++) { streamer.retry(); await streamer.want(new Set(['flaky'])); }
   assert.equal(tries, 3, 'the first try and two more');
   assert.ok(streamer.failed('flaky'));
+});
+
+test('a build that succeeds on a retry has its tries cleared: if it fails again later it gets its retries again', async () => {
+  let n = 0;
+  const streamer = makeStreamer({ x: async () => { n++; if (n !== 2) throw new Error('503'); return { dispose() {} }; } }, { onError: () => {}, retries: 1 });
+  await streamer.want(new Set(['x']));            // fails (1)
+  streamer.retry(); await streamer.want(new Set(['x']));   // in (2)
+  assert.ok(streamer.has('x'));
+  await streamer.want(new Set());                 // let go
+  await streamer.want(new Set(['x']));            // fails (3)
+  streamer.retry(); await streamer.want(new Set(['x']));   // tried again (4): its earlier failure forgotten
+  assert.equal(n, 4);
 });
 
 test('whether an id is still to be built: never one without a builder, nor one that failed', async () => {

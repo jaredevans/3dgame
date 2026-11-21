@@ -93,3 +93,88 @@ test('on foot: nothing kept for the train, no cover, no hold', () => {
   const r = a.step({ foot: true, dt: DT });
   assert.deepEqual([r.at, r.cover, r.hold], [null, null, false]);
 });
+
+// The cover only hides a place's kit being built in one go (0.3–1.7 s), and the hold only keeps the train from leaving
+// as that lands: neither waits on the long stall time that says a build couldn't be loaded. With a build that never
+// ends, both lift within a few seconds, and you can get out or drive off.
+test('with a build that never ends, the cover and the hold lift within a few seconds at the default caps', async () => {
+  const { COVER_MAX, HOLD_MAX } = await import('../arrival.js');
+  assert.ok(COVER_MAX >= 5 && COVER_MAX <= 10, `cover cap ${COVER_MAX} s`);
+  assert.ok(HOLD_MAX >= 5 && HOLD_MAX <= 10, `hold cap ${HOLD_MAX} s`);
+  const a = makeArrival();
+  const hung = { missing: () => true, busy: true, ready: false };
+  let r = a.step(at(hung)), t = 0;
+  for (; r.cover || r.hold; t += DT) r = a.step(at(hung));
+  assert.ok(t <= 10 + DT, `lifted after ${t.toFixed(1)} s`);
+  assert.equal(r.getOut, true, 'E gets you out');
+  assert.equal(r.hold, false, 'and the train may go');
+  r = run(a, 600, hung);
+  assert.deepEqual([r.cover, r.hold, r.getOut], [null, false, true], 'and stays that way at this stop');
+});
+
+test('the hold is only ever at a standstill: never while moving in a platform window', () => {
+  const a = makeArrival();
+  let r = a.step(at({ ready: false }));
+  assert.equal(r.hold, true, 'stopped, not free to leave: held');
+  r = a.step(at({ ready: false, stopped: false }));
+  assert.equal(r.hold, false, 'moving in the window: never held');
+});
+
+test('creeping and stopping again in the window does not start the longest hold over', () => {
+  const a = makeArrival({ holdMax: 1 });
+  let r = run(a, 70, { ready: false });
+  assert.equal(r.hold, false, 'held its longest');
+  a.step(at({ ready: false, stopped: false }));   // creep
+  r = a.step(at({ ready: false }));                // and stop again
+  assert.equal(r.hold, false, 'not held again at the same stop');
+});
+
+// arriving at the run's destination tries again what failed, before deciding on the cover: a retried build is then
+// "missing", so the cover goes up for it on that very frame rather than it being built uncovered
+test('arriving, what failed is tried again before the cover is decided, so a retried build is covered', () => {
+  const a = makeArrival();
+  let retried = 0;
+  const r = a.step(at({ retry: () => { retried++; }, missing: () => retried > 0 }));
+  assert.equal(retried, 1);
+  assert.deepEqual(r.cover, { place: 'mountain', arriving: true }, 'covered on the arrival frame');
+  assert.equal(r.build, false, 'nothing built until the cover is up');
+  a.step(at({ retry: () => { retried++; }, missing: () => true }));
+  assert.equal(retried, 1, 'once per arrival');
+  makeArrival().step(at({ window: 'ocean', retry: () => { retried++; } }));
+  assert.equal(retried, 1, 'not at the platform you set off from');
+});
+
+// on foot, what you can board waits on what's still being built only for a few seconds (waited); once you've waited
+// that long and board, the train isn't held, nor a cover put up, at the platform you leave from
+test('on foot, how long you have waited on what is still building; boarding after that, no hold or cover', async () => {
+  const { WAIT_MAX } = await import('../streaming.js');
+  const a = makeArrival();
+  let r = a.step({ foot: true, busy: true, dt: 1 });
+  assert.equal(r.waited, 1);
+  r = a.step({ foot: true, busy: false, dt: 1 });
+  assert.equal(r.waited, 0, 'nothing building: no wait');
+  for (let k = 0; k < WAIT_MAX + 1; k++) r = a.step({ foot: true, busy: true, dt: 1 });
+  assert.ok(r.waited >= WAIT_MAX);
+  // boarded: in the cab at the departure platform, something still building
+  r = a.step(at({ window: 'ocean', missing: () => true, busy: true, ready: false }));
+  assert.deepEqual([r.cover, r.hold, r.getOut], [null, false, true], 'not kept waiting a second time');
+  // boarding with nothing building is as before
+  const b = makeArrival();
+  b.step({ foot: true, busy: false, dt: 1 });
+  r = b.step(at({ window: 'ocean', ready: false }));
+  assert.equal(r.hold, true);
+});
+
+// what you've already waited at the stop, in the cab, counts on foot: getting out under a cover that timed out doesn't
+// start the wait to board over
+test('getting out after waiting at the stop, that wait counts towards boarding', async () => {
+  const { WAIT_MAX } = await import('../streaming.js');
+  const a = makeArrival();
+  const hung = { missing: () => true, busy: true, ready: false };
+  let r;
+  do r = a.step(at(hung)); while (r.cover || r.hold);   // the cover and hold run out
+  r = a.step({ foot: true, busy: true, dt: DT });
+  assert.ok(r.waited >= WAIT_MAX, `waited ${r.waited.toFixed(1)} s already`);
+  r = a.step({ foot: true, busy: false, dt: DT });
+  assert.equal(r.waited, 0, 'and nothing building, no wait');
+});

@@ -13,12 +13,19 @@ const ends = (id) => { const i = id.indexOf('-'); return [id.slice(0, i), id.sli
 // what must be in before you set off along a leg: the leg and the places at both its ends
 export const neededToDrive = (leg) => new Set([leg, ...ends(leg)]);
 
+// the longest you're kept waiting at a place on what you don't need to go on: the arrival cover, the hold on the train,
+// and boarding while something else is still being built. The cover only has to hide a place's kit being built in one
+// go (0.3–1.7 s), with a few seconds over for its last modules to come in; past this you may go, and what's still
+// building waits for your next standstill to land (streamer.js still()). The long stall time (streamer.js STALL) only
+// says something couldn't be loaded.
+export const WAIT_MAX = 8;
+
 // whether a train may leave along a leg (boarded, or setting off from a platform): what it needs is in (the train too),
-// its leg is settled (its suburbs built or left out), and nothing else is still being built, since a build can't be
-// stopped once begun and what's left of it (and letting it go, if it's no longer wanted) would land on a moving frame.
-// has(id): built; busy: anything still building; settled(leg)
-export function readyToLeave(leg, { has, busy, settled = () => true }) {
-  return [...neededToDrive(leg), `train:${leg}`].every(has) && settled(leg) && !busy;
+// its leg is settled (its suburbs built or left out), and nothing else is still being built, or you've waited WAIT_MAX s
+// on it: a build can't be stopped once begun, but what's left of it waits for a standstill (streamer.js still()), and
+// what's let go is freed at one. has(id): built; busy: anything still building; settled(leg); waited: s waited on it
+export function readyToLeave(leg, { has, busy, settled = () => true, waited = 0 }) {
+  return [...neededToDrive(leg), `train:${leg}`].every(has) && settled(leg) && (!busy || waited >= WAIT_MAX);
 }
 
 export function wantedSet(where, ring) {

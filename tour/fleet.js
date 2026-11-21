@@ -35,24 +35,32 @@ export function makeFleet({ scene, look, journey, prepare = null, unload }) {
       if (t && t.run.dir === dir && journey.stopAt(t.run, { s: t.s, v: 0 }) === t.run.from) return t;
       return park(leg, dir);
     },
-    async build(leg) {
+    // ctx (streamer.js): the build waits for a standstill before making the train, and writes itself into `trains` only
+    // while it's the current build of its leg; let go, it takes out only itself (a newer build may have replaced it)
+    async build(leg, ctx = null) {
       const spec = TRAIN_SPECS[LEGS[leg].train];
       setLoading(`the ${spec.name}`);
+      await ctx?.still();
       const model = await buildTrain({ name: spec.name, kit: spec.kit, ride: spec.ride, cars: spec.cars, builder: spec.builder, carCount: spec.carCount });
-      look.shadows(model.group);
-      model.night?.(look.night);   // a train with its own lit windows lights them as the place's lamps are
-      const length = model.cars.reduce((a, c) => a + c.length, 0) + COUPLING_GAP * (model.cars.length - 1);
-      const t = { leg, spec, model, length };
-      await prepare?.(t);
+      let t;
+      try {
+        ctx?.check();
+        look.shadows(model.group);
+        model.night?.(look.night);   // a train with its own lit windows lights them as the place's lamps are
+        const length = model.cars.reduce((a, c) => a + c.length, 0) + COUPLING_GAP * (model.cars.length - 1);
+        t = { leg, spec, model, length };
+        await prepare?.(t);
+        ctx?.check();
+      } catch (err) { unload.add(model.group); throw err; }
       scene.add(model.group);
       trains[leg] = t;
       const p = parked[leg] ?? { dir: 'out', s: null };
       park(leg, p.dir, p.s);
       return {
         dispose() {
-          const t = trains[leg];
-          parked[leg] = { dir: t.run.dir, s: t.s };
           unload.add(model.group);   // and its cab, if fitted
+          if (trains[leg] !== t) return;
+          parked[leg] = { dir: t.run.dir, s: t.s };
           delete trains[leg];
         },
       };

@@ -70,3 +70,26 @@ test('optional scenery is added once ready, freed with what it belongs to, and n
   assert.deepEqual(added, ['houses']);
   assert.equal(freed, 2);
 });
+
+// optional scenery that hasn't come in after `deadline` seconds of frames (tick(dt)) is left out, and let go if it lands
+// after all. Frame time, not the wall clock: a hidden tab runs no frames (and builds no slices), so it drops nothing
+test('optional scenery not in after its deadline of frames is left out, and a hidden tab drops nothing', async () => {
+  const added = [], warned = [];
+  let freed = 0, release;
+  const s = scenery(() => new Promise((r) => { release = r; }), { add: (g) => added.push(g), warn: (e) => warned.push(e.message), deadline: 30 });
+  assert.equal(s.settled, false);
+  await new Promise((r) => setTimeout(r, 30));   // wall clock passing with no frames: nothing happens
+  for (let k = 0; k < 299; k++) s.tick(0.1);
+  assert.equal(s.settled, false, '29.9 s of frames: still waited for');
+  s.tick(0.2);
+  assert.equal(s.settled, true, 'left out');
+  assert.match(warned[0], /30 s/);
+  release({ group: 'late', dispose: () => freed++ });
+  assert.equal(await s.ready, false);
+  assert.deepEqual(added, [], 'never added');
+  assert.equal(freed, 1, 'and let go');
+  // one that comes in is settled at once
+  const ok = scenery(async () => ({ group: 'houses', dispose() {} }), { add: (g) => added.push(g), deadline: 30 });
+  await ok.ready;
+  assert.equal(ok.settled, true);
+});

@@ -1,6 +1,6 @@
 // A place: its kit built with buildKit(), put where world-data says, with walking and ground queries in world space.
 import * as THREE from 'three';
-import { kitModule, part } from './parts.js';
+import { kitModule, kitModuleHref, part } from './parts.js';
 import { kitUrl, KIT_BASE } from './config.js';
 import { PLACES, EXTRA_REACH } from './world-data.js';
 import { landSampler, LAND_MIN } from './land.js';
@@ -31,11 +31,31 @@ function kitGround(kitPlace) {
   return (lx, lz) => index.at(lx, lz) ?? foot;
 }
 
-export async function buildPlace(id) {
+// a place's download, apart from its build: every module its kit's buildKit() will import (its kit.mjs and helpers, its
+// ground's terrain.mjs, and the part of each piece in its LAYOUT.json), at the URLs buildKit imports them by, so that
+// when it's built (buildPlace, at a standstill) its kit is built from what's here, in one go, with nothing left to come
+// in part-way through. onProgress() as each comes in. What doesn't load is left for buildKit to report (a folder kit
+// goes on without a missing part).
+export async function fetchPlace(id, { onProgress = () => {} } = {}) {
+  const def = PLACES[id];
+  const get = (file) => kitModule(def.kit, file).then(onProgress, onProgress);
+  const helpers = ['kit.mjs', '_internal/merge.mjs', '_internal/stage.mjs', '_internal/clips.mjs', ...(def.build?.city ? ['_internal/city.mjs'] : [])];
+  const res = await fetch(new URL(kitUrl(def.kit, 'LAYOUT.json'), location.href).href).catch(() => null);
+  onProgress();
+  const layout = res?.ok ? await res.json().catch(() => []) : [];
+  const parts = new Set(layout.filter((r) => r?.part && r.part !== '_terrain').map((r) => r.part));
+  const ground = layout.some((r) => r?.part === '_terrain') && !def.build?.city ? ['terrain.mjs'] : [];
+  await Promise.all([...helpers, ...ground, ...[...parts].map((k) => `${k}.mjs`)].map(get));
+}
+
+// onProgress(): as each of its kit's parts comes in (most are in already, from fetchPlace)
+export async function buildPlace(id, { onProgress = null } = {}) {
   const def = PLACES[id];
   const { buildKit } = await kitModule(def.kit, 'kit.mjs');
   const folder = new URL(kitUrl(def.kit, '', KIT_BASE), location.href).href;
-  const kitPlace = await buildKit({ folder, ...def.build });
+  // its parts by the URLs fetchPlace loaded them by (a fresh one for any given up on: parts.js makeModules)
+  const moduleUrl = (partId) => kitModuleHref(def.kit, `${partId}.mjs`);
+  const kitPlace = await buildKit({ folder, ...def.build, moduleUrl, onProgress: onProgress && (() => onProgress()) });
   const group = new THREE.Group();
   group.name = `place ${id}`;
   group.add(kitPlace.group);

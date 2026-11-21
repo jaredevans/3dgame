@@ -78,3 +78,19 @@ test('a train may leave only once what it needs is in and nothing is still being
   assert.equal(readyToLeave('ocean-mountain', { has, busy: false, settled: () => false }), false, 'its suburbs still building');
   assert.equal(readyToLeave('ocean-mountain', { has: (id) => id !== 'mountain' && has(id), busy: false, settled: () => true }), false);
 });
+
+// boarding waits on builds the train doesn't need (the next town along, still coming in, or hung) only for a few
+// seconds: after that you may go, and what's still building waits for your next standstill to land. What the train
+// does need is never skipped
+test('a train may leave once what it needs is in, after a few seconds at most of waiting on anything else', async () => {
+  const { readyToLeave, WAIT_MAX } = await import('../streaming.js');
+  assert.ok(WAIT_MAX >= 5 && WAIT_MAX <= 10, `${WAIT_MAX} s`);
+  const all = new Set(['ocean-mountain', 'ocean', 'mountain', 'train:ocean-mountain']);
+  const has = (id) => all.has(id);
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, waited: WAIT_MAX - 0.1 }), false);
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, waited: WAIT_MAX }), true, 'waited long enough');
+  assert.equal(readyToLeave('ocean-mountain', { has: (id) => id !== 'mountain' && has(id), busy: true, waited: 1e9 }), false,
+    'never without what it needs');
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, settled: () => false, waited: 1e9 }), false,
+    'nor before its own suburbs are settled (in, or left out after their own bound)');
+});
