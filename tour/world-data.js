@@ -175,6 +175,37 @@ export const COAST = {
   ],
 };
 
+// the land's shape beyond the rolling hills: a massif of snowy peaks around the Mountain (the climb and the pass run through
+// its foothills), a canyon down the Canyon Express after the pass, red mesas round the Wild West and along the bullet's run.
+// Massifs and mesas keep clear of every line and of each place (see `clearings`), so they never crowd a station.
+export const FEATURES = [
+  { kind: 'massif', x: 2900, z: 420, r: 800, h: 340 },
+  { kind: 'massif', x: 2250, z: 1000, r: 700, h: 300 },
+  { kind: 'massif', x: 2750, z: 150, r: 600, h: 260 },
+  { kind: 'massif', x: 3300, z: 900, r: 650, h: 280 },
+  { kind: 'canyon', leg: 'mountain-west', s0: 620, s1: 1150, depth: 70, width: 30 },
+  { kind: 'mesa', x: 3350, z: 1500, r: 90, h: 55 },
+  { kind: 'mesa', x: 3500, z: 1760, r: 120, h: 70 },
+  { kind: 'mesa', x: 3250, z: 2300, r: 100, h: 60 },
+  { kind: 'mesa', x: 2500, z: 2350, r: 110, h: 60 },
+  { kind: 'mesa', x: 2200, z: 1650, r: 100, h: 55 },
+  { kind: 'mesa', x: 1700, z: 2250, r: 140, h: 65 },
+  { kind: 'mesa', x: 1400, z: 1550, r: 120, h: 60 },
+  { kind: 'mesa', x: 800, z: 2100, r: 110, h: 55 },
+  { kind: 'mesa', x: 500, z: 1400, r: 100, h: 50 },
+];
+// snow on the massif above 60 m; red earth and sand in the desert; paving round the two cities; grass elsewhere
+export const BIOMES = [
+  { kind: 'snow', x: 2650, z: 650, r: 900 },
+  { kind: 'desert', x: 3000, z: 1900, r: 900 },
+  { kind: 'desert', x: 2000, z: 1950, r: 700 },
+  { kind: 'desert', x: 1000, z: 1800, r: 700 },
+  { kind: 'desert', x: 250, z: 1600, r: 600 },
+  { kind: 'desert', x: 2950, z: 1350, r: 500 },
+  { kind: 'urban', x: 128, z: -74, r: 30 },
+  { kind: 'urban', x: -1050, z: 1200, r: 300 },
+];
+
 const routeCache = new Map();
 export function legRoute(id) {
   if (!routeCache.has(id)) routeCache.set(id, makeRoute(LEGS[id].points));
@@ -211,7 +242,10 @@ let cached = null;
 export function worldTerrain({ patches = [] } = {}) {
   if (cached && !patches.length) return cached;
   const routes = Object.keys(LEGS).map(legRoute);
-  const t = makeTerrain({ routes, pads: [...placePads(), ...stationPads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7 });
+  const legs = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
+  const clearings = Object.values(PLACES).map((p) => ({ x: p.centre.x, z: p.centre.z, r: 130 }));
+  const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
+    features: FEATURES, biomes: BIOMES, clearings });
   if (!patches.length) cached = t;
   return t;
 }

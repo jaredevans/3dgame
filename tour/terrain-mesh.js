@@ -5,6 +5,9 @@ const COLOURS = {
   grass: [new THREE.Color('#7da552'), new THREE.Color('#93b562'), new THREE.Color('#6f9a4a')],
   sand: [new THREE.Color('#e4d4a6'), new THREE.Color('#dccb98')],
   rock: [new THREE.Color('#8e877b'), new THREE.Color('#a39b8c')],
+  snow: [new THREE.Color('#f3f6f8'), new THREE.Color('#e3ecf3')],
+  redrock: [new THREE.Color('#c4633b'), new THREE.Color('#b4532f'), new THREE.Color('#d07a4a')],
+  scree: [new THREE.Color('#b3a48f'), new THREE.Color('#a39580')],
   paving: [new THREE.Color('#a19f99')],
   sea: [new THREE.Color('#c9b98d'), new THREE.Color('#9b9a7c')],   // the sea floor, seen through the water
 };

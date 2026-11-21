@@ -7,6 +7,8 @@ const BED_HALF = 6;             // metres either side of the route centre held e
 const BED_BLEND = 30;           // then blending back to natural ground over this many metres
 const PAD_BLEND = 20;
 const PATCH_BLEND = 25;
+const CANYON_RIM = 100;         // a canyon's rim holds this far past its walls...
+const CANYON_FADE = 160;        // ...then falls back to the land over this far
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -30,7 +32,7 @@ function fbm(x, z, seed) {
 }
 
 // ---- nearest point on a route, via a coarse grid of its samples ----
-function indexRoute(route, step = 4, cell = 64) {
+function indexRoute(route, step = 4, cell = 64, reachM = BED_HALF + BED_BLEND + step) {
   const n = Math.ceil(route.length / step) + 1, xs = [], zs = [], ss = [];
   const grid = new Map(), key = (i, j) => `${i},${j}`;
   for (let k = 0; k < n; k++) {
@@ -40,7 +42,7 @@ function indexRoute(route, step = 4, cell = 64) {
     if (!grid.has(kk)) grid.set(kk, []);
     grid.get(kk).push(k);
   }
-  const reach = Math.ceil((BED_HALF + BED_BLEND + step) / cell);
+  const reach = Math.ceil(reachM / cell);
   const tmp = {};
   return function nearest(x, z) {
     const ci = Math.floor(x / cell), cj = Math.floor(z / cell);
@@ -98,12 +100,103 @@ const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), M
 // patches: a placed kit's own ground { x, y, z, rot, drop, sample(lx, lz) -> { h, d } | null }: h is the kit's ground at
 // the nearest point of its land, d how far outside its land the point is (0 on it). On its land ours follows the kit's,
 // sunk by `drop` so the kit's ground covers ours; off it, ours blends out from the land's edge height.
-export function makeTerrain({ routes = [], pads = [], patches = [], coast = null, base = 8, seaLevel = 0, seed = 1 } = {}) {
+//
+// features (all in the natural layer, so the track bed and pads still win under and beside the line):
+//   { kind: 'massif', x, z, r, h }  a range of ridged peaks rising h metres, falling off over r
+//   { kind: 'mesa', x, z, r, h }    a flat-topped, steep-sided block h metres above the land
+//   { kind: 'canyon', leg, s0, s1, depth, width }  walls rising depth metres above the route either side of width/2, between
+//                                   those route distances (`legs` maps a leg id to its route)
+// Massifs and mesas keep clear of every route, big circular pad and `clearings` { x, z, r }, so a line never sits in a pit.
+// biomes { kind: 'grass'|'snow'|'desert'|'urban', x, z, r }: the nearest wins, ragged over ~200 m; they only recolour.
+export const SNOWLINE = 60;
+export function makeTerrain({ routes = [], pads = [], patches = [], coast = null, base = 8, seaLevel = 0, seed = 1,
+  features = [], biomes = [], legs = {}, clearings = [] } = {}) {
   const nearests = routes.map((r) => indexRoute(r));
   const coastAt = coast ? indexCoast(coast) : null;
   const SEA_FLOOR = seaLevel - 7;
 
+  const massifs = features.filter((f) => f.kind === 'massif');
+  const mesas = features.filter((f) => f.kind === 'mesa');
+  const canyons = features.filter((f) => f.kind === 'canyon' && legs[f.leg]).map((f) => {
+    const route = legs[f.leg], reach = f.width / 2 + CANYON_RIM + CANYON_FADE + 20;
+    const bb = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+    for (let s = f.s0; s <= f.s1; s += 40) {
+      const p = route.at(s);
+      bb.x0 = Math.min(bb.x0, p.x); bb.x1 = Math.max(bb.x1, p.x); bb.z0 = Math.min(bb.z0, p.z); bb.z1 = Math.max(bb.z1, p.z);
+    }
+    return { ...f, nearest: indexRoute(route, 12, 128, reach), reach, bb };
+  });
+
+  // how far a point is from any line or clearing: 0 right beside them, 1 well away (massifs and mesas fade by it)
+  const CELL = 128, ckey = (i, j) => `${i},${j}`, cgrid = new Map();
+  let maxR1 = 0;
+  const addSource = (x, z, r0, r1) => {
+    const k = ckey(Math.floor(x / CELL), Math.floor(z / CELL));
+    if (!cgrid.has(k)) cgrid.set(k, []);
+    cgrid.get(k).push([x, z, r0, r1]);
+    maxR1 = Math.max(maxR1, r1);
+  };
+  if (massifs.length || mesas.length) {
+    for (const r of routes) for (let s = 0; s <= r.length + 15; s += 30) { const p = r.at(Math.min(s, r.length)); addSource(p.x, p.z, 25, 240); }
+    for (const c of clearings) addSource(c.x, c.z, c.r, c.r + 220);
+    for (const p of pads) if (p.r !== undefined) addSource(p.x, p.z, p.r + 20, p.r + 260);
+  }
+  function clearance(x, z) {
+    const ci = Math.floor(x / CELL), cj = Math.floor(z / CELL), reach = Math.ceil(maxR1 / CELL);
+    let c = 1;
+    for (let i = ci - reach; i <= ci + reach; i++) for (let j = cj - reach; j <= cj + reach; j++) {
+      const list = cgrid.get(ckey(i, j));
+      if (!list) continue;
+      for (const [sx, sz, r0, r1] of list) {
+        const d = Math.hypot(x - sx, z - sz);
+        if (d < r1) { c = Math.min(c, smooth(r0, r1, d)); if (c === 0) return 0; }
+      }
+    }
+    return c;
+  }
+  const ridged = (x, z, sd) => Math.max(0, 1 - Math.abs(fbm(x / 650, z / 650, sd)) * 2) ** 1.3;
+
+  // the land plus its features
   function natural(x, z) {
+    const hb = landAt(x, z);
+    let h = hb;
+    const cd = coastAt ? coastAt(x, z).d : Infinity;
+    const onLand = smooth(0, 60, cd);
+    if (onLand > 0 && (massifs.length || mesas.length)) {
+      let lift = 0, near = false;
+      for (const m of massifs) {
+        const d = Math.hypot(x - m.x, z - m.z);
+        if (d >= m.r) continue;
+        near = true;
+        const f = 1 - smooth(0, 1, d / m.r), core = 1 - smooth(0, 0.3 * m.r, d);
+        lift += m.h * f ** 1.2 * lerp(0.55 + 0.45 * ridged(x, z, seed + 50), 1, core);
+      }
+      let pull = 0, top = 0;
+      for (const m of mesas) {
+        const d = Math.hypot(x - m.x, z - m.z), e = Math.min(m.h / 3, 0.25 * m.r);
+        if (d >= m.r + e) continue;
+        near = true;
+        const mask = 1 - smooth(m.r - e, m.r + e, d);
+        if (mask > pull) { pull = mask; top = landAt(m.x, m.z) + m.h + noise(x / 45, z / 45, seed + 60) * 0.5; }
+      }
+      if (near) {
+        const k = clearance(x, z) * onLand, raised = hb + lift * k;
+        h = pull > 0 ? raised + (top - raised) * pull * k : raised;
+      }
+    }
+    for (const cn of canyons) {
+      if (x < cn.bb.x0 - cn.reach || x > cn.bb.x1 + cn.reach || z < cn.bb.z0 - cn.reach || z > cn.bb.z1 + cn.reach) continue;
+      const n = cn.nearest(x, z);
+      if (!n || n.s < cn.s0 || n.s > cn.s1) continue;
+      const half = cn.width / 2, along = smooth(cn.s0, cn.s0 + 120, n.s) * (1 - smooth(cn.s1 - 120, cn.s1, n.s));
+      const across = smooth(half, half + 20, n.dist) * (1 - smooth(half + CANYON_RIM, half + CANYON_RIM + CANYON_FADE, n.dist));
+      const rim = n.y + cn.depth * (0.88 + 0.12 * ridged(x, z, seed + 70));
+      if (across * along > 0 && rim > h) h += (rim - h) * across * along;
+    }
+    return h;
+  }
+
+  function landAt(x, z) {
     const c = coastAt ? coastAt(x, z) : { d: Infinity, top: base, kind: 0 };
     const amp = 3 + Math.min(28, Math.max(0, c.d - 120) * 0.035);
     const land = base + fbm(x / 380, z / 380, seed) * amp + Math.max(0, fbm(x / 900, z / 900, seed + 9)) * amp * 0.8;
@@ -147,6 +240,15 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
 
   function coastDistance(x, z) { return coastAt ? coastAt(x, z).d : Infinity; }
 
+  // which biome a point is in: the one it is deepest inside, with ragged edges; none -> grass
+  function biomeAt(x, z) {
+    if (!biomes.length) return 'grass';
+    const jit = noise(x / 260, z / 260, seed + 21) * 140;
+    let best = 'grass', bk = 0;
+    for (const b of biomes) { const k = Math.hypot(x - b.x, z - b.z) - b.r + jit; if (k < bk) { bk = k; best = b.kind; } }
+    return best;
+  }
+
   function regionAt(x, z) {
     const h = heightAt(x, z);
     if (h < seaLevel) return 'sea';
@@ -155,10 +257,19 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
       if (p.r !== undefined ? Math.hypot(x - p.x, z - p.z) < p.r : (([lx, lz]) => outside(lx, lz, p.w / 2, p.d / 2) === 0)(toLocal(x, z, p))) return 'paving';
     }
     const sx = heightAt(x + 2, z) - heightAt(x - 2, z), sz = heightAt(x, z + 2) - heightAt(x, z - 2);
-    if (Math.hypot(sx, sz) / 4 > 0.75) return 'rock';
+    const slope = Math.hypot(sx, sz) / 4, biome = biomeAt(x, z);
+    if (biome === 'snow') {
+      const line = SNOWLINE + noise(x / 90, z / 90, seed + 31) * 10;
+      if (h > line) return slope > 1.3 ? 'rock' : 'snow';
+      if (h > line - 30 && slope > 0.55) return 'scree';
+    } else if (biome === 'desert') {
+      if (slope > 0.45 || h > 32) return 'redrock';
+      if (!(coastAt && coastDistance(x, z) < 30 && h < seaLevel + 5)) return noise(x / 70, z / 70, seed + 41) > 0.3 ? 'redrock' : 'sand';
+    } else if (biome === 'urban' && slope <= 0.75) return 'paving';
+    if (slope > 0.75) return 'rock';
     if (coastAt && coastDistance(x, z) < 30 && h < seaLevel + 5) return 'sand';
     return 'grass';
   }
 
-  return { heightAt, regionAt, coastDistance, seaLevel };
+  return { heightAt, natural, regionAt, coastDistance, seaLevel };
 }
