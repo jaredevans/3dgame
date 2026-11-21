@@ -2,7 +2,7 @@
 // and its platforms, and you can walk from one of a place's stations to the other.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEGS, PLACES, BUILT, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain, legBuilt } from '../world-data.js';
+import { LEGS, PLACES, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { STATION_STYLES } from '../station-style.js';
 import { makeWalkWorld } from '../walk-world.js';
@@ -24,8 +24,8 @@ function footprint(p) {
 
 const CLEAR = 10;   // from a line's centre: its swept path (lanes ±2, trains 3.2 m wide) and its platforms (out to 8 m), and 2 m
 
-test('every built place has a footprint', () => {
-  for (const id of BUILT) assert.ok(PLACES[id].size, `${id} has no size`);
+test('every place has a footprint', () => {
+  for (const id of Object.keys(PLACES)) assert.ok(PLACES[id].size, `${id} has no size`);
 });
 
 test("no place's footprint, nor any of its extra parts, comes onto a line or its platforms", () => {
@@ -49,7 +49,7 @@ test("no place's footprint, nor any of its extra parts, comes onto a line or its
 });
 
 // Walking through the town, in the page's own walk world (makeWalkWorld and each station's stationWalk, as main.js
-// builds them), with the stations the page builds: those on its built legs (world-data legBuilt), none stood in for.
+// builds them), with its stations, none stood in for.
 // Without kits in Node, the town's land is the place's footprint rectangle, no margin; a station's building stands in it
 // where buildTerminus puts it. From the middle of one town-side platform to the other there must be a way on foot, and
 // every such way must cross the town's land: none goes round it, past the buffer ends or along the lines.
@@ -72,7 +72,7 @@ export function walkThroughTown(def) {
   const terrain = worldTerrain(), place = stubPlace(def, terrain);
   // the station building stood in from the place's station style (its footprint)
   const building = STATION_STYLES[def.station ?? 'countryside'].building;
-  const built = def.stations.filter((st) => legBuilt(st.leg));
+  const built = def.stations;
   if (built.length < 2) return { ok: false, why: ONE_STATION };
   const termini = built.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building }) }));
   const world = makeWalkWorld({ place, termini, terrain, seaLevel: SEA_LEVEL });

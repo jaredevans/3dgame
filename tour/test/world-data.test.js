@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
 import * as WORLD from '../world-data.js';
-import { LEGS, PLACES, RING, BUILT, laneFor, laneOf, TRACK_CENTRES } from '../world-data.js';
+import { LEGS, PLACES, RING, laneOf, TRACK_CENTRES } from '../world-data.js';
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 
 test('the leg lies inside the limits', () => {
@@ -14,9 +14,7 @@ test('the leg lies inside the limits', () => {
 test('running sides', () => {
   assert.equal(TRACK_CENTRES, 4);
   // left-hand running, as on the British railway the kit models: outbound trains use the line on the left
-  assert.equal(laneFor('out'), 2);
-  assert.equal(laneFor('back'), -2);
-  assert.equal(laneFor('out'), laneOf('city-ocean'));
+  assert.equal(laneOf('city-ocean'), 2);
 });
 
 test('stations sit on the line ends', () => {
@@ -44,7 +42,7 @@ test('each town stands beside its station, on the platform side, not past the bu
     const along = dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw);    // + towards the route's end
     const across = dx * Math.cos(o.yaw) - dz * Math.sin(o.yaw);   // + left of the line
     assert.ok(Math.abs(along) <= 60, `${place} is ${along.toFixed(0)} m along from its platform's middle`);
-    assert.ok(Math.sign(across) === Math.sign(laneFor('out')) && Math.abs(across) >= 20, `${place} is ${across.toFixed(0)} m across, not beside the platform`);
+    assert.ok(Math.sign(across) === Math.sign(laneOf('city-ocean')) && Math.abs(across) >= 20, `${place} is ${across.toFixed(0)} m across, not beside the platform`);
   }
 });
 
@@ -56,17 +54,14 @@ test('the ring is in order', () => {
   assert.equal(LEGS['city-ocean'].to, 'ocean');
 });
 
-test('the page builds only the places whose kits are wired in', () => {
-  assert.ok(['city', 'ocean', 'mountain', 'west', 'future'].every((id) => BUILT.includes(id)), `BUILT is ${BUILT}`);
-  for (const id of BUILT) assert.ok(PLACES[id], id);
-});
-
-test('every leg is built once both its places are, and the ring is closed', () => {
-  const { legBuilt } = WORLD;
-  assert.equal(typeof legBuilt, 'function', 'world-data has no legBuilt');
-  // nothing is held back any more: the Metro Glide's leg into City, its train and City's north station are built
+test('the ring is closed: its places and legs are all laid out, and every station stands on one of its legs', () => {
+  assert.deepEqual([...RING.places].sort(), Object.keys(PLACES).sort());
+  assert.deepEqual([...RING.legs].sort(), Object.keys(LEGS).sort());
   assert.equal(WORLD.HELD, undefined, 'world-data still holds legs back');
-  for (const id of RING.legs) assert.ok(legBuilt(id), `${id} is not built`);
-  // so every station of every built place stands on a built leg
-  for (const id of BUILT) for (const st of PLACES[id].stations) assert.ok(legBuilt(st.leg), `${PLACES[id].name}'s ${st.role} station is not built`);
+  assert.equal(WORLD.BUILT, undefined, 'nothing is left unbuilt');
+  for (const [id, p] of Object.entries(PLACES)) for (const st of p.stations) assert.ok(RING.legs.includes(st.leg), `${p.name}'s ${st.role} station`);
+  for (let k = 0; k < RING.legs.length; k++) {
+    const leg = LEGS[RING.legs[k]];
+    assert.equal(leg.to, LEGS[RING.legs[(k + 1) % RING.legs.length]].from, `${RING.legs[k]} leads on`);
+  }
 });

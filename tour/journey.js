@@ -81,6 +81,11 @@ export function makeJourney({ legs, places }) {
       if (canGetOut(train, run.origin.platform)) return run.from;
       return null;
     },
+    // the place whose platform window a train at s is in, moving or not (null between them)
+    windowAt(run, s) {
+      const inside = (p) => s >= p.sFrom && s <= p.sTo;
+      return inside(run.destination.platform) ? run.to : inside(run.origin.platform) ? run.from : null;
+    },
     // where you step down from a cab at s: a little behind it, on the platform beside the line, never past its ends
     stepOut(run, s) {
       const p = canGetOut({ s, v: 0 }, run.destination.platform) ? run.destination.platform : run.origin.platform;

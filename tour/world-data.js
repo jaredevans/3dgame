@@ -1,6 +1,6 @@
 // The tour's world: places, legs and the land between them, in metres. Pure data (plus a terrain factory), no three.js.
-// Ring order: city -> ocean -> mountain -> west -> future -> city. Every place and leg is laid out here; the page builds
-// only the places in BUILT (and the legs between them) until their kits are wired in.
+// Ring order: city -> ocean -> mountain -> west -> future -> city. Every place and leg is laid out here, and the page
+// builds them all.
 // The sea lies to the -z side of the coast; heading +x along the coast, the sea is on your left.
 import { makeRoute } from './route.js';
 import { makeTerrain } from './terrain.js';
@@ -12,16 +12,9 @@ export const BUFFER_GAP = 1.5;   // metres from a line's end to its buffer face;
 export const STOP_SHORT = 12;    // a train's stopping point is this far short of the buffers
 // each leg's town side (side: +1 left of its direction, -1 right): its trains run both ways on the line on that side
 export const laneOf = (legId) => LEGS[legId].side * TRACK_CENTRES / 2;
-// Phase 1's lanes on city-ocean: left-hand running (a British railway), the outbound line on the left (+lateral)
-export const laneFor = (dir) => (dir === 'out' ? laneOf('city-ocean') : -laneOf('city-ocean'));
 export const SEA_LEVEL = 0;
 // a place's extra parts (Oceanside's seafront) are its town too: the ground this far round each one
 export const EXTRA_REACH = 6;
-
-// the places whose kits the page builds; a leg (its track, its train and its stations at both ends) is built once both
-// its places are: with all five, the whole ring
-export const BUILT = ['city', 'ocean', 'mountain', 'west', 'future'];
-export const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to);
 
 export const RING = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],

@@ -134,3 +134,15 @@ test('getting out before leaving: no turn, the other leg\'s train waits', () => 
   assert.deepEqual(b.wait, [{ leg: 'mountain-west', dir: 'out', station: 'departure', to: 'west' }]);
   assert.throws(() => j.arrive(j.start('city-ocean', 'out')), 'only once you\'re on foot');
 });
+
+// which platform's window a train is in at s, moving or not: what lies beyond that place stays wanted while it's there
+// (a creep along the platform, or a stop and a start, doesn't drop it)
+test('the platform window a train is in, whatever its speed', () => {
+  const run = j.runRoute('ocean-mountain', 'out');
+  assert.equal(j.windowAt(run, run.destination.platform.sFrom + 1), 'mountain');
+  assert.equal(j.windowAt(run, run.stopS), 'mountain');
+  assert.equal(j.windowAt(run, run.origin.platform.sTo - 1), 'ocean');
+  assert.equal(j.windowAt(run, run.route.length / 2), null);
+  const back = j.runRoute('ocean-mountain', 'back');
+  assert.equal(j.windowAt(back, back.stopS), 'ocean');
+});

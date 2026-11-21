@@ -95,3 +95,43 @@ test('busy while anything wanted is still to be built, not for what failed', asy
   await streamer.want(new Set(['a', 'b']));
   assert.equal(streamer.busy, false, 'a is in; b failed and is not retried');
 });
+
+// a build that never settles (an import or fetch that hangs) must not hold up the rest, nor leave the page busy for ever:
+// past its deadline it counts as failed (reported, so the "couldn't be loaded" paths take over), what's next is built,
+// and if it lands after all it's let go
+test('a build past its deadline counts as failed, the rest go on, and a late arrival is let go', async () => {
+  const errors = [], { log, thing } = recorder();
+  let land;
+  const streamer = makeStreamer({
+    hung: () => new Promise((done) => { land = () => done(thing('hung')); }),
+    b: async () => thing('b'),
+  }, { onError: (e) => errors.push(e.message), deadline: 20 });
+  await streamer.want(new Set(['hung', 'b']));
+  assert.ok(streamer.failed('hung'), 'past its deadline: failed');
+  assert.match(errors[0], /hung took more than/);
+  assert.ok(streamer.has('b'), 'the next build went ahead');
+  assert.equal(streamer.busy, false, 'not busy for ever');
+  land();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(log, ['+b#1', 'show b#1', '+hung#2', '-hung#2'], 'landed late, and let go');
+  assert.equal(streamer.has('hung'), false);
+});
+
+test('failed builds are tried again when asked, a few times at most', async () => {
+  let tries = 0;
+  const streamer = makeStreamer({ flaky: async () => { tries++; throw new Error('503'); } }, { onError: () => {}, retries: 2 });
+  await streamer.want(new Set(['flaky']));
+  for (let i = 0; i < 5; i++) { streamer.retry(); await streamer.want(new Set(['flaky'])); }
+  assert.equal(tries, 3, 'the first try and two more');
+  assert.ok(streamer.failed('flaky'));
+});
+
+test('whether an id is still to be built: never one without a builder, nor one that failed', async () => {
+  const streamer = makeStreamer({ a: async () => ({ dispose() {} }), bad: async () => { throw new Error('x'); } }, { onError: () => {} });
+  assert.equal(streamer.toBuild('a'), true);
+  assert.equal(streamer.toBuild('nothing'), false, 'no builder: never to be built');
+  await streamer.want(new Set(['a', 'bad', 'nothing']));
+  assert.equal(streamer.toBuild('a'), false);
+  assert.equal(streamer.toBuild('bad'), false);
+  assert.equal(streamer.busy, false);
+});
