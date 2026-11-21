@@ -1,6 +1,7 @@
 // The tour's landscape as a height function. Pure maths, no three.js.
 // natural ground (rolling hills, a coast with cliffs or beaches) -> the track bed cut and filled under every route
 // -> flat pads under places and stations.
+import { CHUNK, chunksNear } from './chunks.js';
 
 export const BED_DROP = 0.05;   // ground sits this far below a route's formation level (route.y), under the ballast
 const BED_HALF = 6;             // metres either side of the route centre held exactly at the bed
@@ -9,6 +10,7 @@ const PAD_BLEND = 20;
 const PATCH_BLEND = 25;
 const CANYON_RIM = 100;         // a canyon's rim holds this far past its walls...
 const CANYON_FADE = 160;        // ...then falls back to the land over this far
+const DIRTY_REACH = 60;         // a patch added or removed changes the ground of every chunk this near its land
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -99,7 +101,9 @@ const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), M
 // pads: circles { x, z, r, y } or rectangles { x, z, w, d, rot, y }, held flat at y, blending out over `blend` metres.
 // patches: a placed kit's own ground { x, y, z, rot, drop, sample(lx, lz) -> { h, d } | null }: h is the kit's ground at
 // the nearest point of its land, d how far outside its land the point is (0 on it). On its land ours follows the kit's,
-// sunk by `drop` so the kit's ground covers ours; off it, ours blends out from the land's edge height.
+// sunk by `drop` so the kit's ground covers ours; off it, ours blends out from the land's edge height. A patch's land lies
+// within `r` metres of its origin. Patches come and go as places load (addPatch, removePatch); takeDirty() hands over the
+// chunks (keys 'c:i,j', `chunk` metres square) whose ground they changed since it was last called.
 //
 // features (all in the natural layer, so the track bed and pads still win under and beside the line):
 //   { kind: 'massif', x, z, r, h }  a range of ridged peaks rising h metres, falling off over r
@@ -109,8 +113,14 @@ const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), M
 // Massifs and mesas keep clear of every route, big circular pad and `clearings` { x, z, r }, so a line never sits in a pit.
 // biomes { kind: 'grass'|'snow'|'desert'|'urban', x, z, r }: the nearest wins, ragged over ~200 m; they only recolour.
 export const SNOWLINE = 60;
-export function makeTerrain({ routes = [], pads = [], patches = [], coast = null, base = 8, seaLevel = 0, seed = 1,
-  features = [], biomes = [], legs = {}, clearings = [] } = {}) {
+export function makeTerrain({ routes = [], pads = [], patches: given = [], coast = null, base = 8, seaLevel = 0, seed = 1,
+  features = [], biomes = [], legs = {}, clearings = [], chunk = CHUNK } = {}) {
+  const patches = [...given];
+  let dirty = new Set();
+  const touch = (p) => { for (const k of chunksNear(p.x, p.z, (p.r ?? 100) + DIRTY_REACH, chunk)) dirty.add(k); };
+  function addPatch(p) { if (!patches.includes(p)) { patches.push(p); touch(p); } }
+  function removePatch(p) { const i = patches.indexOf(p); if (i >= 0) { patches.splice(i, 1); touch(p); } }
+  function takeDirty() { const d = dirty; dirty = new Set(); return d; }
   const nearests = routes.map((r) => indexRoute(r));
   const coastAt = coast ? indexCoast(coast) : null;
   const SEA_FLOOR = seaLevel - 7;
@@ -255,15 +265,15 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
     return best ?? { kind: 'grass' };
   }
 
-  function regionAt(x, z) {
-    const h = heightAt(x, z);
+  // what a point's ground is, for colouring; h and slope (rise per metre) are worked out here unless given
+  function regionAt(x, z, h = heightAt(x, z), slope) {
     if (h < seaLevel) return 'sea';
     for (const p of pads) {
       if (p.kind !== 'paving') continue;
       if (p.r !== undefined ? Math.hypot(x - p.x, z - p.z) < p.r : (([lx, lz]) => outside(lx, lz, p.w / 2, p.d / 2) === 0)(toLocal(x, z, p))) return 'paving';
     }
-    const sx = heightAt(x + 2, z) - heightAt(x - 2, z), sz = heightAt(x, z + 2) - heightAt(x, z - 2);
-    const slope = Math.hypot(sx, sz) / 4, bm = biomeAt(x, z), biome = bm.kind;
+    slope ??= Math.hypot(heightAt(x + 2, z) - heightAt(x - 2, z), heightAt(x, z + 2) - heightAt(x, z - 2)) / 4;
+    const bm = biomeAt(x, z), biome = bm.kind;
     if (biome === 'snow') {
       const line = (bm.line ?? SNOWLINE) + noise(x / 90, z / 90, seed + 31) * Math.min(10, Math.abs(bm.line ?? SNOWLINE) / 2);
       if (h > line) return slope > 1.3 ? 'rock' : 'snow';
@@ -277,5 +287,5 @@ export function makeTerrain({ routes = [], pads = [], patches = [], coast = null
     return 'grass';
   }
 
-  return { heightAt, natural, regionAt, coastDistance, seaLevel };
+  return { heightAt, natural, regionAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty };
 }

@@ -27,8 +27,10 @@ function landSampler(kitPlace) {
   }
   const edge = landCells.filter((c) => { const i = c % n; return [c - 1, c + 1, c - n, c + n].some((k) => k >= 0 && k < n * n && D[k] > 0) && i > 0 && i < n - 1; })
     .map((c) => [-REACH + (c % n) * CELL, -REACH + Math.floor(c / n) * CELL]);
+  // how far from the origin the land reaches
+  const radius = landCells.reduce((r, c) => Math.max(r, Math.hypot(-REACH + (c % n) * CELL, -REACH + Math.floor(c / n) * CELL)), 0) + CELL;
   return {
-    edge,
+    edge, radius,
     sample(lx, lz) {
       const i = Math.round((lx + REACH) / CELL), j = Math.round((lz + REACH) / CELL);
       if (i < 0 || j < 0 || i >= n || j >= n) return null;
@@ -57,7 +59,7 @@ export async function buildPlace(id) {
   const b = kitPlace.bounds;
   const land = kitPlace.terrain ? landSampler(kitPlace) : null;
   // the kit's own ground as a terrain patch, blended out from the edge of its land
-  const patch = land ? { x: def.centre.x, y: def.y, z: def.centre.z, rot: def.rot, drop: 0.15, sample: land.sample } : null;
+  const patch = land ? { x: def.centre.x, y: def.y, z: def.centre.z, rot: def.rot, drop: 0.15, r: land.radius, sample: land.sample } : null;
 
   const extras = [], extraBoxes = [];
   return {
@@ -69,7 +71,7 @@ export async function buildPlace(id) {
       for (const e of extraBoxes) if (x > e.box.min.x - r && x < e.box.max.x + r && z > e.box.min.z - r && z < e.box.max.z + r) return e.key;
       return null;
     },
-    // the extra parts round the composed place, stood on the finished terrain
+    // the extra parts round the composed place, stood on the terrain (with this place's patch in it)
     async addExtras(terrain) {
       for (const e of def.extras ?? []) {
         const obj = await part(def.kit, e.key, e.params ?? {});

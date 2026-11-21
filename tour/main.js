@@ -7,7 +7,8 @@ import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
 import { LEGS, PLACES, RING, BUILT, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
-import { buildTerrain, buildSea } from './terrain-mesh.js';
+import { buildTerrainChunk, buildSea } from './terrain-mesh.js';
+import { chunksWanted, chunkOf, chunkId, CHUNK } from './chunks.js';
 import { buildTrack } from './track-mesh.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
@@ -51,6 +52,9 @@ async function boot() {
   const { stage } = await kitModule(KITS.railway, 'stage.mjs');
   const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160, sky: false, fog: false });
   const skyDome = makeSkyDome(scene, camera);
+  // the land as a height function; each place with its own ground adds its patch as it loads (and takes it away again).
+  // This is world-data's one cached terrain: the page is its only user, so the patches on it are the page's.
+  const terrain = worldTerrain();
 
   // ---- places, legs and trains load through the streamer, by id: only the places whose kits are wired in, the legs
   // between them, and those legs' trains (`train:<leg>`) ----
@@ -65,6 +69,8 @@ async function boot() {
     setLoading(`building ${PLACES[id].name}`);
     const place = await buildPlace(id);
     scene.add(place.group); look.shadows(place.group);
+    if (place.patch) terrain.addPatch(place.patch);
+    for (const e of await place.addExtras(terrain)) look.shadows(e);
     // the place's stations: a terminus at its end of each built leg it serves
     const ids = [];
     for (const st of PLACES[id].stations.filter((s) => legBuilt(s.leg))) {
@@ -73,7 +79,7 @@ async function boot() {
       termini[`${id}:${st.leg}`] = t; ids.push(`${id}:${st.leg}`);
     }
     places[id] = place;
-    return { dispose() { place.dispose(); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
+    return { dispose() { place.dispose(); if (place.patch) terrain.removePatch(place.patch); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
   };
   for (const id of builtLegs) {
     builders[id] = async () => {
@@ -99,15 +105,37 @@ async function boot() {
   const first = await streamer.want(wanted({ place: state.place }));
   if (first.failed.length || !fleet.trains[state.leg] || !termini[`${firstRun.from}:${state.leg}`] || !termini[`${firstRun.to}:${state.leg}`]) return;
 
-  setLoading('shaping the land');
-  const terrain = worldTerrain({ patches: Object.values(places).map((p) => p.patch).filter(Boolean) });
-  const near = (x, z) => Object.values(routes).some((r) => {
-    for (let s = 0; s <= r.length; s += 50) { const p = r.at(s); if (Math.hypot(p.x - x, p.z - z) < 600) return true; }
-    return false;
-  });
-  scene.add(buildTerrain(terrain, { x0: -1280, z0: -1536, x1: 3328, z1: 1024, fine: near }));
+  // ---- the land: chunks of the world grid round you (chunks.js), fine near and coarse far, through a streamer of their
+  // own so a slow kit never holds up the ground. Ids are 'c:i,j:cell'; a chunk whose detail changes is built again and
+  // the old one let go once the new one is in. After boot a chunk builds only when a frame lets one through, so a
+  // frame never waits on more than one. ----
+  let landGate = null;   // null: build at once (boot); else frame() lets one waiting build through per frame
+  const waiting = [];
+  const landTimes = [];  // the last few chunk builds, ms
+  const land = makeStreamer((id) => {
+    const c = chunkOf(id);
+    if (!c) return undefined;
+    return async () => {
+      if (landGate) await new Promise((go) => waiting.push(go));
+      const t0 = performance.now(), mesh = buildTerrainChunk(terrain, c.i, c.j, CHUNK, c.cell);
+      landTimes.push(performance.now() - t0); if (landTimes.length > 50) landTimes.shift();
+      scene.add(mesh);
+      return { mesh, dispose() { mesh.removeFromParent(); mesh.geometry.dispose(); } };
+    };
+  }, { onError: fail, standIn: (id) => chunkOf(id).key });
+  let landAt = null;
+  // ask for the chunks round (x, z); again only once you've moved a little
+  function wantLand(x, z, force = false) {
+    if (!force && landAt && Math.hypot(x - landAt.x, z - landAt.z) < 16) return null;
+    landAt = { x, z };
+    return land.want([...chunksWanted(x, z)].map(([key, cell]) => chunkId(key, cell)));
+  }
+  // the chunks a patch added or taken away has changed, built again at whatever detail they are
+  function redoDirty() {
+    const dirty = terrain.takeDirty();
+    if (dirty.size) land.redo(land.ids.filter((id) => dirty.has(chunkOf(id).key)));
+  }
   scene.add(buildSea(SEA_LEVEL));
-  for (const p of Object.values(places)) for (const e of await p.addExtras(terrain)) look.shadows(e);
 
   const anchor = new THREE.Object3D();
   scene.add(anchor);
@@ -242,12 +270,19 @@ async function boot() {
     controls.update();
   }
 
+  // where you are: the drone's target in free view, you on foot, or your train's front
+  const here = () => (controls ? controls.target
+    : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.model.cars[0].holder.position);
+  const landBoot = {};
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap });
+  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes });
   Object.defineProperties(window.__tour, {
     // the run you're on, with Phase 1's limits and originPlatform alongside it
     run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
-    pendingTurn: { get: () => pendingTurn }, walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
+    pendingTurn: { get: () => pendingTurn },
+    // the land's live chunks, by detail
+    chunks: { get: () => { const ids = land.ids; return { live: ids.length, fine: ids.filter((id) => id.endsWith(':4')).length, building: land.loading.length, waiting: waiting.length }; } },
+    walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
   });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
   function snap(pos, at, fov = 50) {
@@ -261,6 +296,15 @@ async function boot() {
     img.src = renderer.domElement.toDataURL();
     return 'ok';
   }
+  // the first view has its ground before the loading screen goes
+  setLoading('shaping the land');
+  terrain.takeDirty();   // no chunks yet: nothing to build again
+  {
+    const t0 = performance.now(), h = here();
+    await wantLand(h.x, h.z, true);
+    landBoot.ms = Math.round(performance.now() - t0); landBoot.chunks = land.ids.length;
+  }
+  landGate = true;
   hideLoading();
   const clock = new THREE.Clock();
   let skyPos = null, lastStage = -1;
@@ -292,12 +336,15 @@ async function boot() {
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
     for (const p of Object.values(places)) p.tick(clock.elapsedTime);
-    anchor.position.copy(controls ? controls.target : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : front);
+    anchor.position.copy(here());
     look.update();
+    redoDirty();
+    wantLand(anchor.position.x, anchor.position.z);
     // point the key light along our sun (or, after dark, a high moon) so shadows agree with the sky
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     renderer.render(scene, camera);
+    waiting.shift()?.();   // one chunk build, after this frame's work
   }
   renderer.setAnimationLoop(() => frame(clock.getDelta()));
 }

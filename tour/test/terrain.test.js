@@ -242,3 +242,30 @@ test('the snowy pass: ground beside the highest stretch of Mountain -> Wild West
   const co = legRoute('city-ocean');
   for (let s = 0; s <= co.length; s += 40) for (const d of [-60, 60]) { const q = co.offsetAt(s, d); assert.notEqual(t.regionAt(q.x, q.z), 'snow'); }
 });
+
+test('adding a patch dirties the chunks it touches', () => {
+  const t = makeTerrain({ base: 8, seed: 3 });
+  assert.equal(t.takeDirty().size, 0);
+  // a flat island 20 m round at (500, 4, 300): its land within r of its origin
+  const patch = { x: 500, y: 4, z: 300, rot: 0, drop: 0, r: 20, sample: (lx, lz) => ({ h: 0, d: Math.max(0, Math.hypot(lx, lz) - 20) }) };
+  const before = t.heightAt(500, 300);
+  t.addPatch(patch);
+  assert.ok(Math.abs(t.heightAt(500, 300) - 4) < 0.01, 'the patch is in the ground');
+  // every chunk within 60 m of its land: the one it's in, and the three whose edges lie 12 and 44 m from it
+  assert.deepEqual([...t.takeDirty()].sort(), ['c:1,0', 'c:1,1', 'c:2,0', 'c:2,1']);
+  assert.equal(t.takeDirty().size, 0, 'taken once');
+  t.removePatch(patch);
+  assert.ok(Math.abs(t.heightAt(500, 300) - before) < 1e-9, 'gone again');
+  assert.deepEqual([...t.takeDirty()].sort(), ['c:1,0', 'c:1,1', 'c:2,0', 'c:2,1']);
+  t.removePatch(patch);                               // not there: nothing changes
+  assert.equal(t.takeDirty().size, 0);
+});
+
+test('colouring can be given the height and slope it would otherwise work out', () => {
+  const t = makeTerrain({ base: 8, seed: 3 });
+  assert.equal(t.regionAt(100, 100, -3, 0), 'sea');
+  assert.equal(t.regionAt(100, 100, 12, 2), 'rock');
+  assert.equal(t.regionAt(100, 100, 12, 0), 'grass');
+  // and left out, it works them out as before
+  assert.equal(t.regionAt(100, 100), t.regionAt(100, 100, t.heightAt(100, 100), 0));
+});
