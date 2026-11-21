@@ -1,6 +1,6 @@
 // Ground meshes from the terrain height function: one chunk of the world grid at a time (its arrays from chunks.js), and the sea.
 import * as THREE from 'three';
-import { CHUNK, chunkGrid } from './chunks.js';
+import { CHUNK, chunkGrid, chunkJob } from './chunks.js';
 
 const COLOURS = {
   grass: [new THREE.Color('#7da552'), new THREE.Color('#93b562'), new THREE.Color('#6f9a4a')],
@@ -24,9 +24,14 @@ function paint(col, k, region, x, z) {
   col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
 }
 
-// chunk (i, j) of the world grid (chunks.js): `size` metres square, a vertex every `cell` metres
-export function buildTerrainChunk(terrain, i, j, size = CHUNK, cell = 4) {
-  const { pos, col, nor, idx } = chunkGrid(terrain, i, j, size, cell, paint);
+// a piece of the land (chunks.js, by id), a few rows at a time: a generator whose result terrainChunkMesh() wraps
+// skirts hang this far below a piece's edge: well past the largest step measured between neighbours of different
+// detail (13 m, a mid chunk beside a coarse tile at a mesa's cliff), so no crack shows through
+const SKIRT = 40;
+export const terrainChunkJob = (terrain, c, nearLine) =>
+  chunkJob(terrain, { x0: c.i * c.size, z0: c.j * c.size, size: c.size, cell: c.cell, paint, nearLine, skirt: SKIRT });
+
+export function terrainChunkMesh({ pos, col, nor, idx }, name) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
@@ -35,8 +40,13 @@ export function buildTerrainChunk(terrain, i, j, size = CHUNK, cell = 4) {
   geo.computeBoundingSphere();
   const mesh = new THREE.Mesh(geo, material);
   mesh.receiveShadow = true;
-  mesh.name = `terrain ${i},${j}:${cell}`;
+  mesh.name = name;
   return mesh;
+}
+
+// chunk (i, j) of the world grid, `size` metres square, a vertex every `cell` metres, all at once
+export function buildTerrainChunk(terrain, i, j, size = CHUNK, cell = 4, nearLine = null) {
+  return terrainChunkMesh(chunkGrid(terrain, { x0: i * size, z0: j * size, size, cell, paint, nearLine, skirt: SKIRT }), `terrain ${i},${j}:${cell}`);
 }
 
 export function buildSea(level = 0, span = 16000) {

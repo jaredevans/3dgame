@@ -7,8 +7,8 @@ import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
 import { LEGS, PLACES, RING, BUILT, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
-import { buildTerrainChunk, buildSea } from './terrain-mesh.js';
-import { chunksWanted, chunkOf, chunkId, CHUNK } from './chunks.js';
+import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
+import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK } from './chunks.js';
 import { buildTrack } from './track-mesh.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
@@ -105,35 +105,61 @@ async function boot() {
   const first = await streamer.want(wanted({ place: state.place }));
   if (first.failed.length || !fleet.trains[state.leg] || !termini[`${firstRun.from}:${state.leg}`] || !termini[`${firstRun.to}:${state.leg}`]) return;
 
-  // ---- the land: chunks of the world grid round you (chunks.js), fine near and coarse far, through a streamer of their
-  // own so a slow kit never holds up the ground. Ids are 'c:i,j:cell'; a chunk whose detail changes is built again and
-  // the old one let go once the new one is in. After boot a chunk builds only when a frame lets one through, so a
-  // frame never waits on more than one. ----
-  let landGate = null;   // null: build at once (boot); else frame() lets one waiting build through per frame
-  const waiting = [];
-  const landTimes = [];  // the last few chunk builds, ms
+  // ---- the land: pieces of the world grid round you (chunks.js), fine near you and beside the line, mid further off,
+  // coarse 512 m tiles beyond 1500 m, through a streamer of their own so a slow kit never holds up the ground. A piece
+  // whose detail changes is built again; a tile's new pieces show together once all are in, as the old ones go. After
+  // boot a piece is built a few rows a frame (LAND_SLICE ms, run inside frame()), so no frame waits on a whole one. ----
+  const LAND_SLICE = 4;
+  // the line's corridor: chunks within 300 m of a built route or a built place's footprint
+  const corridor = corridorKeys([
+    ...Object.values(routes).flatMap((r) => Array.from({ length: Math.ceil(r.length / 32) + 1 }, (_, k) => r.at(Math.min(r.length, k * 32), {}))),
+    ...BUILT.map((id) => ({ x: PLACES[id].centre.x, z: PLACES[id].centre.z, r: PLACES[id].size ? Math.hypot(...PLACES[id].size) / 2 : 130 })),
+  ]);
+  const nearLine = (x, z) => corridor.has(chunkKey(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
+  let landSliced = false;  // false: build each piece at once (boot); true: frame() builds the active one a slice at a time
+  let active = null;       // the piece being built: { id, c, job, done, ms, frames }
+  const landTimes = [];    // the last few builds: { id, ms (work), frames }
+  const landFrames = [];   // the last few frames' slice of land building, ms
   const land = makeStreamer((id) => {
     const c = chunkOf(id);
     if (!c) return undefined;
     return async () => {
-      if (landGate) await new Promise((go) => waiting.push(go));
-      const t0 = performance.now(), mesh = buildTerrainChunk(terrain, c.i, c.j, CHUNK, c.cell);
-      landTimes.push(performance.now() - t0); if (landTimes.length > 50) landTimes.shift();
-      scene.add(mesh);
-      return { mesh, dispose() { mesh.removeFromParent(); mesh.geometry.dispose(); } };
+      let arrays;
+      if (!landSliced) {
+        const t0 = performance.now();
+        arrays = runFor(terrainChunkJob(terrain, c, nearLine), Infinity);
+        landTimes.push({ id, ms: performance.now() - t0, frames: 0 });
+      } else arrays = await new Promise((done) => { active = { id, c, job: terrainChunkJob(terrain, c, nearLine), done, ms: 0, frames: 0 }; });
+      if (landTimes.length > 50) landTimes.shift();
+      const mesh = terrainChunkMesh(arrays, `terrain ${id}`);
+      return { mesh, show() { scene.add(mesh); }, dispose() { mesh.removeFromParent(); mesh.geometry.dispose(); } };
     };
-  }, { onError: fail, standIn: (id) => chunkOf(id).key });
+  }, { onError: fail, standIn: (id) => chunkOf(id).tile });
+  // one frame's slice of the piece being built
+  function landSlice() {
+    let ms = 0;
+    if (active) {
+      const t0 = performance.now(), out = runFor(active.job, LAND_SLICE);
+      ms = performance.now() - t0; active.ms += ms; active.frames++;
+      if (out) { const a = active; active = null; landTimes.push({ id: a.id, ms: a.ms, frames: a.frames }); a.done(out); }
+    }
+    landFrames.push(ms); if (landFrames.length > 600) landFrames.shift();
+  }
   let landAt = null;
-  // ask for the chunks round (x, z); again only once you've moved a little
+  // ask for the pieces round (x, z); again only once you've moved a little
   function wantLand(x, z, force = false) {
     if (!force && landAt && Math.hypot(x - landAt.x, z - landAt.z) < 16) return null;
     landAt = { x, z };
-    return land.want([...chunksWanted(x, z)].map(([key, cell]) => chunkId(key, cell)));
+    return land.want([...chunksWanted(x, z, { corridor })].map(([key, cell]) => chunkId(key, cell)));
   }
-  // the chunks a patch added or taken away has changed, built again at whatever detail they are
+  // the pieces a patch added or taken away has changed, built again at whatever detail they are (and the one being
+  // built started again)
   function redoDirty() {
     const dirty = terrain.takeDirty();
-    if (dirty.size) land.redo(land.ids.filter((id) => dirty.has(chunkOf(id).key)));
+    if (!dirty.size) return;
+    const hit = (id) => chunkOf(id).keys.some((k) => dirty.has(k));
+    if (active && hit(active.id)) Object.assign(active, { job: terrainChunkJob(terrain, active.c, nearLine) });
+    land.redo(land.ids.filter(hit));
   }
   scene.add(buildSea(SEA_LEVEL));
 
@@ -275,13 +301,16 @@ async function boot() {
     : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.model.cars[0].holder.position);
   const landBoot = {};
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes });
+  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes, landFrames });
   Object.defineProperties(window.__tour, {
     // the run you're on, with Phase 1's limits and originPlatform alongside it
     run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
     pendingTurn: { get: () => pendingTurn },
-    // the land's live chunks, by detail
-    chunks: { get: () => { const ids = land.ids; return { live: ids.length, fine: ids.filter((id) => id.endsWith(':4')).length, building: land.loading.length, waiting: waiting.length }; } },
+    // the land's pieces: how many are live, and of those shown, how many at each detail; which is being built
+    chunks: { get: () => {
+      const ids = land.ids, on = ids.filter((id) => land.shown(id)), n = (cell) => on.filter((id) => id.endsWith(`:${cell}`)).length;
+      return { live: ids.length, shown: on.length, fine: n(4), mid: n(8), coarse: n(16), building: active?.id ?? null };
+    } },
     walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
   });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
@@ -304,7 +333,7 @@ async function boot() {
     await wantLand(h.x, h.z, true);
     landBoot.ms = Math.round(performance.now() - t0); landBoot.chunks = land.ids.length;
   }
-  landGate = true;
+  landSliced = true;
   hideLoading();
   const clock = new THREE.Clock();
   let skyPos = null, lastStage = -1;
@@ -344,7 +373,7 @@ async function boot() {
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     renderer.render(scene, camera);
-    waiting.shift()?.();   // one chunk build, after this frame's work
+    landSlice();   // a few rows of the land being built, after this frame's work
   }
   renderer.setAnimationLoop(() => frame(clock.getDelta()));
 }
