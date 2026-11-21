@@ -19,10 +19,10 @@ const warnOut = (what, def, leg, err) =>
   console.warn(`The ${what} at the ${def.id} along ${leg} was left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`);
 
 // ---- the signal and the work train ----
-// The post stands 2.6 m out from your line's centre on its outer side, facing the driver coming up to it. (On this leg
-// your line is the right-hand one, so its left is the 4 m between the lines, where the post would stand 1.4 m from the
-// other line's centre, inside the loading gauge every lineside thing keeps clear of: 1.5 m, KIT.md.) On a back run, on
-// the same line, it shows green, facing away
+// The post stands on the left of your line as the driver comes up to it, 2.6 m out from its centre, facing them. (Your
+// line is this leg's right-hand one, so that's between the lines, 1.4 m from the other's centre: just inside its 1.5 m
+// loading gauge, KIT.md, but no train runs on it here, both runs keeping to the town-side line, journey.js.) On a back
+// run, on the same line, it shows green, facing away
 const SIGNAL_OUT = 2.6;
 const WORK = { at: 700, speed: 6, far: 320 };   // the work train: its front's leg-s while the signal is red, m/s once green, hidden this far ahead of you
 const WORK_CARS = [
@@ -35,7 +35,7 @@ async function buildSignal({ leg, route, def, terrain, slicer, kit }) {
   const group = new THREE.Group();
   group.name = `signal ${leg}`;
   const lane = laneOf(leg), at = def.react.at.out;
-  const P = route.at(at), q = route.offsetAt(at, lane + Math.sign(lane) * SIGNAL_OUT);
+  const P = route.at(at), q = route.offsetAt(at, lane + SIGNAL_OUT);
   const aspects = {};
   for (const aspect of ['red', 'green']) {
     await slicer.frame();
