@@ -48,7 +48,8 @@ export async function fetchPlace(id, { onProgress = () => {} } = {}) {
   await Promise.all([...helpers, ...ground, ...[...parts].map((k) => `${k}.mjs`)].map(get));
 }
 
-// onProgress(): as each of its kit's parts comes in (most are in already, from fetchPlace)
+// onProgress(): as each of its kit's parts comes in (most are in already, from fetchPlace), the last just before the kit
+// is built in one go; one that throws stops the build before it begins
 export async function buildPlace(id, { onProgress = null } = {}) {
   const def = PLACES[id];
   const { buildKit } = await kitModule(def.kit, 'kit.mjs');

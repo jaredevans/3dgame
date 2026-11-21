@@ -202,7 +202,10 @@ async function boot() {
     await slowDownload(id, ctx);
     await fetchPlace(id, { onProgress: ctx.progress });
     await ctx.still();
-    const place = await buildPlace(id, { onProgress: ctx.progress });
+    // buildKit fetches its LAYOUT.json and kit.json again before it builds: as each part comes in (the last just before
+    // the build), the build goes on only if it may land at that moment; else it's dropped, to be built at the next
+    // standstill (its modules are all in by then)
+    const place = await buildPlace(id, { onProgress: () => { ctx.progress(); ctx.landNow(); } });
     const mine = {}, shown = [place.group];   // its stations; what's hidden until its programs are ready
     const thing = { dispose() {
       unload.add(...Object.values(mine).map((t) => t.group));

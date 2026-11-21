@@ -229,9 +229,10 @@ test('a build no longer wanted when it may land is dropped, not failed, and buil
 // writes only while it is, and takes out only what it put in (own / disown)
 test('a timed-out build landing after its retry neither overwrites nor deletes the live one', async () => {
   const shared = {}, gates = [];
+  let made = 0;
   const streamer = makeStreamer({
     p: (ctx) => new Promise((done) => gates.push(() => {
-      const me = { n: gates.length };
+      const me = { n: ++made === 1 ? 2 : 1 };   // numbered by build: the retry lands first (as #2), the stalled one after (#1)
       if (ctx.current()) own(shared, 'p', me);
       done({ me, dispose() { disown(shared, 'p', me); } });
     })),
@@ -247,7 +248,7 @@ test('a timed-out build landing after its retry neither overwrites nor deletes t
   gates[1]();   // the retry lands
   await second;
   assert.equal(shared.p.n, 2);
-  gates[0]();   // and then the first, late
+  gates[0]();   // and then the first, late (n: 1)
   await settle();
   assert.equal(shared.p.n, 2, 'not overwritten');
   assert.equal(streamer.get('p').me.n, 2, 'the live one is still the retry');
@@ -301,4 +302,31 @@ test('whether an id is still to be built: never one without a builder, nor one t
   assert.equal(streamer.toBuild('a'), false);
   assert.equal(streamer.toBuild('bad'), false);
   assert.equal(streamer.busy, false);
+});
+
+// the last moment before a kit's build in one go (buildKit's onProgress, as its last part comes in, after its own
+// fetches): ctx.landNow() throws unless the build may land right now, so a player who pulled away while those fetches
+// were in flight never gets the build on a moving frame. Dropped, not failed: built again at the next standstill
+test('landNow() drops a build that may not land at that moment; it is built again once it may', async () => {
+  const errors = [], { log, thing } = recorder();
+  let builds = 0, fetched;
+  const streamer = makeStreamer({ a: async (ctx) => {
+    builds++;
+    await ctx.still();
+    if (builds === 1) await new Promise((r) => { fetched = r; });   // its own fetches, in flight
+    ctx.landNow();
+    return thing('a');
+  } }, { onError: (e) => errors.push(e.message), stall: 1 });
+  const p = streamer.want(new Set(['a']));
+  await settle();
+  streamer.landing = false;   // pulled away meanwhile
+  fetched();
+  await settle(); await settle();
+  assert.deepEqual(log, [], 'not built while it may not land');
+  assert.equal(streamer.failed('a'), false);
+  assert.equal(builds, 2, 'started again, and waiting to land');
+  streamer.landing = true;
+  await p;
+  assert.deepEqual(log, ['+a#1', 'show a#1']);
+  assert.deepEqual(errors, []);
 });

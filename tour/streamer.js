@@ -13,7 +13,9 @@
 // dropped, isn't, and must not write to the page's shared state any more: own / disown below); check() (throws if not);
 // progress(); still() (resolves once the build may land, `landing`: the page sets that at a standstill, so a kit built in
 // one go, or an upload, never lands on a moving frame; waiting there isn't stalling. If by then the id is no longer
-// wanted, or the build isn't current, it rejects and the build is dropped: not a failure, built again when next wanted).
+// wanted, or the build isn't current, it rejects and the build is dropped: not a failure, built again when next wanted);
+// landNow() (throws, dropped, unless it may land at this very moment: for the last step before a long task that has
+// awaits of its own on the way, as a kit's build has its fetches).
 //
 // standIn(id) -> group: things in a group replace one another (the land's pieces of one tile at another detail). A
 // group's new things show together once every wanted thing in it is in, and in that same step what they replace (things
@@ -74,6 +76,9 @@ export function makeStreamer(builders, { onError = console.error, standIn = null
           current: () => current.get(id) === build,
           check() { if (current.get(id) !== build) throw dropped(id); },
           progress() { build.idle = 0; },
+          // the last moment before a long task with awaits of its own before it (a kit's build, after its own fetches):
+          // throws (dropped) unless the build may land right now, and is current and wanted
+          landNow() { if (current.get(id) !== build || !landing || !wanted.has(id)) throw dropped(id); },
           still() {
             if (current.get(id) !== build) return Promise.reject(dropped(id));
             return new Promise((done, fail) => { build.waiting++; gates.push({ build, done, fail }); gate(); });
