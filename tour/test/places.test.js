@@ -92,7 +92,7 @@ export function walkThroughTown(def) {
   return { ok: true };
 }
 
-for (const id of ['city', 'ocean', 'mountain', 'west']) {
+for (const id of ['city', 'ocean', 'mountain', 'west', 'future']) {
   test(`a walk exists between the two stations, through the town: ${PLACES[id].name}`, () => {
     assert.ok(PLACES[id].size, `${PLACES[id].name} has no footprint to walk through`);
     const r = walkThroughTown(PLACES[id]);
@@ -154,6 +154,21 @@ test('no walk through the Wild West put across a line, past the buffers or back 
   ]) {
     const r = walkThroughTown(moved('west', centre));
     assert.equal(r.ok, false, `a walk was found through the Wild West ${what}`);
+    assert.ok([ROUND_THE_TOWN, NO_WAY].includes(r.why), `${what}: ${r.why}`);
+  }
+});
+// the Futuristic place: its town where the walk from the bullet's platform to the Metro Glide's would not pass through it
+// (the Metro Glide's station is built in Task 9: here, as for City, its walk stands in from the data)
+test('no walk through the Futuristic place put across a line, past the buffers or back from its stations', () => {
+  assert.ok(PLACES.future.size, 'the Futuristic place has no footprint to move');
+  for (const [what, centre] of [
+    ['north of the bullet\'s line, its arrival platform\'s far side', { x: -1050, z: 1420 }],
+    ['west of the Metro Glide\'s line, its departure platform\'s far side', { x: -1250, z: 1085 }],
+    ['past the end of both lines, beyond the buffers', { x: -1260, z: 1330 }],
+    ['set back some 100 m further from both lines, to the south-east', { x: -932, z: 1145 }],
+  ]) {
+    const r = walkThroughTown(moved('future', centre));
+    assert.equal(r.ok, false, `a walk was found through the Futuristic place ${what}`);
     assert.ok([ROUND_THE_TOWN, NO_WAY].includes(r.why), `${what}: ${r.why}`);
   }
 });

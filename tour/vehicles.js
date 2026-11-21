@@ -32,13 +32,23 @@ export function measureVehicle(obj, flip) {
   return { holder, obj, box, front: box.max.z, length: box.max.z - box.min.z, pf, pr, bogies, bogieZ: bogies.map((b) => b.z), wheels, spin: flip ? -1 : 1 };
 }
 
-// def: { name, cars: [[kitKey, params, flip?]] } -> { name, group, cars }
+// trains made in code, by builder name (loaded when wanted: they measure their cars with measureVehicle, above)
+const BUILDERS = {
+  bullet: async (def) => (await import('./trains/bullet.js')).buildBullet({ cars: def.carCount, name: def.name }),
+};
+
+// def: { name, kit?, cars: [[kitKey, params, flip?]] } (parts from `kit`, the Countryside Railway unless named), or
+// { name, builder, carCount } for a train made in code -> { name, group, cars }
 export async function buildTrain(def) {
+  if (def.builder) {
+    if (!BUILDERS[def.builder]) throw new Error(`no train builder '${def.builder}'`);
+    return BUILDERS[def.builder](def);
+  }
   const group = new THREE.Group();
   group.name = def.name;
   const cars = [];
   for (const [key, params, flip] of def.cars) {
-    const v = measureVehicle(await part(KITS.railway, key, params), !!flip);
+    const v = measureVehicle(await part(def.kit ?? KITS.railway, key, params), !!flip);
     v.key = key;
     group.add(v.holder);
     cars.push(v);

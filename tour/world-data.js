@@ -18,8 +18,11 @@ export const SEA_LEVEL = 0;
 // a place's extra parts (Oceanside's seafront) are its town too: the ground this far round each one
 export const EXTRA_REACH = 6;
 
-// the places whose kits the page builds so far; a leg is built once both its ends are
-export const BUILT = ['city', 'ocean', 'mountain', 'west'];
+// the places whose kits the page builds so far; a leg is built once both its ends are, unless it is HELD back: its
+// stations and train come in a later task (the Metro Glide's leg into City, with City's north station: Task 9)
+export const BUILT = ['city', 'ocean', 'mountain', 'west', 'future'];
+export const HELD = ['future-city'];
+export const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to) && !HELD.includes(id);
 
 export const RING = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],
@@ -92,8 +95,18 @@ export const PLACES = {
       { leg: 'mountain-west', end: 'end', role: 'arrival', platformLength: 120 },
       { leg: 'west-future', end: 'start', role: 'departure', platformLength: 120 },
     ] },
-  // the Chrome Arcology's composed plazas and towers (flat, -1.4..2.8 m, 120 x 140 m)
-  future: { name: 'Futuristic', kit: KITS.future, centre: { x: -1050, z: 1200 }, y: 10, rot: 0, ground: 10,
+  // the Chrome Arcology's composed plazas and towers on its own island ground: land from -2 to +2.8 m in its own frame
+  // (its skirt, at -8.3, is the island's underside), 140 x 156 m about (-2, 2), its corners well rounded; flat at 0 but
+  // for a raised garden (+1..2.8) round its vertical farms in its -x, +z quarter, and a narrow, uneven tip at its -z end.
+  // Turned half round less 15 degrees: the garden is in the south-east, away from both lines; the monolith tower and the
+  // arcade (its -z side) face the bullet's platform to the north, its tip turned off the line's end; the vehicle depot
+  // and its street (its +x side) face the Metro Glide's to the west; its main street (its z = 8) runs across the middle.
+  // 15 m west of where it was first put, into the corner between the two lines, so the walk from one platform to the
+  // other crosses some 60 m of its plaza rather than clipping its rounded corner (6 m), while its tip stays past the
+  // reach of the bullet's track bed (which pulled the ground under it up to 0.8 m off the kit's, nearer the line). Its
+  // footprint keeps 15 m from both lines. At y 10 its ground 0 is the stations' ground.
+  future: { name: 'Futuristic', kit: KITS.future, centre: { x: -1065, z: 1200 }, y: 10, rot: 165 * Math.PI / 180, ground: 10,
+    size: [140, 156], offset: [-2, 2], landMin: -4.5,
     build: {},
     // the bullet train arrives along the south side; the Metro Glide leaves from the north-west side, heading north-north-east
     stations: [
@@ -253,7 +266,7 @@ export const BIOMES = [
   { kind: 'desert', x: 250, z: 1600, r: 600 },
   { kind: 'desert', x: 3050, z: 1550, r: 450 },
   { kind: 'urban', x: 128, z: -74, r: 30 },
-  { kind: 'urban', x: -1050, z: 1200, r: 300 },
+  { kind: 'urban', x: -1065, z: 1200, r: 300 },
 ];
 
 const routeCache = new Map();

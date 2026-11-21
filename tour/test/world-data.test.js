@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
+import * as WORLD from '../world-data.js';
 import { LEGS, PLACES, RING, BUILT, laneFor, laneOf, TRACK_CENTRES } from '../world-data.js';
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 
@@ -56,6 +57,14 @@ test('the ring is in order', () => {
 });
 
 test('the page builds only the places whose kits are wired in', () => {
-  assert.ok(['city', 'ocean', 'mountain', 'west'].every((id) => BUILT.includes(id)), `BUILT is ${BUILT}`);
+  assert.ok(['city', 'ocean', 'mountain', 'west', 'future'].every((id) => BUILT.includes(id)), `BUILT is ${BUILT}`);
   for (const id of BUILT) assert.ok(PLACES[id], id);
+});
+
+test('a leg is built once both its places are, bar the one held back for a later task', () => {
+  const { legBuilt } = WORLD;
+  assert.equal(typeof legBuilt, 'function', 'world-data has no legBuilt');
+  for (const id of ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future']) assert.ok(legBuilt(id), `${id} is not built`);
+  // the Metro Glide's leg into City, its train and City's north station come with Task 9
+  assert.equal(legBuilt('future-city'), false, 'future-city is built before its task');
 });

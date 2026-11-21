@@ -36,9 +36,10 @@ export function makeFleet({ scene, look, journey }) {
     async build(leg) {
       const spec = TRAIN_SPECS[LEGS[leg].train];
       setLoading(`the ${spec.name}`);
-      const model = await buildTrain({ name: spec.name, cars: spec.cars });
+      const model = await buildTrain({ name: spec.name, kit: spec.kit, cars: spec.cars, builder: spec.builder, carCount: spec.carCount });
       scene.add(model.group);
       look.shadows(model.group);
+      model.night?.(look.night);   // a train with its own lit windows lights them as the place's lamps are
       const length = model.cars.reduce((a, c) => a + c.length, 0) + COUPLING_GAP * (model.cars.length - 1);
       trains[leg] = { leg, spec, model, length };
       const p = parked[leg] ?? { dir: 'out', s: null };

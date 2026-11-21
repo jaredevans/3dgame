@@ -16,6 +16,9 @@ export async function buildPlace(id) {
   group.position.set(def.centre.x, def.y, def.centre.z);
   group.rotation.y = def.rot;
   group.updateMatrixWorld(true);
+  // stage() lights the lamps of what stands directly in the scene (its userData.night), and the kit's own group is one
+  // down, in ours: pass it on, so its windows, signs and lamps come on after dusk
+  group.userData.night = (k) => kitPlace.night?.(k);
 
   const c = Math.cos(def.rot), s = Math.sin(def.rot);
   const toLocal = (x, z) => { const dx = x - def.centre.x, dz = z - def.centre.z; return [dx * c - dz * s, dx * s + dz * c]; };
@@ -99,7 +102,10 @@ export function seamCheck(place, terrain, n = 64) {
   let worst = 0;
   for (const [lx, lz] of pts) {
     const [x, z] = place.toWorld(lx, lz);
-    worst = Math.max(worst, Math.abs(place.groundAt(x, z) - terrain.heightAt(x, z)));
+    // an island's ground at the rim point itself: turned out into the world and back (any turn but a right angle leaves
+    // it a hair off), a point on the rim can read the island's underside instead
+    const ground = place.land ? place.def.y + place.land.sample(lx, lz).h : place.groundAt(x, z);
+    worst = Math.max(worst, Math.abs(ground - terrain.heightAt(x, z)));
   }
   return worst;
 }

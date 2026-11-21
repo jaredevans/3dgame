@@ -84,3 +84,42 @@ test('nobody driving means the brake is on and the throttle untouched', async ()
   assert.deepEqual(trainInput({ driving: true, brakeKey: false, throttleSteps: 4 }), { throttleDelta: 4, brake: false });
   assert.deepEqual(trainInput({ driving: true, brakeKey: true, throttleSteps: 0 }), { throttleDelta: 0, brake: true });
 });
+
+// the Silver Arrow, the bullet train: 300 km/h, and one long frame (the dt clamp) never carries it past the buffers
+test('the bullet train spec', () => {
+  const b = TRAIN_SPECS.westFuture;
+  near(b.top, 300 / 3.6, 1e-9);
+  assert.equal(b.accel, 2.5);
+  assert.equal(b.brake, 2.5);
+  assert.equal(b.builder, 'bullet');
+  assert.equal(b.carCount, 4);
+});
+
+test('bullet stops at the buffers from full speed', () => {
+  const b = TRAIN_SPECS.westFuture, limits = { sMin: 106, sMax: 4143 };
+  // at full speed, throttle open, no brake, 200 m from the buffers: it stops exactly there
+  let st = { s: limits.sMax - 200, v: 83.3, throttle: 1 };
+  for (let t = 0; t < 10; t += 1 / 60) st = stepTrain(st, {}, 1 / 60, b, limits);
+  assert.equal(st.s, limits.sMax); assert.equal(st.v, 0);
+  // one 5 s frame (a hidden tab, a loading stall) moves it no more than the clamp allows
+  const once = stepTrain({ s: 1000, v: 83.3, throttle: 1 }, {}, 5, b, limits);
+  assert.ok(once.s - 1000 <= 8.34, `moved ${(once.s - 1000).toFixed(3)} m`);
+  // and a 5 s frame 3 m from the buffers stops it on them, not past
+  const last = stepTrain({ s: limits.sMax - 3, v: 83.3, throttle: 1 }, {}, 5, b, limits);
+  assert.equal(last.s, limits.sMax); assert.equal(last.v, 0);
+});
+
+test('the bullet leg takes 80 to 100 seconds, stepped at 60 frames a second', () => {
+  const b = TRAIN_SPECS.westFuture, L = legRoute('west-future').length;
+  // its real limits: the train's length behind the start's buffers, its stopping mark 12 m short of the far ones
+  const sMin = 104.45 + 1.5, stopS = L - 1.5 - 12;
+  let st = { s: sMin, v: 0, throttle: 1 }, t = 0;
+  while (st.v > 0 || st.s < sMin + 1) {
+    const brake = st.s + st.v ** 2 / (2 * b.brake) >= stopS;
+    st = stepTrain(st, { brake }, 1 / 60, b, { sMin, sMax: L - 1.5 });
+    t += 1 / 60;
+    if (t > 300) break;
+  }
+  assert.ok(Math.abs(st.s - stopS) < 2, `stopped at ${st.s.toFixed(1)}, the mark is ${stopS.toFixed(1)}`);
+  assert.ok(t >= 80 && t <= 100, `${t.toFixed(1)} s`);
+});

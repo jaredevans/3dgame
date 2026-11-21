@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
-import { LEGS, PLACES, RING, BUILT, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, BUILT, FEATURES, worldTerrain, legRoute, laneOf, legBuilt, SEA_LEVEL } from './world-data.js';
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
@@ -29,6 +29,7 @@ import { skyAt, ringPosition } from './sky.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
 import { makeSteamCab, STEAM_MODELS } from './cabs/steam.js';
+import { makeFutureCab } from './cabs/future.js';
 
 // each train spec's cab, made for its leading vehicle (a steam cab is measured per locomotive model)
 const CABS = {
@@ -37,6 +38,11 @@ const CABS = {
     const model = STEAM_MODELS[car.key];
     if (!model) throw new Error(`no steam cab measured for the ${car.key}`);
     return makeSteamCab(model);
+  },
+  // the Silver Arrow's cab is made to its own front car
+  future: (car) => {
+    if (car.key !== 'bullet') throw new Error(`no futuristic cab measured for the ${car.key}`);
+    return makeFutureCab();
   },
 };
 
@@ -68,8 +74,7 @@ async function boot() {
   const terrain = worldTerrain();
 
   // ---- places, legs and trains load through the streamer, by id: only the places whose kits are wired in, the legs
-  // between them, and those legs' trains (`train:<leg>`) ----
-  const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to);
+  // between them (bar any held back for a later task: world-data legBuilt), and those legs' trains (`train:<leg>`) ----
   const builtLegs = Object.keys(LEGS).filter(legBuilt);
   const routes = Object.fromEntries(builtLegs.map((id) => [id, legRoute(id)]));
   const journey = makeJourney({ legs: LEGS, places: PLACES });
@@ -397,6 +402,7 @@ async function boot() {
       Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space'), throttleSteps }), dt, train.spec, train.limits));
       train.s = drive.s;
       poseTrain(train.model, run.route, drive.s, drive.s - before, run.lane);
+      train.cab?.interior.userData.speed?.(Math.abs(drive.v) * 3.6);   // a cab with a speed readout
     }
     throttleSteps = 0;
     const front = train.model.cars[0].holder.position;
@@ -411,7 +417,10 @@ async function boot() {
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : skyPos + (want - skyPos) * Math.min(1, dt * 1.5);
     const sky = skyAt(skyPos);
-    if (Math.abs(sky.stage - lastStage) > 0.003) { dimmer.setTime(() => look.setTime(sky.stage)); lastStage = sky.stage; }
+    if (Math.abs(sky.stage - lastStage) > 0.003) {
+      dimmer.setTime(() => look.setTime(sky.stage)); lastStage = sky.stage;
+      for (const t of Object.values(fleet.trains)) t.model.night?.(look.night);   // a train's own lit windows
+    }
     dimmer.update(Math.round(tunnelDark() * 100) / 100);   // in steps of 1%, so lights are written only as it changes
     skyDome.update(sky, sunDir, dt);
     scene.background = null;
