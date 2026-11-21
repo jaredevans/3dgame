@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
-import { LEGS, PLACES, RING, worldTerrain, legRoute, laneFor, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, BUILT, worldTerrain, legRoute, laneFor, SEA_LEVEL } from './world-data.js';
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { buildTerrain, buildSea } from './terrain-mesh.js';
@@ -56,16 +56,18 @@ async function boot() {
   const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160, sky: false, fog: false });
   const skyDome = makeSkyDome(scene, camera);
 
-  // ---- places and legs load through the streamer, by id ----
-  const routes = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
+  // ---- places and legs load through the streamer, by id: only the places whose kits are wired in, and their legs ----
+  const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to);
+  const builtLegs = Object.keys(LEGS).filter(legBuilt);
+  const routes = Object.fromEntries(builtLegs.map((id) => [id, legRoute(id)]));
   const places = {}, termini = {};
   const builders = {};
-  for (const id of Object.keys(PLACES)) builders[id] = async () => {
+  for (const id of BUILT) builders[id] = async () => {
     setLoading(`building ${PLACES[id].name}`);
     const place = await buildPlace(id);
     scene.add(place.group); look.shadows(place.group);
     // the place's stations: a terminus at its end of each leg it serves
-    for (const st of PLACES[id].stations) {
+    for (const st of PLACES[id].stations.filter((s) => legBuilt(s.leg))) {
       const t = await buildTerminus(routes[st.leg], st.end, { name: PLACES[id].name });
       scene.add(t.group); look.shadows(t.group);
       termini[id] = t;
@@ -73,13 +75,13 @@ async function boot() {
     places[id] = place;
     return { dispose() { place.dispose(); termini[id]?.group.removeFromParent(); delete places[id]; delete termini[id]; } };
   };
-  for (const id of Object.keys(LEGS)) builders[id] = async () => {
+  for (const id of builtLegs) builders[id] = async () => {
     setLoading('laying track');
     const tracks = [buildTrack(routes[id], laneFor('out')), buildTrack(routes[id], laneFor('back'))];
     for (const t of tracks) scene.add(t);
     return { dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } } };
   };
-  const ring = { places: RING.places.filter((id) => PLACES[id]), legs: RING.legs.filter((id) => LEGS[id]), length: (id) => routes[id].length };
+  const ring = { places: RING.places.filter((id) => BUILT.includes(id)), legs: RING.legs.filter((id) => builtLegs.includes(id)), length: (id) => routes[id].length };
   const streamer = makeStreamer(builders, { onError: fail });
   // the first places and leg are needed to start at all: if one failed, its error is already on screen; stop here
   const first = await streamer.want(wantedSet({ place: 'city' }, ring));

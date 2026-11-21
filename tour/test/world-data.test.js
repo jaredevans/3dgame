@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
-import { LEGS, PLACES, RING, laneFor, TRACK_CENTRES } from '../world-data.js';
+import { LEGS, PLACES, RING, BUILT, laneFor, laneOf, TRACK_CENTRES } from '../world-data.js';
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 
 test('the leg lies inside the limits', () => {
@@ -15,6 +15,7 @@ test('running sides', () => {
   // left-hand running, as on the British railway the kit models: outbound trains use the line on the left
   assert.equal(laneFor('out'), 2);
   assert.equal(laneFor('back'), -2);
+  assert.equal(laneFor('out'), laneOf('city-ocean'));
 });
 
 test('stations sit on the line ends', () => {
@@ -48,7 +49,13 @@ test('each town stands beside its station, on the platform side, not past the bu
 
 test('the ring is in order', () => {
   assert.deepEqual(RING.places, ['city', 'ocean', 'mountain', 'west', 'future']);
-  assert.ok(PLACES.city && PLACES.ocean);
+  for (const id of RING.places) assert.ok(PLACES[id], id);
+  for (const id of RING.legs) assert.ok(LEGS[id], id);
   assert.equal(LEGS['city-ocean'].from, 'city');
   assert.equal(LEGS['city-ocean'].to, 'ocean');
+});
+
+test('the page builds only the places whose kits are wired in', () => {
+  assert.ok(BUILT.includes('city') && BUILT.includes('ocean'));
+  for (const id of BUILT) assert.ok(PLACES[id], id);
 });

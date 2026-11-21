@@ -5,9 +5,9 @@
 import * as THREE from 'three';
 import { KITS } from './config.js';
 import { part } from './parts.js';
-import { laneFor } from './world-data.js';
+import { laneFor, BUFFER_GAP } from './world-data.js';
 
-export const BUFFER_GAP = 1.5;   // metres from the line's end to a buffer face
+export { BUFFER_GAP };            // metres from the line's end to a buffer face (world-data holds it)
 export const STOP_SHORT = 12;    // the stopping point is this far short of the buffers
 export const PLATFORM_TOP = 1.175;
 const PIECE = 4;

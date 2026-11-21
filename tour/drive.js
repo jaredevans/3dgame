@@ -1,19 +1,7 @@
 // Driving a train: throttle, brake and the buffers at each end. Pure maths, no three.js.
 
-const coach = (extra = {}) => ({ colorway: 'royal-blue', era: 'royal-blue', length: 18, wear: 0.2, ...extra });
-
-// top speed in m/s, acceleration and braking in m/s²; cars as [kit part key, knobs, flip?] from Countryside Railway
-export const TRAIN_SPECS = {
-  cityOcean: {
-    name: 'Seaside Excursion', sound: 'diesel', cab: 'diesel', top: 100 / 3.6, accel: 1.0, brake: 1.2,
-    cars: [
-      ['mainline-diesel', { colorway: 'royal-blue', livery: 'royal-blue', bogies: 'bo-bo', wear: 0.15 }],
-      ['passenger-carriage', coach()],
-      ['passenger-carriage', coach({ wear: 0.3 })],
-      ['brake-coach', coach()],
-    ],
-  },
-};
+// the trains themselves live in trains/specs.js; re-exported here for Phase 1's callers
+export { TRAIN_SPECS } from './trains/specs.js';
 
 const MAX_DT = 0.1;          // a long frame (tab hidden, a loading stall) never moves the train more than this
 const EASE_OFF = 0.5;        // m/s² when the throttle is eased back below the current speed
