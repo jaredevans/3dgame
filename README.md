@@ -78,7 +78,9 @@ A few single parts aren't from those kits: the suburbs' houses along the Metro G
 node scripts/extract-parts.mjs path/to/polyfork-catalog.zip
 ```
 
-It copies every part the tour's code (or a Scenic Tour plan) names, and nothing else; run it again when the tour starts using another part. A part that isn't there yet is loaded from Polyfork's free public CDN instead, with a warning in the console. `?cdn=<base url>` loads these parts from that address only; if they can't be loaded, the tour goes on without them (the suburbs, or that event).
+It copies every part the tour's code (or a Scenic Tour plan) names, and nothing else; run it again when the tour starts using another part. A part that isn't there yet is loaded from Polyfork's free public CDN instead, with a warning in the console.
+
+With a paid Polyfork account, the parts can come from your account's own CDN link instead: copy `tour/local.example.js` to `tour/local.js` and put your `cdn_base` in it. That file is gitignored, since the link is yours; with it the tour tries your account first, then `kits/parts/`, then the public CDN. (Without it, the browser notes one missing `tour/local.js` and carries on.) `?cdn=<base url>` loads these parts from that address only; if they can't be loaded, the tour goes on without them (the suburbs, or that event).
 
 ## Run it locally
 

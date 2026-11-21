@@ -27,6 +27,14 @@ test('single parts load from the parts folder beside the kits, then Polyfork\'s 
   assert.deepEqual(resolvePartBases('?kits=https://example.test/k'), ['https://example.test/k/parts/', PUBLIC_CDN]);
 });
 
+test('an account CDN link, when there is one, comes first, then the parts folder and the public CDN', async () => {
+  const { resolvePartBases, PUBLIC_CDN } = await import('../config.js');
+  assert.deepEqual(resolvePartBases('', { accountCdn: 'https://polyfork.dev/c/abc' }),
+    ['https://polyfork.dev/c/abc/', './kits/parts/', PUBLIC_CDN]);
+  assert.deepEqual(resolvePartBases('?cdn=https://mirror.test/x', { accountCdn: 'https://polyfork.dev/c/abc/' }),
+    ['https://mirror.test/x/'], '?cdn= still means that address only');
+});
+
 test('?cdn= loads single parts from there only, with a trailing slash', async () => {
   const { resolvePartBases } = await import('../config.js');
   assert.deepEqual(resolvePartBases('?debug&cdn=https://blocked.invalid/cdn'), ['https://blocked.invalid/cdn/']);

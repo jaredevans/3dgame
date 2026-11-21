@@ -17,3 +17,6 @@
 # the Polyfork catalogue (licensed to the owner; its .mjs files may not be redistributed): never committed
 polyfork-catalog*.zip
 polyfork-catalog/
+
+# the owner's own settings (their Polyfork account CDN link): never committed
+/tour/local.js
