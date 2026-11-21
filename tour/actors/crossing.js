@@ -48,7 +48,7 @@ export async function buildCrossing({ leg, route, def, terrain, slicer, kit }) {
     // middle; its road there lies under the other part's anyway), and the boom hidden
     part.getObjectByName(lane > 0 ? 'mount-west' : 'mount-east').visible = false;
     const side = Math.sign(lane), keep = new THREE.Plane(L.clone().multiplyScalar(side), -side * (L.x * P.x + L.z * P.z));
-    part.traverse((o) => { if (o.isMesh) o.material.clippingPlanes = [keep]; });
+    part.traverse((o) => { if (o.isMesh) Object.assign(o.material, { clippingPlanes: [keep], clipShadows: true }); });
     for (const n of ['boom-west', 'boom-east']) booms.push(part.getObjectByName(n));
   }
   const outer = Math.max(...lanes) + PART.half;   // where the parts' road ends, either side

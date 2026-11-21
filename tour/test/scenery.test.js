@@ -190,3 +190,18 @@ test('no stretch of open line is bare', () => {
   assert.ok(counts.length >= 50, `only ${counts.length} stretches of open line checked`);
   assert.deepEqual(bare, []);
 });
+
+// the level crossings' roads (actors/crossing.js) run straight out from the line, square to it: nothing grows on them
+test("nothing grows on a level crossing's road", async () => {
+  const { EVENTS } = await import('../events.js');
+  const { ROAD } = await import('../suburbs.js');
+  for (const [leg, defs] of Object.entries(EVENTS)) {
+    for (const e of defs.filter((d) => d.react?.kind === 'crossing')) {
+      const p = legRoute(leg).at(e.react.at.out), fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+      for (const q of items) {
+        const r = VARIANTS[q.v].r, along = (q.x - p.x) * fx + (q.z - p.z) * fz, across = (q.x - p.x) * fz - (q.z - p.z) * fx;
+        assert.ok(Math.abs(along) >= ROAD.width / 2 + r || Math.abs(across) > ROAD.length + r, `a ${q.key} on ${leg}'s crossing road (${along.toFixed(1)}, ${across.toFixed(1)})`);
+      }
+    }
+  }
+});

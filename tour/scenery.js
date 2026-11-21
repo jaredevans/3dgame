@@ -6,6 +6,8 @@
 // ground), its turn about y, and s its part's own scale knob (1 for a part without one). Never rescaled otherwise.
 import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute, legSections, stationPads, placePads } from './world-data.js';
 import { KITS } from './config.js';
+import { EVENTS } from './events.js';
+import { ROAD } from './suburbs.js';
 
 export const CLEAR_LINE = 12;     // nothing reaches nearer a line's centre than this: its swept path and its track bed
 export const MAX_SLOPE = 0.8;     // nor stands where the ground rises more than this (per metre) over 4 m on any side
@@ -120,7 +122,12 @@ function theWorld() {
     }
     return [...best.values()];
   }
-  world = { near, toPlace, extras, portals, pads, waters };
+  // the level crossings' roads (actors/crossing.js): straight out from the line at each crossing, square to it
+  const roads = Object.entries(EVENTS).flatMap(([leg, defs]) => defs.filter((e) => e.react?.kind === 'crossing').map((e) => {
+    const p = legRoute(leg).at(e.react.at.out);
+    return { x: p.x, z: p.z, fx: Math.sin(p.yaw), fz: Math.cos(p.yaw) };
+  }));
+  world = { near, toPlace, extras, portals, pads, waters, roads };
   return world;
 }
 
@@ -130,7 +137,7 @@ const outsideRect = (p, x, z, w, d, ox = 0, oz = 0) => {
 };
 
 // whether a spot may hold a part reaching r: clear of every line and its stations and suburbs, the pads, the places
-// and their extras, and the portals (cheap checks: no heights)
+// and their extras, the portals and the level crossings' roads (cheap checks: no heights)
 function clearOf(w, x, z, r) {
   for (const n of w.near(x, z, Math.max(STATION.out, SUBURB.out) + MAX_R)) {
     if (n.d < CLEAR_LINE + r) return false;
@@ -144,6 +151,10 @@ function clearOf(w, x, z, r) {
   }
   for (const p of w.toPlace) if (outsideRect(p, x, z, p.size[0], p.size[1], ...(p.offset ?? [0, 0])) < CLEAR_PLACE) return false;
   for (const [ex, ez] of w.extras) if (Math.hypot(x - ex, z - ez) < CLEAR_EXTRA + r) return false;
+  for (const q of w.roads) {
+    const along = (x - q.x) * q.fx + (z - q.z) * q.fz, across = (x - q.x) * q.fz - (z - q.z) * q.fx;
+    if (Math.abs(along) < ROAD.width / 2 + r && Math.abs(across) <= ROAD.length + r) return false;
+  }
   return true;
 }
 // whether ground at height h lies under a river's water
