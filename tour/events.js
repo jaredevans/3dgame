@@ -49,9 +49,11 @@ export const EVENTS = {
     showpiece('trestle', 690, 870, { kind: 'below', at: 780 }),
     ev('riders', 950, 1300, { shot: { kind: 'heli', at: 1125, lateral: 60 } }),
     ev('horses', 1100, 1400, { shot: { kind: 'heli', at: 1250, lateral: -60 } }),
+    // (at: the canyon's mouth, the one place in the window with open land beside the line, its walls still standing 20 m
+    // and more high 25 m out until about 1120; and no nearer the Wild West, so it's 300 m from the back run's start)
     ev('cattle', 700, 1300, {
-      react: { kind: 'cattle', at: { out: 980, back: 980 } },
-      shot: { kind: 'trackside', at: 980, lateral: 8 },
+      react: { kind: 'cattle', at: { out: 1126, back: 1126 } },
+      shot: { kind: 'trackside', at: 1126, lateral: 8 },
     }),
     ev('tumbleweeds', 1100, 1427, { shot: { kind: 'heli', at: 1260, lateral: 50 } }),
     ev('stagecoach', 1150, 1427, { shot: { kind: 'heli', at: 1290, lateral: -50 } }),
