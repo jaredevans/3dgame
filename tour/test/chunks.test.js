@@ -157,3 +157,26 @@ test('a fine chunk leaves out the cells a portal fills, and its skirt stops over
   assert.equal(ys(N - 3, 0), 16);
   assert.equal(ys(3, 3), 20);
 });
+
+// A piece of land is built a slice at a time (LAND_SLICE, 4 ms a frame in main.js), and must keep to it even where each
+// height is slow to work out: the massif chunk round the Mountain, c:9,2 (x 2304..2560, z 512..768), with the
+// Mountain's own ground in it as a patch, cost 30-40 ms a frame when every height on the village's land was a ray cast
+// into the kit's ground. Here a stand-in patch charges a fake clock 1.3 ms (that ray cast) for every height on its
+// land.
+test("the massif chunk round the Mountain keeps to its slice, however slow the kit's ground is to ask", async () => {
+  const { worldTerrain, PLACES } = await import('../world-data.js');
+  const m = PLACES.mountain;
+  let clock = 0;
+  const patch = { x: m.centre.x, y: m.y, z: m.centre.z, rot: m.rot, drop: 0.15, r: 80,
+    sample(lx, lz) {
+      const d = Math.max(0, Math.hypot(lx, lz) - 50);
+      if (d === 0) clock += 1.3;   // on its land: a ray cast
+      return d < 30 ? { h: -10, d } : null;
+    } };
+  const terrain = worldTerrain({ patches: [patch] }), c = chunkOf('c:9,2:4');
+  const job = chunkJob(terrain, { x0: c.i * c.size, z0: c.j * c.size, size: c.size, cell: c.cell, paint: () => {}, skirt: 40 });
+  let worst = 0, slices = 0, out;
+  do { const t0 = clock; out = runFor(job, 4, () => clock); worst = Math.max(worst, clock - t0); slices++; } while (!out);
+  assert.ok(clock > 500, `the patch's land was asked about (${clock.toFixed(0)} ms of ray casts)`);
+  assert.ok(worst <= 4 + 1.3 + 1e-9, `a slice took ${worst.toFixed(1)} ms of a 4 ms budget (${slices} slices)`);
+});

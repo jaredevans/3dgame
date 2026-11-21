@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { wantedSet } from '../streaming.js';
+import { wantedSet, neededToDrive } from '../streaming.js';
 
 const ring = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],
@@ -17,12 +17,43 @@ test('early on a leg', () => {
   same(wantedSet({ leg: 'ocean-mountain', s: 100 }, ring), ['ocean-mountain', 'ocean', 'mountain']);
 });
 
-test('past halfway', () => {
-  same(wantedSet({ leg: 'ocean-mountain', s: 900 }, ring), ['ocean-mountain', 'ocean', 'mountain', 'mountain-west', 'west']);
+// a place's kit is built in one go (buildKit can't be split across frames), so nothing new is asked for while you
+// drive: what lies beyond the place you're heading for is built once you've stopped there
+test('past halfway, still only the leg and its two places', () => {
+  same(wantedSet({ leg: 'ocean-mountain', s: 900 }, ring), ['ocean-mountain', 'ocean', 'mountain']);
+  same(wantedSet({ leg: 'ocean-mountain', s: 900, back: true }, ring), ['ocean-mountain', 'ocean', 'mountain']);
 });
 
-test('past halfway going back the other way', () => {
-  same(wantedSet({ leg: 'ocean-mountain', s: 900, back: true }, ring), ['ocean-mountain', 'ocean', 'mountain', 'city-ocean', 'city']);
+test('stopped at a platform, what you can take from that place too', () => {
+  same(wantedSet({ leg: 'ocean-mountain', s: 1490, at: 'mountain' }, ring),
+    ['ocean-mountain', 'ocean', 'mountain', 'mountain-west', 'west']);
+  same(wantedSet({ leg: 'ocean-mountain', s: 10, back: true, at: 'ocean' }, ring),
+    ['ocean-mountain', 'ocean', 'mountain', 'city-ocean', 'city']);
+});
+
+test('you can set off along a leg once its two places are in, and none of it is new by then', () => {
+  for (const leg of ring.legs) {
+    same(neededToDrive(leg), [leg, ...leg.split('-')]);
+    for (const end of leg.split('-')) {
+      const there = wantedSet({ place: end }, ring);
+      for (const id of neededToDrive(leg)) assert.ok(there.has(id), `${id} is wanted on foot at ${end}, before you board for ${leg}`);
+    }
+  }
+});
+
+test('round the ring both ways, nothing is asked for that was not already wanted when you last stood still', () => {
+  for (const back of [false, true]) {
+    const order = back ? [...ring.legs].reverse() : ring.legs;
+    let still = wantedSet({ place: 'city' }, ring);
+    for (const leg of order) {
+      const [a, b] = leg.split('-'), to = back ? a : b;
+      for (let s = 0; s <= 1500; s += 50) {
+        for (const id of wantedSet({ leg, s, back }, ring)) assert.ok(still.has(id), `${id} first wanted while driving ${leg} at s ${s}`);
+      }
+      still = wantedSet({ leg, s: back ? 10 : 1490, back, at: to }, ring);   // stopped at the platform: may build
+      still = new Set([...still, ...wantedSet({ place: to }, ring)]);
+    }
+  }
 });
 
 test('wraps round the ring', () => {

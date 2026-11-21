@@ -1,5 +1,5 @@
 // The land in pieces on a world grid: which pieces to keep built round you and how fine, and one piece's mesh as plain
-// arrays, built a few rows at a time (terrain-mesh.js wraps them for three.js). Pure, no three.js.
+// arrays, built a few heights at a time (terrain-mesh.js wraps them for three.js). Pure, no three.js.
 //
 // Within 1500 m of you the land is 256 m chunks, key 'c:i,j' (x from i * 256 to (i + 1) * 256, z likewise): cell 4
 // within 700 m, and out to 1500 m beside the line (the corridor: within 300 m of a built route or a built place); cell 8
@@ -60,7 +60,8 @@ export function corridorKeys(points, reach = 300, size = CHUNK) {
   return keys;
 }
 
-// One piece's grid, a row at a time (a generator: each next() does a row; it returns { pos, col, nor, idx }).
+// One piece's grid, a vertex at a time (a generator: each next() works out one height, or colours one vertex; it
+// returns { pos, col, nor, idx }).
 // An (n + 2)^2 grid with a skirt ring dropped `skirt` metres below its neighbour, so neighbours of different detail
 // never crack. Heights are worked out once each, on the grid plus one cell beyond it so normals at the edges match the
 // neighbour's; colouring is given each vertex's height and slope (terrain.regionAt(x, z, h, slope)). The slope is from
@@ -71,9 +72,10 @@ export function* chunkJob(terrain, { x0, z0, size, cell, paint, nearLine = null,
   const n = Math.round(size / cell) + 1, N = n + 2;
   const pos = new Float32Array(N * N * 3), col = new Float32Array(N * N * 3), nor = new Float32Array(N * N * 3);
   const H = new Float32Array(N * N);
+  // a height at a time: one can be slow (a place's own ground, a feature's search for its line), and a slice keeps to
+  // its budget only if it can stop between them
   for (let b = -1; b <= n; b++) {
-    for (let a = -1; a <= n; a++) H[(b + 1) * N + (a + 1)] = terrain.heightAt(x0 + a * cell, z0 + b * cell);
-    yield;
+    for (let a = -1; a <= n; a++) { H[(b + 1) * N + (a + 1)] = terrain.heightAt(x0 + a * cell, z0 + b * cell); yield; }
   }
   const hAt = (a, b) => H[(b + 1) * N + (a + 1)];
   const steady = cell !== SLOPE_D && nearLine;
@@ -94,8 +96,8 @@ export function* chunkJob(terrain, { x0, z0, size, cell, paint, nearLine = null,
         ? Math.hypot(f(terrain.heightAt(x + D, z)) - f(terrain.heightAt(x - D, z)), f(terrain.heightAt(x, z + D)) - f(terrain.heightAt(x, z - D))) / (2 * D)
         : Math.hypot(dx, dz) / (2 * cell);
       paint(col, k, terrain.regionAt(x, z, h, slope), x, z);
+      yield;
     }
-    yield;
   }
   // the ground cells across a tunnel's portals are left out at the finest detail (terrain.holeCell): the portal fills them
   const holed = cell <= FINE && terrain.holeCell ? (a, b) => a >= 1 && b >= 1 && a < n && b < n

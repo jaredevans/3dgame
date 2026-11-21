@@ -6,8 +6,10 @@ import { TRAIN_SPECS } from './trains/specs.js';
 import { buildTrain, poseTrain } from './vehicles.js';
 import { COUPLING_GAP } from './consist.js';
 import { setLoading } from './parts.js';
+import { release } from './dispose.js';
 
-export function makeFleet({ scene, look, journey }) {
+// prepare(train): made ready before it is shown (main.js compiles its programs and fits its cab)
+export function makeFleet({ scene, look, journey, prepare = null }) {
   const trains = {};    // leg -> { leg, spec, model, length, run, limits, s }
   const parked = {};    // leg -> { dir, s } (s null: at the start of its run, waiting at its station)
 
@@ -37,18 +39,20 @@ export function makeFleet({ scene, look, journey }) {
       const spec = TRAIN_SPECS[LEGS[leg].train];
       setLoading(`the ${spec.name}`);
       const model = await buildTrain({ name: spec.name, kit: spec.kit, ride: spec.ride, cars: spec.cars, builder: spec.builder, carCount: spec.carCount });
-      scene.add(model.group);
       look.shadows(model.group);
       model.night?.(look.night);   // a train with its own lit windows lights them as the place's lamps are
       const length = model.cars.reduce((a, c) => a + c.length, 0) + COUPLING_GAP * (model.cars.length - 1);
-      trains[leg] = { leg, spec, model, length };
+      const t = { leg, spec, model, length };
+      await prepare?.(t);
+      scene.add(model.group);
+      trains[leg] = t;
       const p = parked[leg] ?? { dir: 'out', s: null };
       park(leg, p.dir, p.s);
       return {
         dispose() {
           const t = trains[leg];
           parked[leg] = { dir: t.run.dir, s: t.s };
-          model.group.removeFromParent();
+          release([model.group], scene);   // and its cab, if fitted
           delete trains[leg];
         },
       };

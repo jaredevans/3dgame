@@ -161,31 +161,64 @@ export function makeFutureCab(c = BULLET_CAB) {
   return { group: g, seat, box: { zBack: c.zBack, zFront: c.zFront, floor: c.floor, roof: c.roof, half: c.half } };
 }
 
-// a speed readout (a screen showing whole km/h and a bar to `top`), drawn again only when the figure changes: { screen
-// (a mesh, null without a document), set(kmh) }
-export function speedReadout(top) {
-  if (typeof document === 'undefined') return { screen: null, set() {} };
+// the digits a readout shows for a speed, as cells of its atlas, hundreds first: blank (null) before the first figure
+function readoutDigits(kmh) {
+  const n = Math.max(0, Math.min(999, Math.round(kmh)));
+  return [Math.floor(n / 100), Math.floor(n / 10) % 10, n % 10].map((d, k, all) => (k < 2 && all.slice(0, k + 1).every((x) => x === 0) ? null : d));
+}
+
+// a speed readout (a screen showing whole km/h and a bar to `top`): { screen (null without a document), set(kmh) }. Its
+// figures are drawn once into an atlas and picked out by each digit's texture coordinates, and the bar is a scaled
+// quad, so a new figure uploads no texture: uploading a canvas waits for the GPU to finish what it's drawing (15-35 ms
+// a figure on the Metro Glide's busy run through the suburbs, once a km/h as it pulls away)
+const PX = 0.44 / 256;   // the screen is 256 x 128 pixels of 0.44 x 0.22 m
+const CELL_W = 38, CELL_H = 80, BASE = 64, KMH = { x: 380, w: 60 };
+let atlas = null;
+function readoutAtlas() {
+  if (atlas) return atlas;
   const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 128;
+  canvas.width = 512; canvas.height = CELL_H;
+  const x = canvas.getContext('2d');
+  x.font = 'bold 64px system-ui, sans-serif'; x.textAlign = 'center'; x.fillStyle = '#e8f6ff';
+  for (let d = 0; d < 10; d++) x.fillText(String(d), d * CELL_W + CELL_W / 2, BASE);
+  x.font = '22px system-ui, sans-serif'; x.textAlign = 'left'; x.fillStyle = '#8fc7e8';
+  x.fillText('km/h', KMH.x, BASE);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const x = canvas.getContext('2d');
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.22), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+  atlas = { tex, mat: new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, depthWrite: false }) };
+  return atlas;
+}
+// a quad over canvas pixels [px0, px1] x [py0, py1] of the screen, showing atlas cell [ax0, ax0 + w] (its full height)
+function cellQuad(px0, px1, py0, py1, ax0, w) {
+  const geo = new THREE.PlaneGeometry((px1 - px0) * PX, (py1 - py0) * PX);
+  geo.translate(((px0 + px1) / 2 - 128) * PX, (64 - (py0 + py1) / 2) * PX, 0.002);
+  const show = (a) => { const uv = geo.attributes.uv, u0 = a / 512, u1 = (a + w) / 512; uv.setXY(0, u0, 1); uv.setXY(1, u1, 1); uv.setXY(2, u0, 0); uv.setXY(3, u1, 0); uv.needsUpdate = true; };
+  show(ax0);
+  return { mesh: new THREE.Mesh(geo, readoutAtlas().mat), show };
+}
+export function speedReadout(top) {
+  if (typeof document === 'undefined') return { screen: null, set() {} };
+  const screen = new THREE.Group();
   screen.name = 'speed readout';
+  screen.add(new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.22), new THREE.MeshBasicMaterial({ color: '#0b1820', toneMapped: false })));
+  // three figures right-aligned on x 176 px, their baseline at 80 px; 'km/h' after them; the bar along the foot
+  const digits = [0, 1, 2].map((k) => cellQuad(176 - (3 - k) * CELL_W, 176 - (2 - k) * CELL_W, 80 - BASE, 80 - BASE + CELL_H, 0, CELL_W));
+  const kmh = cellQuad(184, 184 + KMH.w, 80 - BASE, 80 - BASE + CELL_H, KMH.x, KMH.w);
+  const barGeo = new THREE.PlaneGeometry(PX, 8 * PX).translate(PX / 2, 0, 0.001);
+  const bar = new THREE.Mesh(barGeo, new THREE.MeshBasicMaterial({ color: '#7fe7da', toneMapped: false }));
+  bar.position.set((16 - 128) * PX, (64 - 108) * PX, 0);
+  for (const d of digits) screen.add(d.mesh);
+  screen.add(kmh.mesh, bar);
   let shown = null;
   return {
     screen,
-    set(kmh) {
-      const n = Math.round(kmh);
+    set(speed) {
+      const n = Math.round(speed);
       if (n === shown) return;
       shown = n;
-      x.fillStyle = '#0b1820'; x.fillRect(0, 0, 256, 128);
-      x.fillStyle = '#7fe7da'; x.fillRect(16, 104, Math.min(224, 224 * n / top), 8);
-      x.font = 'bold 64px system-ui, sans-serif'; x.textAlign = 'right'; x.fillStyle = '#e8f6ff';
-      x.fillText(String(n), 176, 80);
-      x.font = '22px system-ui, sans-serif'; x.textAlign = 'left'; x.fillStyle = '#8fc7e8';
-      x.fillText('km/h', 184, 80);
-      tex.needsUpdate = true;
+      readoutDigits(n).forEach((d, k) => { digits[k].mesh.visible = d !== null; if (d !== null) digits[k].show(d * CELL_W); });
+      bar.visible = n > 0;
+      bar.scale.x = Math.max(1, Math.min(224, 224 * n / top));
     },
   };
 }

@@ -1,24 +1,25 @@
 // Which places and legs should be in memory, given where you are. Pure, no three.js.
-// A leg's id is "<from>-<to>"; ring = { places, legs, length(legId) }.
-// where = { place } | { leg, s, back? }: s is distance along the leg from its first place; back = travelling towards it.
+// A leg's id is "<from>-<to>"; ring = { places, legs }.
+// where = { place } | { leg, s, back?, at? }: s is distance along the leg from its first place; back = travelling towards
+// it; at = the place whose platform you're stopped at, if you are.
+//
+// A place's kit is built in one go (its buildKit() can't be split across frames, and takes a second or two), so nothing
+// new is asked for while you're moving: driving a leg wants only what you needed to set off along it. What lies beyond
+// is built while you stand still: stopped at a platform, or on foot there, you want everything you could take from that
+// place, and you can't board a train until its leg's two places are in (neededToDrive).
 
 const ends = (id) => { const i = id.indexOf('-'); return [id.slice(0, i), id.slice(i + 1)]; };
 
+// what must be in before you set off along a leg: the leg and the places at both its ends
+export const neededToDrive = (leg) => new Set([leg, ...ends(leg)]);
+
 export function wantedSet(where, ring) {
-  const want = new Set();
-  const touching = (place) => ring.legs.filter((l) => ends(l).includes(place));
-  const add = (leg, from) => { want.add(leg); for (const p of ends(leg)) if (p !== from) want.add(p); };
   if (where.place) {
-    want.add(where.place);
-    for (const l of touching(where.place)) add(l, where.place);
+    const want = new Set([where.place]);
+    for (const l of ring.legs) if (ends(l).includes(where.place)) for (const id of neededToDrive(l)) want.add(id);
     return want;
   }
-  const [a, b] = ends(where.leg);
-  want.add(where.leg); want.add(a); want.add(b);
-  // past halfway, start on what lies beyond the place you're heading for
-  if (where.s > ring.length(where.leg) / 2) {
-    const ahead = where.back ? a : b;
-    for (const l of touching(ahead)) if (l !== where.leg) add(l, ahead);
-  }
+  const want = neededToDrive(where.leg);
+  if (where.at) for (const id of wantedSet({ place: where.at }, ring)) want.add(id);
   return want;
 }

@@ -49,6 +49,11 @@ export function sceneryGroup(items, { fine = true, name = 'scenery' } = {}) {
   return group;
 }
 
+// one piece of every scenery shape, far below the ground: to compile their programs once, before any chunk draws them
+export function sceneryWarmup() {
+  return sceneryGroup(Object.keys(VARIANTS).map((v) => ({ v, x: 0, y: -1000, z: 0, ry: 0 })), { name: 'scenery warm-up' });
+}
+
 // free a chunk's group: its instance buffers (the shapes are shared, and kept)
 export function disposeScenery(group) {
   if (!group) return;

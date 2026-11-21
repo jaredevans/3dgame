@@ -4,6 +4,33 @@ import { kitModule, part } from './parts.js';
 import { kitUrl, KIT_BASE } from './config.js';
 import { PLACES, EXTRA_REACH } from './world-data.js';
 import { landSampler, LAND_MIN } from './land.js';
+import { groundIndex } from './kit-ground.js';
+import { release } from './dispose.js';
+
+// the kit's ground as a lookup (kit-ground.js), in its own frame: the same heights its groundAt() casts a ray for, from
+// its terrain's triangles, each wound as a ray from above would meet it. Off them all, the plain at its foot, as
+// groundAt says.
+function kitGround(kitPlace) {
+  const root = kitPlace.group;
+  root.updateWorldMatrix(true, true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), m = new THREE.Matrix4();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), tris = [];
+  kitPlace.terrain.traverse((o) => {
+    if (!o.isMesh) return;
+    const pos = o.geometry.attributes.position, idx = o.geometry.index, n = idx ? idx.count : pos.count;
+    m.multiplyMatrices(inv, o.matrixWorld);
+    // three.js tests a face's side in the mesh's own frame: a mirroring transform turns its winding over
+    const side = [].concat(o.material)[0]?.side ?? THREE.FrontSide, flip = m.determinant() < 0;
+    const at = (k, v) => v.fromBufferAttribute(pos, idx ? idx.getX(k) : k).applyMatrix4(m);
+    for (let k = 0; k + 2 < n; k += 3) {
+      at(k, a); at(k + 1, b); at(k + 2, c);
+      if (side !== THREE.BackSide) tris.push(a.x, a.y, a.z, ...(flip ? [c.x, c.y, c.z, b.x, b.y, b.z] : [b.x, b.y, b.z, c.x, c.y, c.z]));
+      if (side !== THREE.FrontSide) tris.push(a.x, a.y, a.z, ...(flip ? [b.x, b.y, b.z, c.x, c.y, c.z] : [c.x, c.y, c.z, b.x, b.y, b.z]));
+    }
+  });
+  const index = groundIndex(tris), foot = kitPlace.groundAt(1e7, 1e7);   // far off the island: the plain at its foot
+  return (lx, lz) => index.at(lx, lz) ?? foot;
+}
 
 export async function buildPlace(id) {
   const def = PLACES[id];
@@ -26,11 +53,12 @@ export async function buildPlace(id) {
 
   const b = kitPlace.bounds;
   const landMin = def.landMin ?? LAND_MIN;
-  // the kit's ground at a point: a ray cast, so the last answer is kept (the walker asks about the same point several
+  // the kit's ground at a point, from its lookup; the last answer is kept (the walker asks about the same point several
   // times a step: is it land, is it in bounds, how high is it)
   let lastX = NaN, lastZ = NaN, lastG = null;
+  const groundAt = kitPlace.terrain ? kitGround(kitPlace) : (lx, lz) => kitPlace.groundAt(lx, lz);
   const ground = (lx, lz) => {
-    if (lx !== lastX || lz !== lastZ) { lastX = lx; lastZ = lz; lastG = kitPlace.groundAt(lx, lz); }
+    if (lx !== lastX || lz !== lastZ) { lastX = lx; lastZ = lz; lastG = groundAt(lx, lz); }
     return lastG;
   };
   const land = kitPlace.terrain ? landSampler({ bounds: kitPlace.bounds, terrain: kitPlace.terrain, groundAt: ground }, landMin) : null;
@@ -78,11 +106,8 @@ export async function buildPlace(id) {
       return lx >= b.min.x - margin && lx <= b.max.x + margin && lz >= b.min.z - margin && lz <= b.max.z + margin;
     },
     tick(t) { kitPlace.tick?.(t); },
-    dispose() {
-      for (const e of extras) e.removeFromParent();
-      group.removeFromParent();
-      group.traverse((o) => { o.geometry?.dispose(); [].concat(o.material ?? []).forEach((m) => m.dispose()); });
-    },
+    // take it out of the scene and free what it alone used (dispose.js); keep: the scene, with what's still drawn
+    dispose(keep) { release([group, ...extras], keep); },
   };
 }
 

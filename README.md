@@ -29,7 +29,21 @@ Each train also has a card at the bottom of the screen with a throttle slider an
 
 ## Scenic Tour
 
-Drive a full-size train through a big open world, get out at the stations and walk round. The design is in [`docs/superpowers/specs/2026-11-20-scenic-tour-design.md`](docs/superpowers/specs/2026-11-20-scenic-tour-design.md). It is being built in phases; **phase 1** is one leg: the Seaside Excursion (a blue diesel and three coaches) from Downtown City along the cliff tops to Oceanside and back, with the cab and drone views, walking at both ends and a morning sky.
+Drive a full-size train round a ring of five places in a big open world, get out at each station, walk across the town to its other station, and take the next train on. The design is in [`docs/superpowers/specs/2026-11-20-scenic-tour-design.md`](docs/superpowers/specs/2026-11-20-scenic-tour-design.md).
+
+The ring, each leg about 90 seconds at the train's normal speed, with its own train:
+
+| From | To | Train | On the way |
+|---|---|---|---|
+| Downtown City | Oceanside | Seaside Excursion (a blue diesel and coaches) | along the cliff tops above the sea |
+| Oceanside | Mountain | Highland Climber (a saddle-tank engine and two green coaches) | up through the forest, a tunnel, a viaduct over a waterfall's valley |
+| Mountain | Wild West | Canyon Express (a tender engine and teak cars) | over the snowy pass and a trestle, down the canyon |
+| Wild West | Futuristic | Silver Arrow (a bullet train) | 4 km across the desert on an elevated guideway |
+| Futuristic | Downtown City | Metro Glide (guideway shuttles) | through the suburbs and over the river, into the sunrise behind the towers |
+
+One lap is one day: morning at the City, midday by the sea, sunset over the red rock, night at the Futuristic place, and dawn on the way back into the City. You can go round either way: the train you came in on waits at your platform, turned round to take you back, and the one onwards waits at the town's other station. The driver's panel shows your speed, throttle, and the next station and how far it is.
+
+You start in the Seaside Excursion's cab at the City. The world streams in round you as you go: the places beyond the one you've stopped at are built while you stand at its platform or walk across it, so nothing loads while you drive. If they aren't in yet when you reach the train onwards, its prompt says "Getting <town> ready…" until they are.
 
 | Input | Action |
 |---|---|
@@ -56,7 +70,9 @@ If the kit server is on a different origin from the page, it must send CORS head
 
 ### Developer aids
 
-`node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint.
+`node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the City to Oceanside leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint, and `__tour.frame(dt)` to step the tour by hand.
+
+The suburbs along the Metro Glide's line use a few houses from Polyfork's free per-part CDN (not a self-hosted kit). `?cdn=<base url>` points those at a mirror; if they can't be loaded, the tour goes on without the suburbs.
 
 ## Run it locally
 

@@ -103,7 +103,7 @@ Track-building notes, read from the kits rather than assumed:
 
 A second mode, reached from the basement's "Scenic Tour ▸" button: a full-size ring of five themed places (Downtown City, Oceanside, Mountain, Wild West, Futuristic) joined by 90-second scenic routes, each with its own train, where you drive from the cab and walk round each place between trains. Its design is `docs/superpowers/specs/2026-11-20-scenic-tour-design.md`; it lives in `tour.html` and `tour/`, and its Polyfork kits are self-hosted (`kits/`, never committed).
 
-Status: phase 1 built (City to Oceanside and back, cab and drone views, walking, morning sky, streaming by id). Phase 2 (the rest of the ring) and phase 3 (director camera, events, map, night) are to come.
+Status: phase 2 built: the whole ring, all five places and their five trains, driven either way, with walking across each town between its two stations, a full day of sky over one lap (night places lit), suburbs and scenery along the lines, and streaming that builds what's beyond a place while you stand at it, so nothing loads while you drive. Phase 3 (director camera, events, map) is to come.
 
 ## Ideas for later
 

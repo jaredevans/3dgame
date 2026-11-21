@@ -5,12 +5,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
 import { LEGS, PLACES, RING, BUILT, FEATURES, worldTerrain, legRoute, laneOf, legBuilt, SEA_LEVEL } from './world-data.js';
-import { wantedSet } from './streaming.js';
+import { wantedSet, neededToDrive } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
 import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK, FINE, COARSE } from './chunks.js';
 import { scatterJob } from './scenery.js';
-import { loadScenery, sceneryGroup, disposeScenery } from './scenery-mesh.js';
+import { loadScenery, sceneryGroup, sceneryWarmup, disposeScenery } from './scenery-mesh.js';
 import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
 import { buildSuburbs } from './suburbs-mesh.js';
@@ -21,6 +21,7 @@ import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
 import { buildPlace, seamCheck } from './places.js';
+import { release } from './dispose.js';
 import { buildTerminus, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
 import { nearestBoardable, BODY } from './walk.js';
@@ -70,6 +71,29 @@ async function boot() {
     renderer.setSize(innerWidth, innerHeight);
   }
   addEventListener('resize', fit);
+  // a new thing made ready to draw before it is first seen, so no frame waits on it: its shader programs compiled
+  // against the scene (its lights, fog and shadows), off the main thread where the browser can
+  // (KHR_parallel_shader_compile); and its geometry and textures uploaded and its shadow's programs compiled, by
+  // drawing it all once, unculled, into a 1 x 1 target with a plain material, under a light whose tiny shadow it casts
+  // (the suburbs took up to 130 ms the first frame they came into view)
+  const uploads = new THREE.Scene(), oneByOne = new THREE.WebGLRenderTarget(1, 1), caster = new THREE.DirectionalLight();
+  uploads.overrideMaterial = new THREE.MeshBasicMaterial();   // a shadow is drawn with the thing's own material's depth
+  caster.castShadow = true; caster.shadow.mapSize.set(16, 16);
+  uploads.add(caster);
+  function upload(obj) {
+    const parent = obj.parent, visible = obj.visible, culled = [];
+    obj.traverse((o) => {
+      if (o.isMesh && o.frustumCulled) { o.frustumCulled = false; culled.push(o); }
+      for (const m of [].concat(o.material ?? [])) for (const v of Object.values(m)) if (v?.isTexture) renderer.initTexture(v);
+    });
+    obj.visible = true; uploads.add(obj);
+    const target = renderer.getRenderTarget();
+    renderer.setRenderTarget(oneByOne); renderer.render(uploads, camera); renderer.setRenderTarget(target);
+    if (parent) parent.add(obj); else obj.removeFromParent();
+    obj.visible = visible;
+    for (const o of culled) o.frustumCulled = true;
+  }
+  const warm = async (...objs) => { for (const o of objs) { await renderer.compileAsync(o, camera, scene); upload(o); } };
 
   setLoading('lighting');
   const { stage } = await kitModule(KITS.railway, 'stage.mjs');
@@ -84,32 +108,53 @@ async function boot() {
   const builtLegs = Object.keys(LEGS).filter(legBuilt);
   const routes = Object.fromEntries(builtLegs.map((id) => [id, legRoute(id)]));
   const journey = makeJourney({ legs: LEGS, places: PLACES });
-  const fleet = makeFleet({ scene, look, journey });
+  // each train's programs are ready before it is shown, its cab's too (fitted now, its shell cut away as the cab view
+  // draws it), so boarding never waits on them
+  const fleet = makeFleet({ scene, look, journey, prepare: async (t) => {
+    if (CABS[t.spec.cab]) {
+      t.cab = fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));
+      t.cab.clip(true); await renderer.compileAsync(t.model.group, camera, scene); t.cab.clip(false);
+    }
+    await warm(t.model.group);
+    if (t.cab) t.cab.interior.visible = false;   // until you're in it
+  } });
   const places = {}, termini = {};   // termini keyed `${place}:${leg}`
   const builders = {};
   for (const id of BUILT) builders[id] = async () => {
     setLoading(`building ${PLACES[id].name}`);
     const place = await buildPlace(id);
+    const shown = [place.group];   // hidden until its programs are ready
+    place.group.visible = false;
     scene.add(place.group); look.shadows(place.group);
     if (place.patch) terrain.addPatch(place.patch);
-    for (const e of await place.addExtras(terrain)) look.shadows(e);
+    for (const e of await place.addExtras(terrain)) { look.shadows(e); e.visible = false; shown.push(e); }
     // the place's stations: a terminus at its end of each built leg it serves
     const ids = [];
     for (const st of PLACES[id].stations.filter((s) => legBuilt(s.leg))) {
       const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station });
+      t.group.visible = false; shown.push(t.group);
       scene.add(t.group); look.shadows(t.group);
       for (const [obj, key] of t.lit) place.kitPlace.light?.(obj, key);   // a kit-style station's lamps and windows come on with its place's
       termini[`${id}:${st.leg}`] = t; ids.push(`${id}:${st.leg}`);
     }
+    await warm(...shown);
+    for (const o of shown) o.visible = true;
     places[id] = place;
-    return { dispose() { place.dispose(); if (place.patch) terrain.removePatch(place.patch); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
+    return { dispose() {
+      release(ids.map((k) => termini[k]?.group).filter(Boolean), scene);
+      place.dispose(scene);
+      if (place.patch) terrain.removePatch(place.patch);
+      for (const k of ids) delete termini[k];
+      delete places[id];
+    } };
   };
   // scenery built a slice at a time (slicer.js), ticked in frame(); straight through at boot, behind the loading screen
   const slicer = makeSlicer();
   const SCENERY_SLICE = 4;
   // a leg: its two lines' track, and its viaducts, tunnels, trestles and guideways (with any river they cross). Its
-  // suburbs, if it runs through any, follow in the background: the leg never waits on them, and if they can't be built
-  // (their parts come from Polyfork's CDN) it goes on without them. Nothing is left half-added if the leg's build fails.
+  // suburbs, if it runs through any, follow in the background: the leg never waits on them (its train does), and if
+  // they can't be built (their parts come from Polyfork's CDN) it goes on without them. Nothing is left half-added if
+  // the leg's build fails.
   async function buildLeg(id) {
     const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
     const tracks = lanes.map((lane) => buildTrack(route, lane, route.sections));   // none on its guideways
@@ -122,17 +167,27 @@ async function boot() {
       for (const t of tracks) t.traverse((o) => o.geometry?.dispose());
       throw err;
     }
-    for (const t of tracks) scene.add(t);
     look.shadows(structures);
+    await warm(...tracks, structures);
+    for (const t of tracks) scene.add(t);
     scene.add(structures);
     terrain.addStructures(route);   // its portals now fill the ground left out across them
-    const suburbs = LEGS[id].suburbs ? scenery(() => buildSuburbs(id, terrain, slicer), {
-      add: (g) => { look.shadows(g); scene.add(g); },
+    const suburbs = LEGS[id].suburbs ? scenery(async () => {
+      const s = await buildSuburbs(id, terrain, slicer);
+      if (s) { look.shadows(s.group); await warm(s.group); }
+      return s;
+    }, {
+      add: (g) => scene.add(g),
       warn: (err) => console.warn(`The suburbs along ${id} were left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`),
     }) : null;
-    return { structures, suburbs, dispose() {
+    // done once its suburbs are in (or left out): the train along it waits for that, so they're never built as you
+    // drive
+    let settled = !suburbs;
+    suburbs?.ready.then(() => { settled = true; });
+    return { structures, suburbs, settled: () => settled, dispose() {
       for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); }
       structures.userData.dispose();
+      release([structures], scene);   // and the kits' parts in it, unless something still drawn shares them
       suburbs?.dispose();
       terrain.removeStructures(route);
     } };
@@ -141,9 +196,10 @@ async function boot() {
     builders[id] = () => { setLoading('laying track'); return buildLeg(id); };
     builders[`train:${id}`] = () => fleet.build(id);
   }
-  const ring = { places: RING.places.filter((id) => BUILT.includes(id)), legs: RING.legs.filter((id) => builtLegs.includes(id)), length: (id) => routes[id].length };
+  const ring = { places: RING.places.filter((id) => BUILT.includes(id)), legs: RING.legs.filter((id) => builtLegs.includes(id)) };
   const streamer = makeStreamer(builders, { onError: fail });
-  // what's near you: places and legs, and the trains on those legs (the one you're in always among them)
+  // what's near you: places and legs, and the trains on those legs (the one you're in always among them). Nothing new
+  // while you're moving (streaming.js): what's beyond is built while you stand at a platform or walk round a place
   const wanted = (where) => {
     const set = wantedSet(where, ring);
     for (const id of [...set]) if (builtLegs.includes(id)) set.add(`train:${id}`);
@@ -159,7 +215,7 @@ async function boot() {
   // ---- the land: pieces of the world grid round you (chunks.js), fine near you and beside the line, mid further off,
   // coarse 512 m tiles beyond 1500 m, through a streamer of their own so a slow kit never holds up the ground. A piece
   // whose detail changes is built again; a tile's new pieces show together once all are in, as the old ones go. After
-  // boot a piece is built a few rows a frame (LAND_SLICE ms, run inside frame()), so no frame waits on a whole one. ----
+  // boot a piece is built a slice a frame (LAND_SLICE ms, run inside frame()), so no frame waits on a whole one. ----
   const LAND_SLICE = 4;
   // the line's corridor: chunks within 300 m of a built route or a built place's footprint
   const corridor = corridorKeys([
@@ -256,7 +312,7 @@ async function boot() {
     const t = fleet.trains[leg];
     if (!t) throw new Error(`the train on ${leg} has not loaded yet`);
     if (!CABS[t.spec.cab]) throw new Error(`no ${t.spec.cab} cab for the ${t.spec.name} yet`);
-    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));
+    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));   // fitted as it loaded (fleet's prepare)
     return t;
   }
   function take(leg, dir) {
@@ -316,6 +372,9 @@ async function boot() {
     }
     return pts;
   }
+  // a train you can board now: its leg (with its suburbs), its two places and the train itself are in, so nothing is
+  // built while you drive
+  const ready = (leg) => [...neededToDrive(leg), `train:${leg}`].every((id) => streamer.has(id)) && streamer.get(leg).settled();
   // the waiting train you're beside, if any: { leg, dir, station, to }, on a built leg whose train is loaded
   const boardable = () => nearestBoardable(player.state, journey.trainsAt(state, state.place)
     .filter((w) => legBuilt(w.leg) && fleet.trains[w.leg])
@@ -340,7 +399,7 @@ async function boot() {
     if (keys.ignored(e.code)) return;   // still held from before you boarded
     if (e.code === 'KeyE') {
       if (state.mode === 'drive' && stopHere()) getOut();
-      else if (state.mode === 'foot') { const w = boardable(); if (w) board(w); }
+      else if (state.mode === 'foot') { const w = boardable(); if (w && ready(w.leg)) board(w); }
       return;
     }
     if (state.mode !== 'drive') return;
@@ -361,6 +420,8 @@ async function boot() {
 
   const $ = (id) => document.getElementById(id);
   $('driver').classList.add('on');
+  // how far: to the metre for the last 100 m, to 10 m below a kilometre, then in kilometres
+  const distance = (m) => (m < 100 ? `${Math.round(m)} m` : m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
   function hud() {
     let prompt = '';
     if (state.mode === 'drive') {
@@ -368,13 +429,14 @@ async function boot() {
       $('spd').textContent = Math.round(Math.abs(drive.v) * 3.6);
       $('thr').textContent = `throttle ${Math.round(drive.throttle * 100)}%${drive.v < -0.05 ? ' · reversing' : ''}`;
       const toGo = run.stopS - drive.s;
-      $('dist').textContent = toGo > 1 ? `${to} ${Math.round(toGo)} m` : `${to}: stop here`;
+      $('dist').textContent = toGo > 1 ? `${to} ${distance(toGo)}` : `${to}: stop here`;
       if (here) prompt = `Get out at ${PLACES[here].name} (E)`;
       $('mode').textContent = `${train.spec.name} to ${to}`;
     } else {
       const w = boardable();
-      if (w) prompt = `Board the ${fleet.trains[w.leg].spec.name} to ${PLACES[w.to].name} (E)`;
-      $('mode').textContent = `On foot in ${PLACES[state.place].name}`;
+      // honest about what's still being built: the train waits until the line ahead and its far town are in
+      if (w) prompt = ready(w.leg) ? `Board the ${fleet.trains[w.leg].spec.name} to ${PLACES[w.to].name} (E)` : `Getting ${PLACES[w.to].name} ready…`;
+      $('mode').textContent = `On foot in ${PLACES[state.place].name}${streamer.loading.length ? ' · getting the next towns ready' : ''}`;
     }
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
@@ -428,6 +490,15 @@ async function boot() {
   // the first view has its ground, and its trees, before the loading screen goes
   setLoading('planting trees');
   await loadScenery();
+  // every program the land's scenery will need, and everything already in the scene (you on foot, still hidden), ready
+  // before the first frame: one of each scenery shape, compiled against the scene and let go
+  {
+    const each = sceneryWarmup();
+    if (each) scene.add(each);
+    await renderer.compileAsync(scene, camera);
+    if (each) upload(each);   // the shapes' geometry, shared by every chunk's pieces
+    disposeScenery(each);
+  }
   setLoading('shaping the land');
   terrain.takeDirty();   // no chunks yet: nothing to build again
   {
@@ -475,6 +546,7 @@ async function boot() {
     else views.update(dt, train.model);
     // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
     const where = journey.where(state, run, drive.s);
+    if (state.mode === 'drive') where.at = stopHere();   // stopped at a platform: what's beyond it may be built now
     streamer.want(wanted(where));
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : towards(skyPos, want, Math.min(1, dt * 1.5));   // the short way round the ring
@@ -496,7 +568,7 @@ async function boot() {
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     renderer.render(scene, camera);
-    landSlice();   // a few rows of the land being built, after this frame's work
+    landSlice();   // a slice of the land being built, after this frame's work
     slicer.tick(SCENERY_SLICE);   // and a slice of any scenery being built
   }
   renderer.setAnimationLoop(() => frame(clock.getDelta()));

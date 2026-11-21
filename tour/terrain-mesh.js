@@ -24,7 +24,7 @@ export function paint(col, k, region, x, z) {
   col[k] = c.r; col[k + 1] = c.g; col[k + 2] = c.b;
 }
 
-// a piece of the land (chunks.js, by id), a few rows at a time: a generator whose result terrainChunkMesh() wraps
+// a piece of the land (chunks.js, by id), a few heights at a time: a generator whose result terrainChunkMesh() wraps
 // skirts hang this far below a piece's edge: well past the largest step measured between neighbours of different
 // detail (13 m, a mid chunk beside a coarse tile at a mesa's cliff), so no crack shows through
 const SKIRT = 40;
