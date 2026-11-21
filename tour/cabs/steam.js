@@ -25,9 +25,12 @@ export const STEAM_CABS = {
     zBack: -5.8, zFront: -3.25, floor: 2.04, roof: 4.1, half: 1.26,
     door: [-5.8, -4.85], cut: { y: 3.0, z0: -4.85, z1: -4.1 },
     backhead: { half: 0.9, top: 4.0, z: -3.65 },
-    spectacle: { x0: 0.94, x1: 1.2, y0: 3.2, y1: 3.95 },
+    // the window opened up to the boiler's side (0.9 at the driver's eye) and nearly to the roof, and the driver standing
+    // a little nearer it (still level with the side cut-out), so the line past the boiler fills more of the view (the real
+    // plate's window is 0.26 m wide)
+    spectacle: { x0: 0.9, x1: 1.2, y0: 3.1, y1: 3.98 },
     backWall: false,
-    eye: [1.06, 3.74, -4.55],
+    eye: [1.06, 3.74, -4.45],
   },
 };
 // which cab each locomotive model has

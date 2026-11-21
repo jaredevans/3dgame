@@ -17,7 +17,7 @@ export const laneFor = (dir) => (dir === 'out' ? laneOf('city-ocean') : -laneOf(
 export const SEA_LEVEL = 0;
 
 // the places whose kits the page builds so far; a leg is built once both its ends are
-export const BUILT = ['city', 'ocean', 'mountain'];
+export const BUILT = ['city', 'ocean', 'mountain', 'west'];
 
 export const RING = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],
@@ -73,8 +73,17 @@ export const PLACES = {
       { leg: 'ocean-mountain', end: 'end', role: 'arrival', platformLength: 120 },
       { leg: 'mountain-west', end: 'start', role: 'departure', platformLength: 120 },
     ] },
-  // Frontier Town's composed main street among its bluffs (ground -2..13 m, 78 x 99 m)
-  west: { name: 'Wild West', kit: KITS.west, centre: { x: 2950, z: 1950 }, y: 15, rot: 0, ground: 15,
+  // Frontier Town's composed crossroads on its own island ground: land from -3.3 to +13 m in its own frame (its skirt, at
+  // -6, is the island's underside), 94 x 102 m about (-2, 0.5). Its main street runs along its z, the cross street along
+  // its x; the mine's bluffs (9..13 m) close its -z end and a lower bluff (4..7 m) the -z half of its +x side. Left the
+  // way it is composed: Main Street's open end faces the bullet's station to the south, the cross street's the Canyon
+  // Express's to the east, and the bluffs back onto the hills to the north (about 22..25 m), each street ending at its
+  // station's building. 10 m west of where it was first put, so its east rim (the low bluff, 4..6 m) stands past the
+  // reach of the Canyon Express's track bed (36 m), which would otherwise pull the land under it 1.5 m below the kit's
+  // ground there. Raised 16.3 m, the level of the rim within 50 m of either platform, so the street is level with the
+  // platform tops.
+  west: { name: 'Wild West', kit: KITS.west, centre: { x: 2940, z: 1950 }, y: 16.3, rot: 0, ground: 15,
+    size: [94, 102], offset: [-2, 0.5], landMin: -4.5, walkRadius: 100,
     build: {},
     // the Canyon Express comes down the east side; the bullet train leaves along the south side, heading west
     stations: [

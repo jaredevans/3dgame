@@ -91,8 +91,9 @@ export function walkThroughTown(def) {
   return { ok: false, why: reachedTown ? 'the town does not lead on to the other platform' : reachedOther ? 'the platforms meet without passing the town' : 'the town is not reached from the platform' };
 }
 
-for (const id of ['ocean', 'mountain']) {
+for (const id of ['ocean', 'mountain', 'west']) {
   test(`a walk exists between the two stations, through the town: ${PLACES[id].name}`, () => {
+    assert.ok(PLACES[id].size, `${PLACES[id].name} has no footprint to walk through`);
     const r = walkThroughTown(PLACES[id]);
     assert.ok(r.ok, `no way on foot through ${PLACES[id].name} between its stations: ${r.why}`);
   });
@@ -115,4 +116,19 @@ test('no walk through a town across a line from one of its stations', () => {
 test('no walk through a town that stands back from both its stations', () => {
   // Mountain 120 m further from both lines: its footprint no longer meets either forecourt
   assert.equal(walkThroughTown(moved('mountain', { x: 2420, z: 760 })).ok, false);
+});
+// the Wild West: its town where the walk from the Canyon Express's platform to the bullet train's would not pass through it
+const NOT_REACHED = 'the town is not reached from the platform';
+test('no walk through the Wild West put across a line, past the buffers or back from its stations', () => {
+  assert.ok(PLACES.west.size, 'the Wild West has no footprint to move');
+  for (const [what, centre] of [
+    ['east of the Canyon Express\'s line, its arrival platform\'s far side', { x: 3090, z: 1900 }],
+    ['south of the bullet\'s line, its departure platform\'s far side', { x: 2900, z: 2110 }],
+    ['past the end of both lines, beyond the buffers', { x: 3060, z: 2060 }],
+    ['set back 170 m from both lines, in the hills to the north-west', { x: 2830, z: 1830 }],
+  ]) {
+    const r = walkThroughTown(moved('west', centre));
+    assert.equal(r.ok, false, `a walk was found through the Wild West ${what}`);
+    assert.equal(r.why, NOT_REACHED, what);
+  }
 });
