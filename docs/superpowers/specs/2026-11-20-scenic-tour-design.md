@@ -33,7 +33,7 @@ It keeps the basement's spirit: a sandbox, beautiful to look at, no score, no ti
 ## Anti-goals (a failure even if it works)
 
 - **A fail state.** No derailing, crashing, penalties or "game over". Events never punish you.
-- **Waiting.** A loading screen between legs, or the train stopping mid-route to load.
+- **Waiting.** A loading screen while driving or boarding, or the train stopping mid-route to load. (Amended 2026-11-21 by the owner: the brief 'Arriving at …' cover while you stand at a platform, a few seconds at most, is accepted.)
 - **Ugly or muddy.** Flat grey skies, muddy colours (for example ACES tone mapping at exposure 1 over Polyfork models), bare empty stretches of route, or models visibly floating, sunk or wrongly scaled.
 - **Samey routes.** Five legs that feel like the same track through different paint.
 - **Breaking the basement.** It must load and play exactly as it does today.
