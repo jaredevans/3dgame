@@ -316,25 +316,35 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     return lerp(under, h, w);
   }
 
-  // every tunnel portal: where it is, which way is into the hill, and which way is left
-  let portalKey = null, portalList = [];
-  function portals() {
-    if (portalKey && routes.every((r, i) => r.sections === portalKey[i])) return portalList;
-    portalKey = routes.map((r) => r.sections);
-    portalList = [];
-    for (const r of routes) for (const sec of r.sections ?? []) {
+  // a route's tunnel portals: where each is, which way is into the hill, and which way is left
+  function portalsOf(r) {
+    const out = [];
+    for (const sec of r.sections ?? []) {
       if (sec.kind !== 'tunnel') continue;
       for (const [s, inward] of [[sec.s0, 1], [sec.s1, -1]]) {
         const p = r.at(s);
-        portalList.push({ x: p.x, z: p.z, ix: Math.sin(p.yaw) * inward, iz: Math.cos(p.yaw) * inward, lx: Math.cos(p.yaw), lz: -Math.sin(p.yaw) });
+        out.push({ x: p.x, z: p.z, ix: Math.sin(p.yaw) * inward, iz: Math.cos(p.yaw) * inward, lx: Math.cos(p.yaw), lz: -Math.sin(p.yaw) });
       }
     }
-    return portalList;
+    return out;
   }
-  // whether the ground cell [x, x + size] x [z, z + size] should be left out of the mesh: it lies across a tunnel portal,
-  // over the bore, where the ground steps from the cutting up over the tunnel (the portal and its headwall fill the gap)
-  function holeCell(x, z, size) {
-    for (const p of portals()) {
+  // the routes whose structures stand in the scene (their portals fill the ground left out across them); adding or
+  // removing one dirties the chunks round its portals, as a patch does
+  const standing = new Map();   // route -> its portals
+  function setStructures(r, on) {
+    if (on === standing.has(r)) return;
+    const ps = portalsOf(r);
+    if (on) standing.set(r, ps); else standing.delete(r);
+    for (const p of ps) for (const k of chunksNear(p.x, p.z, 30, chunk)) dirty.add(k);
+  }
+  const addStructures = (r) => setStructures(r, true);
+  const removeStructures = (r) => setStructures(r, false);
+  // whether the ground cell [x, x + size] x [z, z + size] should be left out of the mesh: it lies across the portal of a
+  // tunnel that stands in the scene, over the bore, where the ground steps from the cutting up over the tunnel (the
+  // portal and its headwall fill the gap). An unbuilt tunnel's hillside keeps its cell. Given a route, whether the cell
+  // lies so across one of its portals, standing or not (to build what fills it).
+  function holeCell(x, z, size, route = null) {
+    for (const ps of route ? [portalsOf(route)] : standing.values()) for (const p of ps) {
       let uMin = Infinity, uMax = -Infinity, dMin = Infinity, dMax = -Infinity;
       for (const [cx, cz] of [[x, z], [x + size, z], [x, z + size], [x + size, z + size]]) {
         const u = (cx - p.x) * p.ix + (cz - p.z) * p.iz, d = (cx - p.x) * p.lx + (cz - p.z) * p.lz;
@@ -392,5 +402,5 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     return 'grass';
   }
 
-  return { heightAt, natural, regionAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty, holeCell, skirtFloor };
+  return { heightAt, natural, regionAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty, holeCell, skirtFloor, addStructures, removeStructures };
 }

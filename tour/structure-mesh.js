@@ -234,7 +234,7 @@ function mouthGround(route, s, inward, terrain) {
     paint(col, col.length, terrain.regionAt(x, z, h), x, z);
   };
   for (let cx = x0; cx <= p.x + 20; cx += CELL) for (let cz = z0; cz <= p.z + 20; cz += CELL) {
-    if (!terrain.holeCell(cx, cz, CELL)) continue;
+    if (!terrain.holeCell(cx, cz, CELL, route)) continue;
     for (let a = 0; a < SUB; a++) for (let b = 0; b < SUB; b++) {
       const xa = cx + a * k, za = cz + b * k, xb = xa + k, zb = za + k;
       // the same split as the land's cells: (a, b) (a, b+1) (a+1, b), then (a+1, b) (a, b+1) (a+1, b+1)

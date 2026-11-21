@@ -93,7 +93,12 @@ async function boot() {
     });
     look.shadows(structures);
     scene.add(structures);
-    return { structures, dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } structures.userData.dispose(); } };
+    terrain.addStructures(route);   // its portals now fill the ground left out across them
+    return { structures, dispose() {
+      for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); }
+      structures.userData.dispose();
+      terrain.removeStructures(route);
+    } };
   }
   for (const id of builtLegs) {
     builders[id] = () => { setLoading('laying track'); return buildLeg(id); };

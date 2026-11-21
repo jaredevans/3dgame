@@ -100,11 +100,21 @@ test('terrain stays natural over a tunnel and the bed resumes past its portals',
   }
   // just inside a portal the ground clears the tube's roof
   for (const s of [tn.s0 + 1, tn.s1 - 1]) { const p = r.at(s); assert.ok(t.heightAt(p.x, p.z) >= p.y + TUBE_TOP + 1, `just inside, s=${s}`); }
-  // the mouth: a ground cell straddling each portal over the bore is left out of the mesh; one beside it and one wholly
-  // outside are not
+  // the mouth: once the tunnel's structures stand, a ground cell straddling each portal over the bore is left out of the
+  // mesh (and the chunks round the portals are built again); one beside it and one wholly outside are not. Until then,
+  // and once they are gone again, the hillside keeps every cell.
   const mouth = (s, d) => { const p = r.offsetAt(s, d); return t.holeCell(p.x - 2, p.z - 2, 4); };
+  t.takeDirty();
+  assert.ok(!mouth(tn.s0, 0) && !mouth(tn.s1, 0), 'no portal built: no hole');
+  { const p = r.at(tn.s0); assert.ok(t.holeCell(p.x - 2, p.z - 2, 4, r), 'asked of the route itself: the cell its portal will fill'); }
+  t.addStructures(r);
   assert.ok(mouth(tn.s0, 0) && mouth(tn.s1, 0), 'cells across the portals');
   assert.ok(!mouth(tn.s0 - 10, 0) && !mouth(tn.s0 + 10, 0) && !mouth(tn.s0, 25), 'cells off the portals');
+  const p0 = r.at(tn.s0), key = `c:${Math.floor(p0.x / 256)},${Math.floor(p0.z / 256)}`;
+  assert.ok(t.takeDirty().has(key), 'the portal\'s chunk is built again');
+  t.removeStructures(r);
+  assert.ok(!mouth(tn.s0, 0), 'taken away again');
+  assert.ok(t.takeDirty().has(key));
   // a chunk's skirt never hangs into the bore
   const mid = r.at((tn.s0 + tn.s1) / 2);
   assert.ok(t.skirtFloor(mid.x, mid.z) >= mid.y + TUBE_TOP, 'skirt floor over the tube');
