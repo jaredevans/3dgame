@@ -69,3 +69,29 @@ test('a redo inside a group still building keeps the old one up until the whole 
   assert.deepEqual([...on].sort(), ['A/one#3', 'A/two#2']);
   assert.deepEqual(log.slice(-3).sort(), ['-A/one#1', 'show A/one#3', 'show A/two#2']);
 });
+
+// a build can't be stopped once begun: one still in flight when it stops being wanted finishes, and is let go only then.
+// The page waits for that (busy) before a train may leave, so its last work and its letting go never land on a moving frame
+test('an in-flight build that stops being wanted finishes, is let go, and the streamer is busy until then', async () => {
+  const { log, thing } = recorder();
+  let finish;
+  const streamer = makeStreamer({ a: () => new Promise((done) => { finish = () => done(thing('a')); }) });
+  const first = streamer.want(new Set(['a']));
+  await Promise.resolve();
+  assert.equal(streamer.busy, true, 'building');
+  streamer.want(new Set());   // driven away from it
+  assert.equal(streamer.busy, true, 'still building: it cannot be stopped');
+  finish();
+  await first;
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(log, ['+a#1', '-a#1'], 'built, then let go once in');
+  assert.equal(streamer.has('a'), false);
+  assert.equal(streamer.busy, false);
+});
+
+test('busy while anything wanted is still to be built, not for what failed', async () => {
+  const streamer = makeStreamer({ a: async () => ({ dispose() {} }), b: async () => { throw new Error('404'); } }, { onError: () => {} });
+  assert.equal(streamer.busy, false);
+  await streamer.want(new Set(['a', 'b']));
+  assert.equal(streamer.busy, false, 'a is in; b failed and is not retried');
+});

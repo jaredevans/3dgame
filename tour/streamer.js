@@ -66,5 +66,8 @@ export function makeStreamer(builders, { onError = console.error, standIn = null
     shown: (id) => shown.has(id),
     get ids() { return [...live.keys()]; },
     get loading() { return [...pending]; },
+    // something is building, or still to be built: a build in flight can't be stopped, and finishes (to be let go, if
+    // it's no longer wanted) whatever is wanted meanwhile
+    get busy() { return pending.size > 0 || next() !== undefined; },
   };
 }

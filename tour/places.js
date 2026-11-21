@@ -5,7 +5,6 @@ import { kitUrl, KIT_BASE } from './config.js';
 import { PLACES, EXTRA_REACH } from './world-data.js';
 import { landSampler, LAND_MIN } from './land.js';
 import { groundIndex } from './kit-ground.js';
-import { release } from './dispose.js';
 
 // the kit's ground as a lookup (kit-ground.js), in its own frame: the same heights its groundAt() casts a ray for, from
 // its terrain's triangles, each wound as a ray from above would meet it. Off them all, the plain at its foot, as
@@ -106,8 +105,8 @@ export async function buildPlace(id) {
       return lx >= b.min.x - margin && lx <= b.max.x + margin && lz >= b.min.z - margin && lz <= b.max.z + margin;
     },
     tick(t) { kitPlace.tick?.(t); },
-    // take it out of the scene and free what it alone used (dispose.js); keep: the scene, with what's still drawn
-    dispose(keep) { release([group, ...extras], keep); },
+    // take it out of the scene, to be freed with whatever else is let go (dispose.js makeUnloader)
+    dispose(unload) { unload.add(group, ...extras); },
   };
 }
 

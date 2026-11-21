@@ -39,3 +39,25 @@ test('two things let go together that share a resource free it once', () => {
   assert.equal(geo.disposed, 1); assert.equal(mat.disposed, 1);
   assert.equal(scene.children.length, 0);
 });
+
+// pulling away lets go of a place, its stations, a leg and a train in one go: they're taken out of the scene at once,
+// and freed together later (at a standstill), walking the scene once for all of them, not once each
+test('things let go are taken out at once and freed together, the scene walked once', async () => {
+  const { makeUnloader } = await import('../dispose.js');
+  const geos = [res('geometry'), res('geometry'), res('geometry')];
+  const things = geos.map((g) => node({ isMesh: true, geometry: g, material: res('material') }));
+  const scene = node({}, [...things]);
+  let walks = 0;
+  const traverse = scene.traverse;
+  scene.traverse = (f) => { walks++; traverse(f); };
+  const unload = makeUnloader();
+  unload.add(things[0], things[1]); unload.add(things[2]);
+  assert.equal(scene.children.length, 0, 'out of the scene at once');
+  assert.equal(geos[0].disposed, 0, 'not freed yet');
+  assert.equal(unload.pending, 3);
+  unload.flush(scene);
+  assert.deepEqual(geos.map((g) => g.disposed), [1, 1, 1]);
+  assert.equal(walks, 1, 'the scene walked once');
+  unload.flush(scene);
+  assert.equal(walks, 1, 'nothing to free: not walked');
+});

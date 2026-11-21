@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
 import { LEGS, PLACES, RING, BUILT, FEATURES, worldTerrain, legRoute, laneOf, legBuilt, SEA_LEVEL } from './world-data.js';
-import { wantedSet, neededToDrive } from './streaming.js';
+import { wantedSet, neededToDrive, readyToLeave } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
 import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK, FINE, COARSE } from './chunks.js';
@@ -21,7 +21,7 @@ import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
 import { buildPlace, seamCheck } from './places.js';
-import { release } from './dispose.js';
+import { release, makeUnloader } from './dispose.js';
 import { buildTerminus, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
 import { nearestBoardable, BODY } from './walk.js';
@@ -157,7 +157,9 @@ async function boot() {
   };
   // each train's programs are ready before it is shown, its cab's too (fitted now, its shell cut away as the cab view
   // draws it), so boarding never waits on them
-  const fleet = makeFleet({ scene, look, journey, prepare: async (t) => {
+  // what's let go is taken out of the scene at once and freed together at a standstill (frame())
+  const unload = makeUnloader();
+  const fleet = makeFleet({ scene, look, journey, unload, prepare: async (t) => {
     if (CABS[t.spec.cab]) {
       t.cab = fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));
       // (a clipped shell's shadow is drawn clipped too: its depth programs are compiled by the upload pass)
@@ -189,8 +191,8 @@ async function boot() {
     for (const o of shown) o.visible = true;
     places[id] = place;
     return { dispose() {
-      release(ids.map((k) => termini[k]?.group).filter(Boolean), scene);
-      place.dispose(scene);
+      unload.add(...ids.map((k) => termini[k]?.group).filter(Boolean));
+      place.dispose(unload);
       if (place.patch) terrain.removePatch(place.patch);
       for (const k of ids) delete termini[k];
       delete places[id];
@@ -235,7 +237,7 @@ async function boot() {
     return { structures, suburbs, settled: () => settled, dispose() {
       for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); }
       structures.userData.dispose();
-      release([structures], scene);   // and the kits' parts in it, unless something still drawn shares them
+      unload.add(structures);   // and the kits' parts in it, unless something still drawn shares them
       suburbs?.dispose();
       terrain.removeStructures(route);
     } };
@@ -423,7 +425,16 @@ async function boot() {
   // a train you can board now: its leg (with its suburbs), its two places and the train itself are in, so nothing is
   // built while you drive
   const needs = (leg) => [...neededToDrive(leg), `train:${leg}`];
-  const ready = (leg) => needs(leg).every((id) => streamer.has(id)) && streamer.get(leg).settled();
+  // anything still being built: by the streamer (a build can't be stopped once begun), or a leg's suburbs
+  const busy = () => streamer.busy || builtLegs.some((id) => streamer.has(id) && !streamer.get(id).settled());
+  const ready = (leg) => readyToLeave(leg, { has: (id) => streamer.has(id), busy: busy(), settled: (l) => streamer.get(l).settled() });
+  // arriving at a platform where what's beyond still has to be built: a cover goes up first ("Arriving at …"), and only
+  // once it is up is any of it asked for, so the freeze while a town's kit is built (it can't be split across frames)
+  // is behind it; it comes down once everything is in. Meanwhile the train is held and you can't get out
+  const COVER_UP = 0.3;   // s: its fade (0.25 s) done
+  let arriving = null;    // { place, t }
+  // stopped at a platform and not yet free to leave: held there
+  const held = () => state.mode === 'drive' && !!stopHere() && (!!arriving || !ready(run.leg));
   // the waiting train you're beside, if any: { leg, dir, station, to }, on a built leg whose train is loaded
   const boardable = () => nearestBoardable(player.state, journey.trainsAt(state, state.place)
     .filter((w) => legBuilt(w.leg) && fleet.trains[w.leg])
@@ -447,7 +458,7 @@ async function boot() {
     if (e.code === 'Space') e.preventDefault();
     if (keys.ignored(e.code)) return;   // still held from before you boarded
     if (e.code === 'KeyE') {
-      if (state.mode === 'drive' && stopHere()) getOut();
+      if (state.mode === 'drive' && stopHere() && !arriving) getOut();
       else if (state.mode === 'foot') { const w = boardable(); if (w && ready(w.leg)) board(w); }
       return;
     }
@@ -479,7 +490,7 @@ async function boot() {
       $('thr').textContent = `throttle ${Math.round(drive.throttle * 100)}%${drive.v < -0.05 ? ' · reversing' : ''}`;
       const toGo = run.stopS - drive.s;
       $('dist').textContent = toGo > 1 ? `${to} ${distance(toGo)}` : `${to}: stop here`;
-      if (here) prompt = `Get out at ${PLACES[here].name} (E)`;
+      if (here && !arriving) prompt = held() ? 'Getting the next towns ready…' : `Get out at ${PLACES[here].name} (E)`;
       $('mode').textContent = `${train.spec.name} to ${to}`;
     } else {
       const w = boardable();
@@ -490,7 +501,7 @@ async function boot() {
           : needs(w.leg).some((id) => streamer.failed(id)) ? `The way to ${PLACES[w.to].name} couldn't be loaded`
           : `Getting ${PLACES[w.to].name} ready…`;
       }
-      $('mode').textContent = `On foot in ${PLACES[state.place].name}${streamer.loading.length ? ' · getting the next towns ready' : ''}`;
+      $('mode').textContent = `On foot in ${PLACES[state.place].name}${busy() ? ' · getting the next towns ready' : ''}`;
     }
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
@@ -589,7 +600,8 @@ async function boot() {
     fit();
     if (state.mode === 'drive') {
       const before = drive.s;
-      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space'), throttleSteps }), dt, train.spec, train.limits));
+      // held at a platform while anything's still building: the brake stays on (the throttle can still be set)
+      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || held(), throttleSteps }), dt, train.spec, train.limits));
       train.s = drive.s;
       poseTrain(train.model, run.route, drive.s, drive.s - before, run.lane);
       train.cab?.interior.userData.speed?.(Math.abs(drive.v) * 3.6);   // a cab with a speed readout
@@ -603,8 +615,22 @@ async function boot() {
     else views.update(dt, train.model);
     // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
     const where = journey.where(state, run, drive.s);
-    if (state.mode === 'drive') where.at = stopHere();   // stopped at a platform: what's beyond it may be built now
+    // stopped at a platform: what's beyond it may be built now, behind the arrival cover if any of it isn't in yet
+    const at = state.mode === 'drive' ? stopHere() : null;
+    if (at && !arriving && [...wanted({ ...where, at })].some((id) => !streamer.has(id) && !streamer.failed(id))) {
+      arriving = { place: at, t: 0 };
+      $('arriveAt').textContent = `Arriving at ${PLACES[at].name}…`;
+      $('arrive').classList.add('on');
+    }
+    if (arriving) {
+      arriving.t += dt;
+      if (arriving.t >= COVER_UP) where.at = arriving.place;
+    } else if (at) where.at = at;
     streamer.want(wanted(where));
+    // (asked after want(): only then does the streamer know what's still to be built)
+    if (arriving?.t >= COVER_UP && !busy()) { arriving = null; $('arrive').classList.remove('on'); }
+    // what was let go is freed at a standstill (the scene walked once), never on a moving frame
+    if (state.mode === 'foot' || Math.abs(drive.v) < 0.05) unload.flush(scene);
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : towards(skyPos, want, Math.min(1, dt * 1.5));   // the short way round the ring
     const sky = skyAt(skyPos);

@@ -6,10 +6,10 @@ import { TRAIN_SPECS } from './trains/specs.js';
 import { buildTrain, poseTrain } from './vehicles.js';
 import { COUPLING_GAP } from './consist.js';
 import { setLoading } from './parts.js';
-import { release } from './dispose.js';
 
-// prepare(train): made ready before it is shown (main.js compiles its programs and fits its cab)
-export function makeFleet({ scene, look, journey, prepare = null }) {
+// prepare(train): made ready before it is shown (main.js compiles its programs and fits its cab); unload: where a train
+// let go goes to be freed (dispose.js makeUnloader)
+export function makeFleet({ scene, look, journey, prepare = null, unload }) {
   const trains = {};    // leg -> { leg, spec, model, length, run, limits, s }
   const parked = {};    // leg -> { dir, s } (s null: at the start of its run, waiting at its station)
 
@@ -52,7 +52,7 @@ export function makeFleet({ scene, look, journey, prepare = null }) {
         dispose() {
           const t = trains[leg];
           parked[leg] = { dir: t.run.dir, s: t.s };
-          release([model.group], scene);   // and its cab, if fitted
+          unload.add(model.group);   // and its cab, if fitted
           delete trains[leg];
         },
       };

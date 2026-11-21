@@ -30,3 +30,15 @@ export function release(roots, keep) {
   for (const kind of ['geometries', 'materials', 'textures', 'skeletons']) for (const x of mine[kind]) if (!live[kind].has(x)) x.dispose();
   for (const im of mine.instanced) im.dispose();
 }
+
+// things to let go, taken out of the scene at once and freed together at flush(keep): the scene is walked once for all
+// of them (pulling away lets go of a place, its stations, a leg and a train in the same frame), and the page flushes at
+// a standstill, never on a moving frame
+export function makeUnloader() {
+  const roots = [];
+  return {
+    add(...rs) { for (const r of rs) { r.removeFromParent(); roots.push(r); } },
+    flush(keep) { if (roots.length) release(roots.splice(0), keep); },
+    get pending() { return roots.length; },
+  };
+}

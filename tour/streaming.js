@@ -13,6 +13,14 @@ const ends = (id) => { const i = id.indexOf('-'); return [id.slice(0, i), id.sli
 // what must be in before you set off along a leg: the leg and the places at both its ends
 export const neededToDrive = (leg) => new Set([leg, ...ends(leg)]);
 
+// whether a train may leave along a leg (boarded, or setting off from a platform): what it needs is in (the train too),
+// its leg is settled (its suburbs built or left out), and nothing else is still being built, since a build can't be
+// stopped once begun and what's left of it (and letting it go, if it's no longer wanted) would land on a moving frame.
+// has(id): built; busy: anything still building; settled(leg)
+export function readyToLeave(leg, { has, busy, settled = () => true }) {
+  return [...neededToDrive(leg), `train:${leg}`].every(has) && settled(leg) && !busy;
+}
+
 export function wantedSet(where, ring) {
   if (where.place) {
     const want = new Set([where.place]);

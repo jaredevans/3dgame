@@ -66,3 +66,15 @@ test('a ring with only some legs built asks only for what exists', () => {
   same(wantedSet({ place: 'city' }, small), ['city', 'city-ocean', 'ocean']);
   same(wantedSet({ leg: 'city-ocean', s: 1500 }, small), ['city-ocean', 'city', 'ocean']);
 });
+
+// a train may leave (boarded, or setting off from a platform) once what it needs is in, its leg's suburbs too, and
+// nothing else is still being built: a build that finished as you pulled away would land on a moving frame
+test('a train may leave only once what it needs is in and nothing is still being built', async () => {
+  const { readyToLeave } = await import('../streaming.js');
+  const all = new Set(['ocean-mountain', 'ocean', 'mountain', 'train:ocean-mountain']);
+  const has = (id) => all.has(id);
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: false, settled: () => true }), true);
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: true, settled: () => true }), false, 'the next town still building');
+  assert.equal(readyToLeave('ocean-mountain', { has, busy: false, settled: () => false }), false, 'its suburbs still building');
+  assert.equal(readyToLeave('ocean-mountain', { has: (id) => id !== 'mountain' && has(id), busy: false, settled: () => true }), false);
+});

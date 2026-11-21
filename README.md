@@ -43,7 +43,7 @@ The ring, each leg about 90 seconds at the train's normal speed, with its own tr
 
 One lap is one day: morning at the City, midday by the sea, sunset over the red rock, night at the Futuristic place, and dawn on the way back into the City. You can go round either way: the train you came in on waits at your platform, turned round to take you back, and the one onwards waits at the town's other station. The driver's panel shows your speed, throttle, and the next station and how far it is.
 
-You start in the Seaside Excursion's cab at the City. The world streams in round you as you go: the places beyond the one you've stopped at are built while you stand at its platform or walk across it, so nothing loads while you drive. If they aren't in yet when you reach the train onwards, its prompt says "Getting <town> ready…" until they are.
+You start in the Seaside Excursion's cab at the City. The world streams in round you as you go, but nothing is built while you're moving (only the land, a slice a frame): when you stop at a platform, what lies beyond that place is built behind a short "Arriving at <town>…" cover, and you can get out (or set off again) once it lifts. If something is still being built when you reach a train, its prompt says "Getting <town> ready…" until it's in, or that the way couldn't be loaded if a part of it failed.
 
 | Input | Action |
 |---|---|

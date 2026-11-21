@@ -29,6 +29,10 @@
   #toast { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); background: #000a; padding: 6px 14px;
     border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .4s; pointer-events: none; }
   #toast.on { opacity: 1; }
+  #arrive { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
+    background: #1b2430; font-size: 20px; gap: 8px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #arrive.on { opacity: 1; }
+  #arrive small { opacity: .7; font-size: 14px; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
     background: #1b2430; font-size: 20px; gap: 8px; padding: 0 16px; text-align: center; }
   #loading small { opacity: .7; font-size: 14px; max-width: 720px; }
@@ -52,6 +56,7 @@
 <div id="driver"><b id="spd">0</b><span>km/h</span><span id="thr">throttle 0%</span><span id="dist"></span></div>
 <div id="prompt"></div>
 <div id="toast"></div>
+<div id="arrive"><span id="arriveAt"></span><small>getting the next towns ready</small></div>
 <div id="loading">Getting the tour ready…<small id="loadStep"></small></div>
 <script type="module" src="tour/main.js"></script>
 </body>
