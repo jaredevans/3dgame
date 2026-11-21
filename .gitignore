@@ -13,3 +13,7 @@
 
 # per-plan execution workspaces (ledgers, briefs)
 /.superpowers/
+
+# the Polyfork catalogue (licensed to the owner; its .mjs files may not be redistributed): never committed
+polyfork-catalog*.zip
+polyfork-catalog/
