@@ -18,8 +18,13 @@ export const KITS = {
   nature: 'nature-forest-kit-f29d6a',
 };
 
-// Polyfork's free per-part CDN, for the few parts whose kit isn't self-hosted (the suburbs' Neighborhood Pathways houses)
-export const CDN = 'https://polyfork.dev/cdn/';
+// Polyfork's free per-part CDN, for the few parts whose kit isn't self-hosted (the suburbs' Neighborhood Pathways houses);
+// ?cdn=<base url> points it elsewhere (a mirror, or a dead host to check the tour carries on without them)
+export function resolveCdnBase(search) {
+  const base = new URLSearchParams(search).get('cdn') || 'https://polyfork.dev/cdn/';
+  return base.endsWith('/') ? base : base + '/';
+}
+export const CDN = resolveCdnBase(globalThis.location?.search ?? '');
 
 export function kitUrl(kitId, file, base = KIT_BASE) {
   return `${base}${kitId}/${file}`;

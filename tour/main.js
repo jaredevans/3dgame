@@ -12,6 +12,7 @@ import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK }
 import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
 import { buildSuburbs } from './suburbs-mesh.js';
+import { makeSlicer, scenery } from './slicer.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
 import { poseTrain } from './vehicles.js';
@@ -101,24 +102,36 @@ async function boot() {
     places[id] = place;
     return { dispose() { place.dispose(); if (place.patch) terrain.removePatch(place.patch); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
   };
-  // a leg: its two lines' track, its viaducts, tunnels, trestles and guideways (with any river they cross), and its suburbs
+  // scenery built a slice at a time (slicer.js), ticked in frame(); straight through at boot, behind the loading screen
+  const slicer = makeSlicer();
+  const SCENERY_SLICE = 4;
+  // a leg: its two lines' track, and its viaducts, tunnels, trestles and guideways (with any river they cross). Its
+  // suburbs, if it runs through any, follow in the background: the leg never waits on them, and if they can't be built
+  // (their parts come from Polyfork's CDN) it goes on without them. Nothing is left half-added if the leg's build fails.
   async function buildLeg(id) {
     const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
     const tracks = lanes.map((lane) => buildTrack(route, lane, route.sections));   // none on its guideways
+    let structures;
+    try {
+      structures = await buildStructures(route, lanes, route.sections, {
+        terrain, waters: FEATURES.filter((f) => f.kind === 'valley' && f.water && f.leg === id),
+      });
+    } catch (err) {
+      for (const t of tracks) t.traverse((o) => o.geometry?.dispose());
+      throw err;
+    }
     for (const t of tracks) scene.add(t);
-    const structures = await buildStructures(route, lanes, route.sections, {
-      terrain, waters: FEATURES.filter((f) => f.kind === 'valley' && f.water && f.leg === id),
-    });
     look.shadows(structures);
     scene.add(structures);
     terrain.addStructures(route);   // its portals now fill the ground left out across them
-    // its suburbs (suburbs.js), if it runs through any
-    const suburbs = LEGS[id].suburbs ? await buildSuburbs(id, terrain) : null;
-    if (suburbs) { look.shadows(suburbs); scene.add(suburbs); }
-    return { structures, dispose() {
+    const suburbs = LEGS[id].suburbs ? scenery(() => buildSuburbs(id, terrain, slicer), {
+      add: (g) => { look.shadows(g); scene.add(g); },
+      warn: (err) => console.warn(`The suburbs along ${id} were left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`),
+    }) : null;
+    return { structures, suburbs, dispose() {
       for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); }
       structures.userData.dispose();
-      suburbs?.userData.dispose();
+      suburbs?.dispose();
       terrain.removeStructures(route);
     } };
   }
@@ -353,7 +366,7 @@ async function boot() {
     : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.model.cars[0].holder.position);
   const landBoot = {};
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes, landFrames, buildLeg, legRoute });
+  Object.assign(window.__tour, { slicer, drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes, landFrames, buildLeg, legRoute });
   Object.defineProperties(window.__tour, {
     // the run you're on, with Phase 1's limits and originPlatform alongside it
     run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
@@ -386,6 +399,7 @@ async function boot() {
     landBoot.ms = Math.round(performance.now() - t0); landBoot.chunks = land.ids.length;
   }
   landSliced = true;
+  slicer.sync = false;
   hideLoading();
   const clock = new THREE.Clock();
   let skyPos = null, lastStage = -1;
@@ -404,6 +418,9 @@ async function boot() {
   const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), lightDir = new THREE.Vector3();
   // one frame (the debug hook can step it by hand when the page is hidden and frames don't come)
   function frame(dt) {
+    // a long frame (a stall, a hidden tab) counts as a tenth of a second at most, for everything in it: stepTrain and the
+    // walker clamp to that too, so the train never jumps further than v x 0.1 s
+    dt = Math.min(dt, 0.1);
     fit();
     if (state.mode === 'drive') {
       const before = drive.s;
@@ -443,6 +460,7 @@ async function boot() {
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     renderer.render(scene, camera);
     landSlice();   // a few rows of the land being built, after this frame's work
+    slicer.tick(SCENERY_SLICE);   // and a slice of any scenery being built
   }
   renderer.setAnimationLoop(() => frame(clock.getDelta()));
 }

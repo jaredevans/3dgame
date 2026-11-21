@@ -20,3 +20,9 @@ test('loadError names the URL', () => {
   assert.match(msg, /Could not load/);
   assert.ok(msg.includes('./kits/x/y.mjs'));
 });
+
+test('the CDN base is Polyfork\'s, or ?cdn= with a trailing slash', async () => {
+  const { resolveCdnBase } = await import('../config.js');
+  assert.equal(resolveCdnBase(''), 'https://polyfork.dev/cdn/');
+  assert.equal(resolveCdnBase('?debug&cdn=https://blocked.invalid/cdn'), 'https://blocked.invalid/cdn/');
+});

@@ -77,6 +77,13 @@ export function groundUnder(q, terrain) {
 
 // every piece of a leg's suburbs, laid on `terrain`
 export function suburbLayout(legId, terrain) {
+  const job = suburbLayoutJob(legId, terrain);
+  for (;;) { const r = job.next(); if (r.done) return r.value; }
+}
+
+// the same, as a job that yields after each lot and every few street tiles (slicer.js), so the page lays it out a slice
+// a frame
+export function* suburbLayoutJob(legId, terrain) {
   const stretches = LEGS[legId].suburbs ?? [];
   const route = legRoute(legId), out = [], p = {};
   // a piece at s, `d` out on side `side` (+1 left), turned to face away from the line (out: true) or towards it
@@ -108,7 +115,7 @@ export function suburbLayout(legId, terrain) {
     out.push({ ...q, y: terrain.heightAt(q.x, q.z) - 0.02, pitch, roll });
     return true;
   };
-  stretches.forEach(([s0, s1], si) => {
+  for (const [si, [s0, s1]] of stretches.entries()) {
     for (const side of [1, -1]) {
       // lots along the first row's line: each lot `LAYOUT.lot` wide there (shorter or longer at the line on a curve)
       const lots = Math.floor((s1 - s0) / LAYOUT.lot);
@@ -142,6 +149,7 @@ export function suburbLayout(legId, terrain) {
           const q = at(s0 + (k + r(10)) * LAYOUT.lot, LAYOUT.shade[0] + r(11) * (LAYOUT.shade[1] - LAYOUT.shade[0]), side);
           put({ kind: 'tree', key: 'broad-canopy-shade-tree', params: { colorway: pick(SHADE, r(12)) }, x: q.x, z: q.z, yaw: r(13) * 6.28, along: 1, across: 1 });
         }
+        yield;
       }
       // the street: 4 m tiles end to end along the street's own curve, from the first lot to the last
       const ss = [];
@@ -157,8 +165,9 @@ export function suburbLayout(legId, terrain) {
         tilt({ kind: 'street', key: 'residential-street-tile', params: { piece: 'straight', markings: 'dashed', colorway: 'sun-bleached' },
           x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, yaw: Math.atan2(b.x - a.x, b.z - a.z), along: 4, across: 4 });
         acc = 0;
+        if (i % 40 === 0) yield;
       }
     }
-  });
+  }
   return out;
 }
