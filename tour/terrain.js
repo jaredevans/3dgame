@@ -2,6 +2,7 @@
 // natural ground (rolling hills, a coast with cliffs or beaches) -> the track bed cut and filled under every route
 // -> flat pads under places and stations.
 import { CHUNK, chunksNear } from './chunks.js';
+import { sectionAt, TUBE_TOP } from './structures.js';
 
 export const BED_DROP = 0.05;   // ground sits this far below a route's formation level (route.y), under the ballast
 const BED_HALF = 6;             // metres either side of the route centre held exactly at the bed
@@ -11,6 +12,16 @@ const PATCH_BLEND = 25;
 const CANYON_RIM = 100;         // a canyon's rim holds this far past its walls...
 const CANYON_FADE = 160;        // ...then falls back to the land over this far
 const DIRTY_REACH = 60;         // a patch added or removed changes the ground of every chunk this near its land
+// a route's sections (route.sections, see structures.js) change its bed. Under a bridge the land is left alone, held
+// CLEAR metres below the formation so it never reaches the deck: the embankment steps down to that over its first TAPER
+// metres (inside the abutment) and gives way to the land over BRIDGE_EASE more. Over a tunnel the land is left alone too,
+// but never lower than COVER metres above the formation over the bore (out to COVER_HALF either side, then falling off
+// 1 in 1), and its approach cuttings run on FUNNEL metres into the hill beside the bore, closing as they go.
+const CLEAR = { viaduct: 2.5, trestle: 2, guideway: 3.8 };
+const TAPER = 6, BRIDGE_EASE = 20;
+const COVER = 9, COVER_HALF = 11, FUNNEL = 30;
+const MOUTH = 6;                // a ground cell across a portal within this of the bore's centre is left out (the portal fills it)
+const TUBE_HALF = 6.5;          // a chunk's skirt never hangs below the tube's roof within this of the line
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -110,6 +121,14 @@ const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), M
 //   { kind: 'mesa', x, z, r, h }    a flat-topped, steep-sided block h metres above the land
 //   { kind: 'canyon', leg, s0, s1, depth, width }  walls rising depth metres above the route either side of width/2, between
 //                                   those route distances (`legs` maps a leg id to its route)
+//   { kind: 'ridge', leg, s0, s1, rise, half = 30, fade = 150, ease = 100 }  the land along a stretch of a route brought to
+//                                   `rise` metres above its formation (below, if negative) within `half` of it, back to
+//                                   the land over `fade` more, easing in and out over `ease` at s0 and s1: a hill for a
+//                                   tunnel, or foothills or a wash under the line. only: 'up' (or 'down') leaves land
+//                                   that is already higher (lower) alone
+//   { kind: 'valley', x0, z0, x1, z1, floor, half = 20, fade = 60, ease = 80, easeHead }  a trough between two points with
+//                                   a flat floor at height `floor` within `half` of its axis, sides over `fade`, shallowing
+//                                   to nothing over `ease` at its ends (`easeHead` at x0, z0 instead, if given: a steep head)
 // Massifs and mesas keep clear of every route, big circular pad and `clearings` { x, z, r }, so a line never sits in a pit.
 // biomes { kind: 'grass'|'snow'|'desert'|'urban', x, z, r }: the nearest wins, ragged over ~200 m; they only recolour.
 export const SNOWLINE = 60;
@@ -122,21 +141,34 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
   function removePatch(p) { const i = patches.indexOf(p); if (i >= 0) { patches.splice(i, 1); touch(p); } }
   function takeDirty() { const d = dirty; dirty = new Set(); return d; }
   const nearests = routes.map((r) => indexRoute(r));
+  const legIndex = (leg, what) => {
+    const route = legs[leg];
+    if (!route) throw new Error(`${what} feature names leg '${leg}', which is not in \`legs\` (have: ${Object.keys(legs).join(', ') || 'none'})`);
+    return route;
+  };
   const coastAt = coast ? indexCoast(coast) : null;
   const SEA_FLOOR = seaLevel - 7;
 
   const massifs = features.filter((f) => f.kind === 'massif');
   const mesas = features.filter((f) => f.kind === 'mesa');
-  const canyons = features.filter((f) => f.kind === 'canyon').map((f) => {
-    const route = legs[f.leg];
-    if (!route) throw new Error(`canyon feature names leg '${f.leg}', which is not in \`legs\` (have: ${Object.keys(legs).join(', ') || 'none'})`);
-    const reach = f.width / 2 + CANYON_RIM + CANYON_FADE + 20;
+  // a stretch of a leg, indexed for nearest-point queries within `reach` of it
+  const stretch = (f, reach) => {
+    const route = legIndex(f.leg, f.kind);
     const bb = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
-    for (let s = f.s0; s <= f.s1; s += 40) {
-      const p = route.at(s);
+    for (let s = f.s0; s <= f.s1 + 40; s += 40) {
+      const p = route.at(Math.min(s, f.s1));
       bb.x0 = Math.min(bb.x0, p.x); bb.x1 = Math.max(bb.x1, p.x); bb.z0 = Math.min(bb.z0, p.z); bb.z1 = Math.max(bb.z1, p.z);
     }
     return { ...f, nearest: indexRoute(route, 12, 128, reach), reach, bb };
+  };
+  const outsideBox = (f, x, z) => x < f.bb.x0 - f.reach || x > f.bb.x1 + f.reach || z < f.bb.z0 - f.reach || z > f.bb.z1 + f.reach;
+  const canyons = features.filter((f) => f.kind === 'canyon').map((f) => stretch(f, f.width / 2 + CANYON_RIM + CANYON_FADE + 20));
+  const ridges = features.filter((f) => f.kind === 'ridge')
+    .map((f) => ({ half: 30, fade: 150, ease: 100, ...f }))
+    .map((f) => stretch(f, f.half + f.fade + 20));
+  const valleys = features.filter((f) => f.kind === 'valley').map((f) => {
+    const v = { half: 20, fade: 60, ease: 80, ...f };
+    return { ...v, dx: v.x1 - v.x0, dz: v.z1 - v.z0, len: Math.hypot(v.x1 - v.x0, v.z1 - v.z0), reach: v.half + v.fade };
   });
 
   // how far a point is from any line or clearing: 0 right beside them, 1 well away (massifs and mesas fade by it)
@@ -196,8 +228,23 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
         h = pull > 0 ? raised + (top - raised) * pull * k : raised;
       }
     }
+    for (const rg of ridges) {
+      if (outsideBox(rg, x, z)) continue;
+      const n = rg.nearest(x, z);
+      if (!n || n.s < rg.s0 || n.s > rg.s1) continue;
+      const k = smooth(rg.s0, rg.s0 + rg.ease, n.s) * (1 - smooth(rg.s1 - rg.ease, rg.s1, n.s)) * (1 - smooth(rg.half, rg.half + rg.fade, n.dist));
+      const to = n.y + rg.rise;
+      if (k > 0 && !(rg.only === 'up' && to < h) && !(rg.only === 'down' && to > h)) h += (to - h) * k;
+    }
+    for (const v of valleys) {
+      const t = Math.min(1, Math.max(0, ((x - v.x0) * v.dx + (z - v.z0) * v.dz) / (v.len * v.len)));
+      const d = Math.hypot(x - v.x0 - v.dx * t, z - v.z0 - v.dz * t);
+      if (d >= v.reach) continue;
+      const a = t * v.len, k = smooth(0, v.easeHead ?? v.ease, a) * (1 - smooth(v.len - v.ease, v.len, a)) * (1 - smooth(v.half, v.reach, d));
+      if (k > 0 && v.floor < h) h += (v.floor - h) * k;
+    }
     for (const cn of canyons) {
-      if (x < cn.bb.x0 - cn.reach || x > cn.bb.x1 + cn.reach || z < cn.bb.z0 - cn.reach || z > cn.bb.z1 + cn.reach) continue;
+      if (outsideBox(cn, x, z)) continue;
       const n = cn.nearest(x, z);
       if (!n || n.s < cn.s0 || n.s > cn.s1) continue;
       const half = cn.width / 2, along = smooth(cn.s0, cn.s0 + 120, n.s) * (1 - smooth(cn.s1 - 120, cn.s1, n.s));
@@ -234,15 +281,16 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
       if (!r || r.d >= PATCH_BLEND) continue;
       h = lerp(p.y + r.h - (p.drop ?? 0), h, smooth(0, PATCH_BLEND, r.d));
     }
-    // the track bed: hold the formation under every route, cuttings and embankments blending out
-    let bestW = 1, bedY = 0;
-    for (const nearest of nearests) {
-      const n = nearest(x, z);
+    // the track bed: hold the formation under every route, cuttings and embankments blending out (but not on bridges or
+    // through tunnels: see bedded)
+    let bestW = 1, bestN = null, bestR = null;
+    for (let i = 0; i < nearests.length; i++) {
+      const n = nearests[i](x, z);
       if (!n) continue;
       const w = smooth(BED_HALF, BED_HALF + BED_BLEND, n.dist);
-      if (w < bestW) { bestW = w; bedY = n.y - BED_DROP; }
+      if (w < bestW) { bestW = w; bestN = n; bestR = routes[i]; }
     }
-    if (bestW < 1) h = lerp(bedY, h, bestW);
+    if (bestW < 1) h = bedded(h, bestN, bestW, sectionAt(bestR.sections, bestN.s));
     for (const p of pads) {
       let d;
       if (p.r !== undefined) d = Math.max(0, Math.hypot(x - p.x, z - p.z) - p.r);
@@ -251,6 +299,63 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
       if (d < blend) h = lerp(p.y, h, smooth(0, blend, d));
     }
     return h;
+  }
+
+  // the ground at a point whose nearest line is n (its formation n.y at distance n.dist), the land there being h
+  function bedded(h, n, w, sec) {
+    const bed = lerp(n.y - BED_DROP, h, w);
+    if (!sec) return bed;
+    const u = Math.min(n.s - sec.s0, sec.s1 - n.s);   // how far inside the section
+    if (sec.kind === 'tunnel') {
+      const funnel = lerp(bed, h, smooth(0, FUNNEL, u));
+      return Math.max(funnel, n.y + COVER - Math.max(0, n.dist - COVER_HALF));
+    }
+    const floor = n.y - (CLEAR[sec.kind] ?? CLEAR.viaduct);
+    const under = u < TAPER ? lerp(n.y - BED_DROP, floor, smooth(0, TAPER, u))
+      : Math.min(floor, lerp(floor, h, smooth(TAPER, TAPER + BRIDGE_EASE, u)));
+    return lerp(under, h, w);
+  }
+
+  // every tunnel portal: where it is, which way is into the hill, and which way is left
+  let portalKey = null, portalList = [];
+  function portals() {
+    if (portalKey && routes.every((r, i) => r.sections === portalKey[i])) return portalList;
+    portalKey = routes.map((r) => r.sections);
+    portalList = [];
+    for (const r of routes) for (const sec of r.sections ?? []) {
+      if (sec.kind !== 'tunnel') continue;
+      for (const [s, inward] of [[sec.s0, 1], [sec.s1, -1]]) {
+        const p = r.at(s);
+        portalList.push({ x: p.x, z: p.z, ix: Math.sin(p.yaw) * inward, iz: Math.cos(p.yaw) * inward, lx: Math.cos(p.yaw), lz: -Math.sin(p.yaw) });
+      }
+    }
+    return portalList;
+  }
+  // whether the ground cell [x, x + size] x [z, z + size] should be left out of the mesh: it lies across a tunnel portal,
+  // over the bore, where the ground steps from the cutting up over the tunnel (the portal and its headwall fill the gap)
+  function holeCell(x, z, size) {
+    for (const p of portals()) {
+      let uMin = Infinity, uMax = -Infinity, dMin = Infinity, dMax = -Infinity;
+      for (const [cx, cz] of [[x, z], [x + size, z], [x, z + size], [x + size, z + size]]) {
+        const u = (cx - p.x) * p.ix + (cz - p.z) * p.iz, d = (cx - p.x) * p.lx + (cz - p.z) * p.lz;
+        uMin = Math.min(uMin, u); uMax = Math.max(uMax, u); dMin = Math.min(dMin, d); dMax = Math.max(dMax, d);
+      }
+      if (uMin <= 0 && uMax > 0 && dMin < MOUTH && dMax > -MOUTH) return true;
+    }
+    return false;
+  }
+  // the lowest a chunk's skirt may hang at a point: just over a tunnel's roof above its bore, else anywhere
+  function skirtFloor(x, z) {
+    let floor = -Infinity;
+    for (let i = 0; i < routes.length; i++) {
+      if (!routes[i].sections?.some((s) => s.kind === 'tunnel')) continue;
+      const n = nearests[i](x, z);
+      if (!n || n.dist > TUBE_HALF) continue;
+      for (const sec of routes[i].sections) {
+        if (sec.kind === 'tunnel' && n.s >= sec.s0 - 1 && n.s <= sec.s1 + 1) floor = Math.max(floor, n.y + TUBE_TOP + 0.3);
+      }
+    }
+    return floor;
   }
 
   function coastDistance(x, z) { return coastAt ? coastAt(x, z).d : Infinity; }
@@ -287,5 +392,5 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     return 'grass';
   }
 
-  return { heightAt, natural, regionAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty };
+  return { heightAt, natural, regionAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty, holeCell, skirtFloor };
 }

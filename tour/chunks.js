@@ -84,7 +84,9 @@ export function* chunkJob(terrain, { x0, z0, size, cell, paint, nearLine = null,
       const x = x0 + gi * cell, z = z0 + gj * cell;
       const edge = a === 0 || b === 0 || a === N - 1 || b === N - 1;
       const h = hAt(gi, gj), k = (b * N + a) * 3;
-      pos[k] = x; pos[k + 1] = h - (edge ? skirt : 0); pos[k + 2] = z;
+      // a skirt never hangs into a tunnel's bore (terrain.skirtFloor: how low it may go there)
+      const drop = edge ? Math.min(skirt, Math.max(0, h - (terrain.skirtFloor?.(x, z) ?? -Infinity))) : 0;
+      pos[k] = x; pos[k + 1] = h - drop; pos[k + 2] = z;
       const dx = hAt(gi - 1, gj) - hAt(gi + 1, gj), dz = hAt(gi, gj - 1) - hAt(gi, gj + 1), up = 2 * cell;
       const l = Math.hypot(dx, up, dz);
       nor[k] = dx / l; nor[k + 1] = up / l; nor[k + 2] = dz / l;
@@ -95,13 +97,17 @@ export function* chunkJob(terrain, { x0, z0, size, cell, paint, nearLine = null,
     }
     yield;
   }
+  // the ground cells across a tunnel's portals are left out at the finest detail (terrain.holeCell): the portal fills them
+  const holed = cell <= FINE && terrain.holeCell ? (a, b) => a >= 1 && b >= 1 && a < n && b < n
+    && terrain.holeCell(x0 + (a - 1) * cell, z0 + (b - 1) * cell, cell) : () => false;
   const idx = new (N * N > 65535 ? Uint32Array : Uint16Array)((N - 1) * (N - 1) * 6);
   let m = 0;
   for (let b = 0; b < N - 1; b++) for (let a = 0; a < N - 1; a++) {
+    if (holed(a, b)) continue;
     const p = b * N + a, q = p + 1, r = p + N, s = r + 1;
     idx[m++] = p; idx[m++] = r; idx[m++] = q; idx[m++] = q; idx[m++] = r; idx[m++] = s;
   }
-  return { pos, col, nor, idx };
+  return { pos, col, nor, idx: m === idx.length ? idx : idx.slice(0, m) };
 }
 
 // run a job for about `ms`: its result if it finished, else undefined (call again to go on)

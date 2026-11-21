@@ -17,7 +17,7 @@ const tint = (x, z) => (Math.sin(x * 0.031 + z * 0.017) * Math.sin(z * 0.023 - x
 // shared by every chunk: never disposed with one
 const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, flatShading: false });
 const c = new THREE.Color();
-function paint(col, k, region, x, z) {
+export function paint(col, k, region, x, z) {
   const set = COLOURS[region] ?? COLOURS.grass, t = tint(x, z);
   c.copy(set[0]).lerp(set[Math.min(set.length - 1, 1)], t);
   if (set.length > 2) c.lerp(set[2], Math.max(0, 0.5 - t));

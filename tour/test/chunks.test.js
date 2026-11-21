@@ -140,3 +140,20 @@ test('a chunk builds a few rows at a time, and comes out the same', () => {
   assert.deepEqual(out.pos, whole.pos);
   assert.deepEqual(out.col, whole.col);
 });
+
+test('a fine chunk leaves out the cells a portal fills, and its skirt stops over a tunnel', () => {
+  const flat = { heightAt: () => 20, regionAt: () => 'grass' };
+  const paint = () => {};
+  const n = 64 / 4 + 1, N = n + 2, all = (N - 1) * (N - 1) * 6;
+  // one hole, at the cell whose corner is (8, 12)
+  const holed = { ...flat, holeCell: (x, z, size) => x === 8 && z === 12 && size === 4 };
+  assert.equal(chunkGrid(holed, { x0: 0, z0: 0, size: 64, cell: 4, paint }).idx.length, all - 6);
+  assert.equal(chunkGrid(holed, { x0: 0, z0: 0, size: 64, cell: 8, paint }).idx.length, (64 / 8 + 2) ** 2 * 6, 'coarser pieces keep every cell');
+  // skirts hang 4 m below their edge, but no lower than the floor there
+  const floored = { ...flat, skirtFloor: (x) => (x < 32 ? 18.5 : -Infinity) };
+  const g = chunkGrid(floored, { x0: 0, z0: 0, size: 64, cell: 4, paint, skirt: 4 });
+  const ys = (a, b) => g.pos[(b * N + a) * 3 + 1];
+  assert.equal(ys(3, 0), 18.5);
+  assert.equal(ys(N - 3, 0), 16);
+  assert.equal(ys(3, 3), 20);
+});

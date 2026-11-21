@@ -2,9 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
 import { makeTerrain, BED_DROP } from '../terrain.js';
-import { worldTerrain, LEGS, FEATURES, PLACES, SEA_LEVEL, legRoute } from '../world-data.js';
+import { worldTerrain, LEGS, FEATURES, PLACES, SEA_LEVEL, legRoute, legSections } from '../world-data.js';
+import { sectionAt } from '../structures.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
+// the world's tunnel portals: where the ground steps from a cutting up over a tunnel, on purpose (structures.test.js
+// checks the ground round them)
+const portals = Object.keys(LEGS).flatMap((id) => legSections(id).filter((s) => s.kind === 'tunnel')
+  .flatMap((s) => [legRoute(id).at(s.s0), legRoute(id).at(s.s1)]));
+const byPortal = (x, z) => portals.some((p) => Math.hypot(p.x - x, p.z - z) < 45);
 const route = makeRoute([{ x: 0, y: 10, z: 0 }, { x: 300, y: 16, z: 40 }, { x: 600, y: 12, z: 0 }]);
 const terrain = makeTerrain({ routes: [route], pads: [{ x: 900, z: 400, r: 40, y: 7 }], base: 8, seed: 3 });
 
@@ -80,6 +86,7 @@ test('the world terrain is continuous', () => {
     const x = -300 + rnd() * 2600, z = -500 + rnd() * 900;
     const a = t.heightAt(x, z), b = t.heightAt(x + 1, z), c = t.heightAt(x, z + 1);
     const step = Math.max(Math.abs(a - b), Math.abs(a - c));
+    if (byPortal(x, z)) continue;
     const limit = Math.abs(t.coastDistance(x, z)) < 40 ? 6 : 2;
     assert.ok(step <= limit, `step ${step.toFixed(2)} m at (${x.toFixed(0)}, ${z.toFixed(0)})`);
   }
@@ -155,6 +162,7 @@ test('the world: features never lift ground above a bed, and stay clear of stati
   for (const id of Object.keys(LEGS)) {
     const r = makeRoute(LEGS[id].points);
     for (let s = 0; s <= r.length; s += 20) {
+      if (sectionAt(legSections(id), s)) continue;   // bridges and tunnels have no bed (structures.test.js)
       const p = r.at(s);
       for (const d of [-6, 0, 6]) { const q = r.offsetAt(s, d); near(t.heightAt(q.x, q.z), p.y - BED_DROP, 0.2, `${id} s=${s}`); }
     }
@@ -184,6 +192,7 @@ test('the world terrain stays walkable: gentle near lines and places, no cliffs 
     if (Math.abs(t.coastDistance(x, z)) < 100) continue;                                   // the coast profile has its own cliffs
     if (cn.some((c) => c.pts.some((p) => Math.hypot(p.x - x, p.z - z) < c.reach))) continue;
     if (mesas.some((m) => Math.abs(Math.hypot(x - m.x, z - m.z) - m.r) < m.e)) continue;
+    if (byPortal(x, z)) continue;
     const a = t.heightAt(x, z), step = Math.max(Math.abs(a - t.heightAt(x + 1, z)), Math.abs(a - t.heightAt(x, z + 1)));
     counted++;
     if (lines.some((p) => Math.hypot(p.x - x, p.z - z) < (p.r ?? 150))) worstNear = Math.max(worstNear, step);

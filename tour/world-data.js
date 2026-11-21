@@ -4,6 +4,7 @@
 // The sea lies to the -z side of the coast; heading +x along the coast, the sea is on your left.
 import { makeRoute } from './route.js';
 import { makeTerrain } from './terrain.js';
+import { structuresFor } from './structures.js';
 import { KITS } from './config.js';
 
 export const TRACK_CENTRES = 4;
@@ -97,6 +98,7 @@ export const LEGS = {
   // bullet's), sampled from straights and eased curves, so the curves come out true.
   'ocean-mountain': {
     from: 'ocean', to: 'mountain', train: 'oceanMountain', side: -1,
+    // its tunnel and viaduct are found from the land (a spur of hill, then the waterfall's valley: see FEATURES)
     // south off Oceanside's shore, then one long left-hand curve climbing steadily (2.2%) through the forest from
     // the coast at 3 m to the Mountain at 22 m, arriving heading east-south-east along the north side of the village
     points: [
@@ -112,6 +114,8 @@ export const LEGS = {
   },
   'mountain-west': {
     from: 'mountain', to: 'west', train: 'mountainWest', side: -1,
+    // a timber trestle across the gulch in the canyon's upper reach
+    structures: [{ kind: 'trestle', s0: 690, s1: 870 }],
     // south from the Mountain, up over the snowy pass (29 m, 520 m out), then a long reverse curve down to the plains
     // and the Wild West at 15 m, arriving heading south along the town's east side
     points: [
@@ -129,6 +133,8 @@ export const LEGS = {
   },
   'west-future': {
     from: 'west', to: 'future', train: 'westFuture', side: -1,
+    // up on the guideway for all but the ends, along the dry wash below it (see FEATURES)
+    structures: [{ kind: 'guideway', s0: 190, s1: 3950 }],
     // the bullet's run: 4.1 km west-north-west across the desert, all but straight, weaving through long 4 km curves
     // (4 degrees out, 8 back, 4 out again), gently down from 15 m to 10 m
     points: [
@@ -144,6 +150,8 @@ export const LEGS = {
   },
   'future-city': {
     from: 'future', to: 'city', train: 'futureCity', side: -1,
+    // the long bridge over the river (see FEATURES), in pale stone
+    structures: [{ kind: 'viaduct', s0: 495, s1: 705, stone: 'limestone' }],
     // north-north-east out of the Futuristic place through the suburbs, a long right-hand curve, and in heading
     // east along the north edge of Downtown City
     points: [
@@ -184,7 +192,19 @@ export const FEATURES = [
   { kind: 'massif', x: 2250, z: 1000, r: 700, h: 300 },
   { kind: 'massif', x: 2750, z: 150, r: 600, h: 260 },
   { kind: 'massif', x: 3300, z: 900, r: 650, h: 280 },
+  // the climb from Oceanside: a spur of hill it tunnels through, bursting out onto a viaduct high over a valley whose
+  // river falls into it from the mountains at its head
+  { kind: 'ridge', leg: 'ocean-mountain', s0: 420, s1: 665, rise: 28, half: 35, fade: 110, ease: 50, only: 'up' },
+  { kind: 'valley', leg: 'ocean-mountain', x0: 2048, z0: 734, x1: 2342, z1: 212, floor: 2, half: 22, fade: 105, ease: 80, easeHead: 60, water: true, fall: true },
+  // the pass: foothills come up to just under the line; then the gulch the trestle crosses in the canyon, and the canyon
+  // floor brought up to the line beyond it
+  { kind: 'ridge', leg: 'mountain-west', s0: 80, s1: 745, rise: -2, half: 30, fade: 160, ease: 55, only: 'up' },
+  { kind: 'ridge', leg: 'mountain-west', s0: 815, s1: 1200, rise: -2, half: 30, fade: 120, ease: 55, only: 'up' },
   { kind: 'canyon', leg: 'mountain-west', s0: 620, s1: 1150, depth: 70, width: 30 },
+  // the bullet's dry wash: the desert held 9 m under its guideway
+  { kind: 'ridge', leg: 'west-future', s0: 140, s1: 4000, rise: -9, half: 30, fade: 150, ease: 110, only: 'down' },
+  // the river the Metro Glide crosses on its way into the city
+  { kind: 'valley', leg: 'future-city', x0: -1315, z0: 426, x1: -445, z1: 926, floor: 1.5, half: 30, fade: 60, ease: 100, water: true },
   { kind: 'mesa', x: 3350, z: 1500, r: 90, h: 55 },
   { kind: 'mesa', x: 3500, z: 1760, r: 120, h: 70 },
   { kind: 'mesa', x: 3250, z: 2300, r: 100, h: 60 },
@@ -248,6 +268,22 @@ export function placePads() {
   }));
 }
 
+// a leg's structures (structures.js): found from the land, plus the ones it asks for, none on its platforms
+export const STRUCTURE_ENDS = 125;
+let sectioned = false;
+function giveSections(t) {
+  if (sectioned) return;
+  for (const id of Object.keys(LEGS)) {
+    const r = legRoute(id);
+    r.sections = structuresFor(r, t.natural, { forced: LEGS[id].structures ?? [], ends: STRUCTURE_ENDS });
+  }
+  sectioned = true;
+}
+export function legSections(id) {
+  worldTerrain();
+  return legRoute(id).sections;
+}
+
 let cached = null;
 export function worldTerrain({ patches = [] } = {}) {
   if (cached && !patches.length) return cached;
@@ -256,6 +292,7 @@ export function worldTerrain({ patches = [] } = {}) {
   const clearings = Object.values(PLACES).map((p) => ({ x: p.centre.x, z: p.centre.z, r: 130 }));
   const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
     features: FEATURES, biomes: BIOMES, clearings });
+  giveSections(t);   // the land without beds decides them, and the beds (read as the ground is asked for) follow them
   if (!patches.length) cached = t;
   return t;
 }

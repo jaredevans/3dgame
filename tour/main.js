@@ -4,12 +4,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading } from './parts.js';
-import { LEGS, PLACES, RING, BUILT, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, BUILT, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
 import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK } from './chunks.js';
 import { buildTrack } from './track-mesh.js';
+import { buildStructures } from './structure-mesh.js';
+import { tunnelDepth } from './structures.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
@@ -81,13 +83,20 @@ async function boot() {
     places[id] = place;
     return { dispose() { place.dispose(); if (place.patch) terrain.removePatch(place.patch); for (const k of ids) { termini[k]?.group.removeFromParent(); delete termini[k]; } delete places[id]; } };
   };
+  // a leg: its two lines' track, and its viaducts, tunnels, trestles and guideways (with any river they cross)
+  async function buildLeg(id) {
+    const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
+    const tracks = lanes.map((lane) => buildTrack(route, lane));
+    for (const t of tracks) scene.add(t);
+    const structures = await buildStructures(route, lanes, route.sections, {
+      terrain, waters: FEATURES.filter((f) => f.kind === 'valley' && f.water && f.leg === id),
+    });
+    look.shadows(structures);
+    scene.add(structures);
+    return { structures, dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } structures.userData.dispose(); } };
+  }
   for (const id of builtLegs) {
-    builders[id] = async () => {
-      setLoading('laying track');
-      const tracks = [buildTrack(routes[id], laneOf(id)), buildTrack(routes[id], -laneOf(id))];
-      for (const t of tracks) scene.add(t);
-      return { dispose() { for (const t of tracks) { t.removeFromParent(); t.traverse((o) => o.geometry?.dispose()); } } };
-    };
+    builders[id] = () => { setLoading('laying track'); return buildLeg(id); };
     builders[`train:${id}`] = () => fleet.build(id);
   }
   const ring = { places: RING.places.filter((id) => BUILT.includes(id)), legs: RING.legs.filter((id) => builtLegs.includes(id)), length: (id) => routes[id].length };
@@ -301,7 +310,7 @@ async function boot() {
     : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.model.cars[0].holder.position);
   const landBoot = {};
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
-  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes, landFrames });
+  Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes, landFrames, buildLeg, legRoute });
   Object.defineProperties(window.__tour, {
     // the run you're on, with Phase 1's limits and originPlatform alongside it
     run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
@@ -337,6 +346,17 @@ async function boot() {
   hideLoading();
   const clock = new THREE.Clock();
   let skyPos = null, lastStage = -1;
+  // in a tunnel, from the cab, the daylight fades out (the lights at their time of day's strength, dimmed)
+  const lights = [];
+  scene.traverse((o) => { if (o.isLight) lights.push(o); });
+  let lightBase = lights.map((l) => l.intensity);
+  const DARK = 0.85, DARK_IN = 25;   // dimmed this much once this many metres in
+  function tunnelDark() {
+    if (state.mode !== 'drive' || views.mode !== 'cab') return 0;
+    const fwd = run.route.reversed ?? run.route, s = run.route.reversed ? run.route.length - drive.s : drive.s;
+    const u = tunnelDepth(fwd.sections, s);
+    return u <= 0 ? 0 : DARK * Math.min(1, u / DARK_IN) ** 0.7;
+  }
   const sunDir = new THREE.Vector3(), moonDir = new THREE.Vector3(), lightDir = new THREE.Vector3();
   // one frame (the debug hook can step it by hand when the page is hidden and frames don't come)
   function frame(dt) {
@@ -360,7 +380,9 @@ async function boot() {
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : skyPos + (want - skyPos) * Math.min(1, dt * 1.5);
     const sky = skyAt(skyPos);
-    if (Math.abs(sky.stage - lastStage) > 0.003) { look.setTime(sky.stage); lastStage = sky.stage; }
+    if (Math.abs(sky.stage - lastStage) > 0.003) { look.setTime(sky.stage); lastStage = sky.stage; lightBase = lights.map((l) => l.intensity); }
+    const dark = tunnelDark();
+    lights.forEach((l, i) => { l.intensity = lightBase[i] * (1 - dark); });
     skyDome.update(sky, sunDir, dt);
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
