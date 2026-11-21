@@ -61,6 +61,7 @@ export function makeStreamer(builders, { onError = console.error, standIn = null
       await pump();
     },
     has: (id) => live.has(id),
+    failed: (id) => failed.has(id),
     get: (id) => live.get(id),
     shown: (id) => shown.has(id),
     get ids() { return [...live.keys()]; },

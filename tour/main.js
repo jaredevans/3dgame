@@ -422,7 +422,8 @@ async function boot() {
   }
   // a train you can board now: its leg (with its suburbs), its two places and the train itself are in, so nothing is
   // built while you drive
-  const ready = (leg) => [...neededToDrive(leg), `train:${leg}`].every((id) => streamer.has(id)) && streamer.get(leg).settled();
+  const needs = (leg) => [...neededToDrive(leg), `train:${leg}`];
+  const ready = (leg) => needs(leg).every((id) => streamer.has(id)) && streamer.get(leg).settled();
   // the waiting train you're beside, if any: { leg, dir, station, to }, on a built leg whose train is loaded
   const boardable = () => nearestBoardable(player.state, journey.trainsAt(state, state.place)
     .filter((w) => legBuilt(w.leg) && fleet.trains[w.leg])
@@ -482,8 +483,13 @@ async function boot() {
       $('mode').textContent = `${train.spec.name} to ${to}`;
     } else {
       const w = boardable();
-      // honest about what's still being built: the train waits until the line ahead and its far town are in
-      if (w) prompt = ready(w.leg) ? `Board the ${fleet.trains[w.leg].spec.name} to ${PLACES[w.to].name} (E)` : `Getting ${PLACES[w.to].name} ready…`;
+      // honest about what's still being built: the train waits until the line ahead and its far town are in (and says so
+      // if one of them couldn't be built: its error is in the console)
+      if (w) {
+        prompt = ready(w.leg) ? `Board the ${fleet.trains[w.leg].spec.name} to ${PLACES[w.to].name} (E)`
+          : needs(w.leg).some((id) => streamer.failed(id)) ? `The way to ${PLACES[w.to].name} couldn't be loaded`
+          : `Getting ${PLACES[w.to].name} ready…`;
+      }
       $('mode').textContent = `On foot in ${PLACES[state.place].name}${streamer.loading.length ? ' · getting the next towns ready' : ''}`;
     }
     $('prompt').textContent = prompt;

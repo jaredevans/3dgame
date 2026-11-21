@@ -12,6 +12,7 @@ test('a build that fails is reported once, named in the result, and not retried'
   const first = await streamer.want(new Set(['city', 'ocean']));
   assert.deepEqual(first.failed, ['ocean']);
   assert.ok(streamer.has('city'));
+  assert.ok(streamer.failed('ocean') && !streamer.failed('city'), 'which ids failed can be asked (a train waiting on one says so)');
   // asked again every frame: no second attempt, no second report
   for (let i = 0; i < 5; i++) await streamer.want(new Set(['city', 'ocean']));
   assert.equal(tries, 1);
