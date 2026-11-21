@@ -23,7 +23,7 @@ const partKey = (q) => q.key + JSON.stringify(q.params);
 
 // a part's meshes as few shapes as it has materials (a Polyfork part has one): its meshes' geometry, each placed as it
 // stands in the part, merged into one (a few thousand triangles: a part-sized copy, once)
-function shapes(part) {
+export function shapes(part) {
   const byMat = new Map();
   part.traverse((o) => {
     if (!o.isMesh) return;

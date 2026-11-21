@@ -402,5 +402,5 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     return 'grass';
   }
 
-  return { heightAt, natural, regionAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty, holeCell, skirtFloor, addStructures, removeStructures };
+  return { heightAt, natural, regionAt, biomeAt, coastDistance, seaLevel, addPatch, removePatch, takeDirty, holeCell, skirtFloor, addStructures, removeStructures };
 }

@@ -8,7 +8,9 @@ import { LEGS, PLACES, RING, BUILT, FEATURES, worldTerrain, legRoute, laneOf, le
 import { wantedSet } from './streaming.js';
 import { makeStreamer } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
-import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK } from './chunks.js';
+import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK, FINE, COARSE } from './chunks.js';
+import { scatterJob } from './scenery.js';
+import { loadScenery, sceneryGroup, disposeScenery } from './scenery-mesh.js';
 import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
 import { buildSuburbs } from './suburbs-mesh.js';
@@ -165,6 +167,26 @@ async function boot() {
     ...BUILT.map((id) => ({ x: PLACES[id].centre.x, z: PLACES[id].centre.z, r: PLACES[id].size ? Math.hypot(...PLACES[id].size) / 2 : 130 })),
   ]);
   const nearLine = (x, z) => corridor.has(chunkKey(Math.floor(x / CHUNK), Math.floor(z / CHUNK)));
+  // ---- the scenery on the land (scenery.js): a fine or mid piece's trees, rocks and cacti are laid out as part of its
+  // build, after its ground (so a slice at a time with it), and drawn as children of its mesh, so they show, stand in
+  // and go with their ground. A chunk's layout is kept while it's about, so a piece changing detail lays out nothing
+  // again; a patch that changes the ground there lays it out afresh. None on the coarse tiles beyond 1500 m. ----
+  const layouts = new Map();   // chunk key -> its pieces
+  const sceneryOn = { on: true }, sceneryGroups = new Set();
+  function* pieceJob(c) {
+    const arrays = yield* terrainChunkJob(terrain, c, nearLine);
+    if (c.cell === COARSE) return { arrays, items: [] };
+    let items = layouts.get(c.key);
+    if (!items) {
+      try { items = yield* scatterJob(c.i, c.j, c.size, terrain); } catch (err) {
+        console.warn(`The scenery on ${c.key} was left out: ${err?.message ?? err}`);
+        items = [];
+      }
+      layouts.set(c.key, items);
+      if (layouts.size > 600) layouts.delete(layouts.keys().next().value);   // the longest kept
+    }
+    return { arrays, items };
+  }
   let landSliced = false;  // false: build each piece at once (boot); true: frame() builds the active one a slice at a time
   let active = null;       // the piece being built: { id, c, job, done, ms, frames }
   const landTimes = [];    // the last few builds: { id, ms (work), frames }
@@ -173,15 +195,20 @@ async function boot() {
     const c = chunkOf(id);
     if (!c) return undefined;
     return async () => {
-      let arrays;
+      let built;   // { arrays (its ground), items (its scenery) }
       if (!landSliced) {
         const t0 = performance.now();
-        arrays = runFor(terrainChunkJob(terrain, c, nearLine), Infinity);
+        built = runFor(pieceJob(c), Infinity);
         landTimes.push({ id, ms: performance.now() - t0, frames: 0 });
-      } else arrays = await new Promise((done) => { active = { id, c, job: terrainChunkJob(terrain, c, nearLine), done, ms: 0, frames: 0 }; });
+      } else built = await new Promise((done) => { active = { id, c, job: pieceJob(c), done, ms: 0, frames: 0 }; });
       if (landTimes.length > 50) landTimes.shift();
-      const mesh = terrainChunkMesh(arrays, `terrain ${id}`);
-      return { mesh, show() { scene.add(mesh); }, dispose() { mesh.removeFromParent(); mesh.geometry.dispose(); } };
+      const mesh = terrainChunkMesh(built.arrays, `terrain ${id}`);
+      const trees = sceneryGroup(built.items, { fine: c.cell === FINE, name: `scenery ${id}` });
+      if (trees) { trees.visible = sceneryOn.on; mesh.add(trees); sceneryGroups.add(trees); }
+      return { mesh, show() { scene.add(mesh); }, dispose() {
+        mesh.removeFromParent(); mesh.geometry.dispose();
+        if (trees) { disposeScenery(trees); sceneryGroups.delete(trees); }
+      } };
     };
   }, { onError: fail, standIn: (id) => chunkOf(id).tile });
   // one frame's slice of the piece being built
@@ -207,7 +234,8 @@ async function boot() {
     const dirty = terrain.takeDirty();
     if (!dirty.size) return;
     const hit = (id) => chunkOf(id).keys.some((k) => dirty.has(k));
-    if (active && hit(active.id)) Object.assign(active, { job: terrainChunkJob(terrain, active.c, nearLine) });
+    for (const k of dirty) layouts.delete(k);   // its scenery is laid out again on the new ground
+    if (active && hit(active.id)) Object.assign(active, { job: pieceJob(active.c) });
     land.redo(land.ids.filter(hit));
   }
   scene.add(buildSea(SEA_LEVEL));
@@ -376,6 +404,13 @@ async function boot() {
       const ids = land.ids, on = ids.filter((id) => land.shown(id)), n = (cell) => on.filter((id) => id.endsWith(`:${cell}`)).length;
       return { live: ids.length, shown: on.length, fine: n(4), mid: n(8), coarse: n(16), building: active?.id ?? null };
     } },
+    // the scenery on the land: how many chunks carry some, their meshes and pieces, and whether it's drawn (set it to
+    // false to see the land without it)
+    scenery: { get: () => {
+      let meshes = 0, pieces = 0;
+      for (const g of sceneryGroups) for (const im of g.children) { meshes++; pieces += im.count; }
+      return { chunks: sceneryGroups.size, meshes, pieces, layouts: layouts.size, on: sceneryOn.on };
+    }, set: (on) => { sceneryOn.on = !!on; for (const g of sceneryGroups) g.visible = sceneryOn.on; } },
     walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
   });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
@@ -390,7 +425,9 @@ async function boot() {
     img.src = renderer.domElement.toDataURL();
     return 'ok';
   }
-  // the first view has its ground before the loading screen goes
+  // the first view has its ground, and its trees, before the loading screen goes
+  setLoading('planting trees');
+  await loadScenery();
   setLoading('shaping the land');
   terrain.takeDirty();   // no chunks yet: nothing to build again
   {
