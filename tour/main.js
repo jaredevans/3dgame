@@ -73,27 +73,68 @@ async function boot() {
   addEventListener('resize', fit);
   // a new thing made ready to draw before it is first seen, so no frame waits on it: its shader programs compiled
   // against the scene (its lights, fog and shadows), off the main thread where the browser can
-  // (KHR_parallel_shader_compile); and its geometry and textures uploaded and its shadow's programs compiled, by
-  // drawing it all once, unculled, into a 1 x 1 target with a plain material, under a light whose tiny shadow it casts
-  // (the suburbs took up to 130 ms the first frame they came into view)
-  const uploads = new THREE.Scene(), oneByOne = new THREE.WebGLRenderTarget(1, 1), caster = new THREE.DirectionalLight();
-  uploads.overrideMaterial = new THREE.MeshBasicMaterial();   // a shadow is drawn with the thing's own material's depth
-  caster.castShadow = true; caster.shadow.mapSize.set(16, 16);
-  uploads.add(caster);
+  // (KHR_parallel_shader_compile); then drawn once, whole and unculled (its hidden parts too: a place's lamp pools, lit
+  // only at night), into a 1 x 1 corner of the canvas with everything but the scene's lights hidden. That uploads its
+  // geometry and textures, compiles its shadow's programs and has the GPU set up each way it's drawn, which it does only
+  // on a first draw into the canvas itself (the suburbs took up to 130 ms the first frame they came into view, and the
+  // Futuristic place's lamp pools 56 ms the first night). The drawing is done in a frame, just before the frame is drawn
+  // over it, so the corner is never seen; at boot, behind the loading screen, at once.
   function upload(obj) {
-    const parent = obj.parent, visible = obj.visible, culled = [];
+    const parent = obj.parent, visible = obj.visible, culled = [], hidden = [], shown = [];
     obj.traverse((o) => {
       if (o.isMesh && o.frustumCulled) { o.frustumCulled = false; culled.push(o); }
+      if (o !== obj && !o.visible) { o.visible = true; shown.push(o); }
       for (const m of [].concat(o.material ?? [])) for (const v of Object.values(m)) if (v?.isTexture) renderer.initTexture(v);
     });
-    obj.visible = true; uploads.add(obj);
-    const target = renderer.getRenderTarget();
-    renderer.setRenderTarget(oneByOne); renderer.render(uploads, camera); renderer.setRenderTarget(target);
-    if (parent) parent.add(obj); else obj.removeFromParent();
+    for (const c of scene.children) if (c.visible && !c.isLight && c !== obj) { c.visible = false; hidden.push(c); }
+    obj.visible = true;
+    if (parent !== scene) scene.add(obj);
+    const scissor = renderer.getScissorTest(), sc = renderer.getScissor(new THREE.Vector4()), vp = renderer.getViewport(new THREE.Vector4());
+    renderer.setScissorTest(true); renderer.setScissor(0, 0, 1, 1); renderer.setViewport(0, 0, 1, 1);
+    renderer.render(scene, camera);
+    renderer.setScissorTest(scissor); renderer.setScissor(sc); renderer.setViewport(vp);
+    if (parent && parent !== scene) parent.add(obj); else if (!parent) obj.removeFromParent();
     obj.visible = visible;
+    for (const c of hidden) c.visible = true;
+    for (const o of shown) o.visible = false;
     for (const o of culled) o.frustumCulled = true;
   }
-  const warm = async (...objs) => { for (const o of objs) { await renderer.compileAsync(o, camera, scene); upload(o); } };
+  let framing = false;   // frames are running: a thing waits to be drawn at the start of the next one's render
+  const toDraw = [];
+  const drawOnce = (obj) => (framing ? new Promise((done) => toDraw.push({ obj, done })) : (upload(obj), Promise.resolve()));
+  // the shared shadow-depth material's programs, one for each way a caster's shadow can differ: its side; plain,
+  // instanced or skinned; clipped (a cab's shell) or not; textured or not. three.js picks a new one only when a caster
+  // is instanced, skinned or clipped where the one before it wasn't, not for its side, so which ones a frame needs
+  // depends on the order things cast: each is drawn here after one that forces the change
+  function depthWarmup() {
+    const g = new THREE.Group(), box = new THREE.BoxGeometry(1, 1, 1);
+    const planes = [new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, -1, 0)].map((n) => new THREE.Plane(n, 100));
+    const map = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    const caster = (kind, side, clip = false, textured = false) => {
+      const m = new THREE.MeshStandardMaterial({ side, map: textured ? map : null });
+      m.shadowSide = side;
+      if (clip) Object.assign(m, { clippingPlanes: planes, clipIntersection: true });
+      let o;
+      if (kind === 'instanced') o = new THREE.InstancedMesh(box, m, 1);
+      else if (kind === 'skinned') {
+        const geo = box.clone(), n = geo.attributes.position.count;
+        geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(n * 4), 4));
+        geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(Float32Array.from({ length: n * 4 }, (_, i) => (i % 4 ? 0 : 1)), 4));
+        o = new THREE.SkinnedMesh(geo, m);
+        const bone = new THREE.Bone();
+        o.add(bone); o.bind(new THREE.Skeleton([bone]));
+      } else o = new THREE.Mesh(box, m);
+      o.castShadow = true;
+      return o;
+    };
+    for (const side of [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide]) {
+      g.add(caster('instanced', side), caster('plain', side), caster('instanced', side), caster('plain', side),
+        caster('skinned', side), caster('instanced', side), caster('plain', side, true), caster('instanced', side),
+        caster('plain', side, false, true));   // and one with a texture (a station's name board): its shadow is drawn with it
+    }
+    return g;
+  }
+  const warm = async (...objs) => { for (const o of objs) { await renderer.compileAsync(o, camera, scene); await drawOnce(o); } };
 
   setLoading('lighting');
   const { stage } = await kitModule(KITS.railway, 'stage.mjs');
@@ -108,12 +149,19 @@ async function boot() {
   const builtLegs = Object.keys(LEGS).filter(legBuilt);
   const routes = Object.fromEntries(builtLegs.map((id) => [id, legRoute(id)]));
   const journey = makeJourney({ legs: LEGS, places: PLACES });
+  // stage()'s shadows, but nothing see-through that leaves the depth alone (a lamp's pool of light on the ground) casts
+  // one
+  const shadows = (root) => {
+    look.shadows(root);
+    root.traverse((o) => { if (o.isMesh && [].concat(o.material).every((m) => m.transparent && !m.depthWrite)) o.castShadow = false; });
+  };
   // each train's programs are ready before it is shown, its cab's too (fitted now, its shell cut away as the cab view
   // draws it), so boarding never waits on them
   const fleet = makeFleet({ scene, look, journey, prepare: async (t) => {
     if (CABS[t.spec.cab]) {
       t.cab = fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));
-      t.cab.clip(true); await renderer.compileAsync(t.model.group, camera, scene); t.cab.clip(false);
+      // (a clipped shell's shadow is drawn clipped too: its depth programs are compiled by the upload pass)
+      t.cab.clip(true); await warm(t.model.group); t.cab.clip(false);
     }
     await warm(t.model.group);
     if (t.cab) t.cab.interior.visible = false;   // until you're in it
@@ -125,15 +173,15 @@ async function boot() {
     const place = await buildPlace(id);
     const shown = [place.group];   // hidden until its programs are ready
     place.group.visible = false;
-    scene.add(place.group); look.shadows(place.group);
+    scene.add(place.group); shadows(place.group);
     if (place.patch) terrain.addPatch(place.patch);
-    for (const e of await place.addExtras(terrain)) { look.shadows(e); e.visible = false; shown.push(e); }
+    for (const e of await place.addExtras(terrain)) { shadows(e); e.visible = false; shown.push(e); }
     // the place's stations: a terminus at its end of each built leg it serves
     const ids = [];
     for (const st of PLACES[id].stations.filter((s) => legBuilt(s.leg))) {
       const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station });
       t.group.visible = false; shown.push(t.group);
-      scene.add(t.group); look.shadows(t.group);
+      scene.add(t.group); shadows(t.group);
       for (const [obj, key] of t.lit) place.kitPlace.light?.(obj, key);   // a kit-style station's lamps and windows come on with its place's
       termini[`${id}:${st.leg}`] = t; ids.push(`${id}:${st.leg}`);
     }
@@ -167,14 +215,14 @@ async function boot() {
       for (const t of tracks) t.traverse((o) => o.geometry?.dispose());
       throw err;
     }
-    look.shadows(structures);
+    shadows(structures);
     await warm(...tracks, structures);
     for (const t of tracks) scene.add(t);
     scene.add(structures);
     terrain.addStructures(route);   // its portals now fill the ground left out across them
     const suburbs = LEGS[id].suburbs ? scenery(async () => {
       const s = await buildSuburbs(id, terrain, slicer);
-      if (s) { look.shadows(s.group); await warm(s.group); }
+      if (s) { shadows(s.group); await warm(s.group); }
       return s;
     }, {
       add: (g) => scene.add(g),
@@ -498,6 +546,9 @@ async function boot() {
     await renderer.compileAsync(scene, camera);
     if (each) upload(each);   // the shapes' geometry, shared by every chunk's pieces
     disposeScenery(each);
+    const depth = depthWarmup();
+    upload(depth);
+    release([depth], scene);
   }
   setLoading('shaping the land');
   terrain.takeDirty();   // no chunks yet: nothing to build again
@@ -567,10 +618,12 @@ async function boot() {
     // point the key light along our sun (or, after dark, a high moon) so shadows agree with the sky
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
+    for (const { obj, done } of toDraw.splice(0)) { upload(obj); done(); }   // anything new, drawn once out of sight
     renderer.render(scene, camera);
     landSlice();   // a slice of the land being built, after this frame's work
     slicer.tick(SCENERY_SLICE);   // and a slice of any scenery being built
   }
+  framing = true;
   renderer.setAnimationLoop(() => frame(clock.getDelta()));
 }
 
