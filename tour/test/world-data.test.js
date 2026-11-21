@@ -61,10 +61,12 @@ test('the page builds only the places whose kits are wired in', () => {
   for (const id of BUILT) assert.ok(PLACES[id], id);
 });
 
-test('a leg is built once both its places are, bar the one held back for a later task', () => {
+test('every leg is built once both its places are, and the ring is closed', () => {
   const { legBuilt } = WORLD;
   assert.equal(typeof legBuilt, 'function', 'world-data has no legBuilt');
-  for (const id of ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future']) assert.ok(legBuilt(id), `${id} is not built`);
-  // the Metro Glide's leg into City, its train and City's north station come with Task 9
-  assert.equal(legBuilt('future-city'), false, 'future-city is built before its task');
+  // nothing is held back any more: the Metro Glide's leg into City, its train and City's north station are built
+  assert.equal(WORLD.HELD, undefined, 'world-data still holds legs back');
+  for (const id of RING.legs) assert.ok(legBuilt(id), `${id} is not built`);
+  // so every station of every built place stands on a built leg
+  for (const id of BUILT) for (const st of PLACES[id].stations) assert.ok(legBuilt(st.leg), `${PLACES[id].name}'s ${st.role} station is not built`);
 });

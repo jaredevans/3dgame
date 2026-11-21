@@ -41,3 +41,23 @@ test('ring position from where you are', () => {
   near(ringPosition({ leg: 'city-ocean', fraction: 0.25 }), 0.25, 1e-9);
   near(ringPosition({ leg: 'future-city', fraction: 0.5 }), 4.5, 1e-9);
 });
+
+// the ring is closed: from the end of the Metro Glide's leg (5) into City (0), and back out of City onto it, the sky eases
+// the short way round, across sunrise, never back through the whole day
+test('the sky eases the short way round the ring', async () => {
+  const { towards } = await import('../sky.js');
+  assert.equal(typeof towards, 'function', 'sky.js has no towards');
+  near(towards(4.9, 0, 0.5) % 5, 4.95, 1e-9, 'into City from the end of the Metro Glide\'s leg');
+  near(((towards(0, 4.9, 0.5) % 5) + 5) % 5, 4.95, 1e-9, 'out of City onto the Metro Glide\'s leg, back towards it');
+  near(towards(1, 2, 0.25), 1.25, 1e-9, 'along an open stretch, as before');
+  near(towards(3.2, 3.2, 1), 3.2, 1e-9);
+  // eased all the way it lands on the same sky as where it was going
+  same(skyAt(towards(4.6, 0.2, 1)), skyAt(0.2));
+  // stepped frame by frame from the end of the leg into City, it never passes through the afternoon or the night
+  let p = 5;
+  for (let i = 0; i < 200; i++) {
+    p = towards(p, 0, 0.05);
+    const at = ((p % 5) + 5) % 5;
+    assert.ok(at >= 4.99 || at <= 0.01, `the sky went round to ${at.toFixed(2)}`);
+  }
+});

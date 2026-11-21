@@ -1,11 +1,15 @@
 // Where a line needs a structure: a viaduct where it stands well above the land, a tunnel where it lies well below,
 // and any the world asks for by name (a trestle, a guideway). Pure maths, no three.js.
-// A section { kind, s0, s1 } runs between those distances along its route.
+// A section { kind, s0, s1 } runs between those distances along its route. A guideway may be `grade: true`: laid on
+// the formation (as through a station), the land kept at the track bed under it, with no piers.
 
 export const VIADUCT_ABOVE = 8, VIADUCT_RUN = 40;   // the formation at least 8 m above the land for at least 40 m
 export const TUNNEL_BELOW = 12, TUNNEL_RUN = 60;    // at least 12 m below it for at least 60 m
 export const PAD = 10;                              // each found section runs on this far either side
 export const TUBE_TOP = 7;                          // a tunnel tube's roof, outside, above the formation (m)
+// a guideway's deck above the formation: where the rail tops are off it (0.30), so a train rides at one height on and
+// off it (structure-mesh.js stands the beams so)
+export const GUIDE_DECK = 0.3;
 export const BRIDGES = ['viaduct', 'trestle', 'guideway'];
 const STEP = 2;
 

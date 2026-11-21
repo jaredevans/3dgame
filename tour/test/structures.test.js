@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
 import { makeTerrain, BED_DROP } from '../terrain.js';
 import { structuresFor, sectionAt, tunnelDepth, TUBE_TOP } from '../structures.js';
-import { LEGS, legRoute, worldTerrain, legSections as legSectionsOf } from '../world-data.js';
+import { LEGS, legRoute, worldTerrain, platformWindow, legSections as legSectionsOf } from '../world-data.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 // a straight, level line along +x at 10 m, 1 km long
@@ -168,7 +168,10 @@ test('sections are in order, apart, on the line and off the platforms', () => {
     for (let i = 0; i < secs.length; i++) {
       const s = secs[i];
       assert.ok(['viaduct', 'tunnel', 'trestle', 'guideway'].includes(s.kind), `${id}: ${s.kind}`);
-      assert.ok(s.s0 >= 125 && s.s1 <= r.length - 125 && s.s1 > s.s0, `${id} ${s.kind} ${s.s0.toFixed(0)}..${s.s1.toFixed(0)}`);
+      assert.ok(s.s1 > s.s0 && s.s0 >= 0 && s.s1 <= r.length, `${id} ${s.kind} ${s.s0.toFixed(0)}..${s.s1.toFixed(0)}`);
+      // only a guideway at grade (laid on the formation, as through a station) comes onto a platform
+      if (!s.grade) assert.ok(s.s0 >= 125 && s.s1 <= r.length - 125, `${id} ${s.kind} ${s.s0.toFixed(0)}..${s.s1.toFixed(0)}`);
+      else assert.equal(s.kind, 'guideway', `${id}: a ${s.kind} at grade`);
       if (i) assert.ok(s.s0 >= secs[i - 1].s1, `${id}: sections overlap at ${s.s0.toFixed(0)}`);
     }
   }
@@ -178,7 +181,7 @@ test('every tunnel is buried and every bridge stands clear of its ground', () =>
   const t = worldTerrain();
   for (const id of legIds) {
     const r = legRoute(id);
-    for (const sec of r.sections) for (let s = sec.s0 + 0.5; s <= sec.s1 - 0.5; s += 4) {
+    for (const sec of r.sections.filter((x) => !x.grade)) for (let s = sec.s0 + 0.5; s <= sec.s1 - 0.5; s += 4) {
       const p = r.at(s);
       for (const d of [-5, -2.5, 0, 2.5, 5]) {
         const q = r.offsetAt(s, d), h = t.heightAt(q.x, q.z);
@@ -202,4 +205,32 @@ test('track runs skip guideways, and only guideways', async () => {
   for (const sec of legSectionsOf('west-future').filter((x) => x.kind === 'guideway')) {
     for (const [a, b] of runs) assert.ok(b <= sec.s0 || a >= sec.s1, `track laid over the guideway, ${a}..${b}`);
   }
+});
+
+// Task 8's carry-forward: the guideway runs on through both Futuristic stations' platforms to their buffers, so trains at
+// the Futuristic place stand on its bare deck, not on ballasted track. Through the stations it is laid at grade: the
+// land is held at the track bed under it and beside it (as under track), not cleared away below it as under a bridge.
+test('the guideway runs through both Futuristic platforms to the buffers, at grade', async () => {
+  const { trackRuns } = await import('../structures.js');
+  const t = worldTerrain();
+  for (const [leg, end] of [['west-future', 'end'], ['future-city', 'start']]) {
+    const r = legRoute(leg), L = r.length, secs = legSectionsOf(leg), w = platformWindow(L, end, 120);
+    const [a, b] = end === 'end' ? [w.sFrom - 20, L] : [0, w.sTo + 20];   // the platform, its buffers, and 20 m out
+    for (let s = a; s <= b; s += 1) assert.equal(sectionAt(secs, s)?.kind, 'guideway', `${leg}: no guideway at s=${s.toFixed(0)}`);
+    for (const [x, y] of trackRuns(L, secs)) assert.ok(y <= a + 1e-6 || x >= b - 1e-6, `${leg}: track laid ${x.toFixed(0)}..${y.toFixed(0)} in the station`);
+    for (const sec of secs.filter((x) => x.kind === 'guideway' && x.s1 > w.sFrom && x.s0 < w.sTo)) assert.ok(sec.grade, `${leg}: the guideway through the platform is not at grade`);
+    // the ground under and beside both lines along the platform: the bed, not a pit under a bridge
+    for (let s = w.sFrom; s <= w.sTo; s += 10) for (const d of [-5, -2, 0, 2, 5]) {
+      const q = r.offsetAt(s, d);
+      near(t.heightAt(q.x, q.z), r.at(s).y - BED_DROP, 0.02, `${leg} s=${s.toFixed(0)} d=${d}: ground`);
+    }
+  }
+  // the bullet's own guideway still stands clear across the desert, coming down to the embankment before the station
+  const wf = legSectionsOf('west-future').filter((x) => x.kind === 'guideway');
+  assert.ok(wf.some((x) => !x.grade && x.s0 === 190 && x.s1 === 3950), 'the bullet\'s elevated guideway, 190..3950');
+  // the Metro Glide leaves the guideway for ordinary track once past the Futuristic place, well short of the river bridge
+  const fc = legRoute('future-city'), gw = legSectionsOf('future-city').filter((x) => x.kind === 'guideway');
+  const off = Math.max(...gw.map((x) => x.s1)), viaduct = legSectionsOf('future-city').find((x) => x.kind === 'viaduct');
+  assert.ok(off >= 140 && off <= viaduct.s0 - 100, `the guideway ends at s=${off.toFixed(0)}`);
+  assert.ok(trackRuns(fc.length, legSectionsOf('future-city')).some(([x]) => Math.abs(x - off) < 1e-6), 'track begins where the guideway ends');
 });

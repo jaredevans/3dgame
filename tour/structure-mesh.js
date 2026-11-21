@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { part } from './parts.js';
 import { KITS } from './config.js';
 import { paint } from './terrain-mesh.js';
+import { GUIDE_DECK } from './structures.js';
 
 const DECK = -0.07;            // a deck's top, under the ballast's foot (-0.06), relative to the formation
 const EMBED = 1;               // piers, bents and abutments run this far into the ground below its lowest point
@@ -272,10 +273,16 @@ async function portal(route, s, inward, stone) {
 // at 3.0 m up its own height, its own guide rail 0.8 m wide down the middle standing 0.22 m above that, and a cross band
 // at each piece's middle 0.34 m above it. Its deck stands GUIDE_DECK above the formation, where the rail tops are off
 // the guideway (0.30): so a train rides at one height on and off it, its skirts (0.40 m up) a hand's breadth over the
-// deck, the guide rail running up under its flat belly ----
-export const GUIDE_DECK = 0.3;
+// deck, the guide rail running up under its flat belly. Its shoulders fall away from the deck's edge to its full width
+// 0.5 m down, so laid at grade (sec.grade, through a station) it shows only its deck and shoulders over the bed, the
+// platforms' faces (1.6 m off each lane) meeting its shoulders under their slabs. Where a guideway comes down to an
+// embankment it ends on a block from its beams' feet; where one at grade meets ordinary track the beams end against a
+// plinth across both lines, its top a little under the deck: the track starts on it, its rails standing on it and its
+// ballast running on from its far face, a lit band along each side (nothing stands above the deck or the rail tops,
+// which a train's skirts pass just over) ----
+export { GUIDE_DECK };
 const G = { piece: 8, deck: 3.0, every: 3 };
-async function guideway(route, lanes, sec, ground) {
+async function guideway(route, lanes, sec, ground, sections) {
   const group = new THREE.Group();
   const src = await part(KITS.future, 'maglev-guideway-run', { support: 'none' });
   src.updateMatrixWorld(true);
@@ -298,9 +305,9 @@ async function guideway(route, lanes, sec, ground) {
   beams.name = 'guideway beams';
   beams.userData.own = true;
   group.add(beams);
-  // piers under the beams' feet, and a block at each end where the beams come down to the embankment
+  // piers under the beams' feet (none at grade), and a block at each end where the beams come down to the embankment
   const m = mesher(), under = (s) => route.at(s).y + GUIDE_DECK - G.deck;
-  for (let i = G.every; i < n; i += G.every) for (const lane of lanes) {
+  for (let i = G.every; i < n && !sec.grade; i += G.every) for (const lane of lanes) {
     const s = sec.s0 + i * len, top = under(s);
     const foot = lowest(route, ground, s - 1, s + 1, lane - 1.2, lane + 1.2) - EMBED;
     if (top - foot < 0.2) continue;
@@ -309,13 +316,31 @@ async function guideway(route, lanes, sec, ground) {
     block(m, route, s - 0.8, s + 0.8, lane - 0.95, lane + 0.95, foot + EMBED, foot + EMBED + 0.4, GUIDE.trim);
   }
   const lo = Math.min(...lanes) - 2, hi = Math.max(...lanes) + 2;
-  for (const [s0, s1] of [[sec.s0, sec.s0 + 3], [sec.s1 - 3, sec.s1]]) {
+  const ends = [[sec.s0, sec.s0 + 3, sec.s0], [sec.s1 - 3, sec.s1, sec.s1]];
+  if (!sec.grade) for (const [s0, s1] of ends) {
     const foot = lowest(route, ground, s0, s1, lo, hi) - EMBED, top = under((s0 + s1) / 2);
     block(m, route, s0, s1, lo, hi, foot, top + 0.02, GUIDE.pier);
+  } else for (const [, , at] of ends) {
+    // at grade: nothing at the line's end (the buffers' end blocks stand there) nor where it runs on into another
+    // guideway; a plinth where it meets the track, under the track's first 3 m
+    if (at < 0.01 || at > route.length - 0.01 || sections.some((o) => o !== sec && o.kind === 'guideway' && o.s0 <= at + 0.01 && o.s1 >= at - 0.01)) continue;
+    const [s0, s1] = at === sec.s1 ? [at, at + 3] : [at - 3, at], deck = route.at(at).y + GUIDE_DECK;
+    const foot = lowest(route, ground, s0, s1, lo - 0.3, hi + 0.3) - 0.3;
+    block(m, route, s0, s1, lo - 0.3, hi + 0.3, foot, deck - 0.08, GUIDE.pier);
+    for (const [d0, d1] of [[lo - 0.34, lo - 0.3], [hi + 0.3, hi + 0.34]]) {
+      // the band along each side, lit after dark as the station's platform edges are
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, s1 - s0), BAND), q = route.offsetAt((s0 + s1) / 2, (d0 + d1) / 2);
+      strip.position.set(q.x, deck - 0.2, q.z);
+      strip.rotation.y = q.yaw;
+      strip.userData.ownGeometry = true;
+      strip.name = 'guideway plinth band';
+      group.add(strip);
+    }
   }
   group.add(meshOf(m, 'guideway piers'));
   return group;
 }
+const BAND = new THREE.MeshStandardMaterial({ color: '#7fe7da', emissive: '#7fe7da', emissiveIntensity: 0.9, roughness: 0.4 });
 
 function meshOf(m, name) {
   const mesh = new THREE.Mesh(m.geometry(), solid);
@@ -380,7 +405,7 @@ export async function buildStructures(route, lanes, sections = [], { terrain, wa
   for (const sec of sections) {
     if (sec.kind === 'viaduct') group.add(meshOf(viaduct(route, half, sec, ground), `viaduct ${sec.s0.toFixed(0)}`));
     else if (sec.kind === 'trestle') group.add(meshOf(trestle(route, half, sec, ground), `trestle ${sec.s0.toFixed(0)}`));
-    else if (sec.kind === 'guideway') group.add(await guideway(route, lanes, sec, ground));
+    else if (sec.kind === 'guideway') group.add(await guideway(route, lanes, sec, ground, sections));
     else if (sec.kind === 'tunnel') {
       const t = tube(route, sec);
       t.userData.ownGeometry = true;

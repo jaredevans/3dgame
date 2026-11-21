@@ -304,7 +304,7 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
   // the ground at a point whose nearest line is n (its formation n.y at distance n.dist), the land there being h
   function bedded(h, n, w, sec) {
     const bed = lerp(n.y - BED_DROP, h, w);
-    if (!sec) return bed;
+    if (!sec || sec.grade) return bed;   // a guideway at grade lies on the bed, as track does
     const u = Math.min(n.s - sec.s0, sec.s1 - n.s);   // how far inside the section
     if (sec.kind === 'tunnel') {
       const funnel = lerp(bed, h, smooth(0, FUNNEL, u));

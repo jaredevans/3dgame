@@ -37,7 +37,8 @@ const BUILDERS = {
   bullet: async (def) => (await import('./trains/bullet.js')).buildBullet({ cars: def.carCount, name: def.name }),
 };
 
-// def: { name, kit?, cars: [[kitKey, params, flip?]] } (parts from `kit`, the Countryside Railway unless named), or
+// def: { name, kit?, ride?, cars: [[kitKey, params, flip?]] } (parts from `kit`, the Countryside Railway unless named,
+// standing `ride` up off the formation), or
 // { name, builder, carCount } for a train made in code -> { name, group, cars }
 export async function buildTrain(def) {
   if (def.builder) {
@@ -48,7 +49,9 @@ export async function buildTrain(def) {
   group.name = def.name;
   const cars = [];
   for (const [key, params, flip] of def.cars) {
-    const v = measureVehicle(await part(def.kit ?? KITS.railway, key, params), !!flip);
+    const obj = await part(def.kit ?? KITS.railway, key, params);
+    obj.position.y = def.ride ?? 0;   // a car that stands up off the formation (the Metro Glide's, over the deck)
+    const v = measureVehicle(obj, !!flip);
     v.key = key;
     group.add(v.holder);
     cars.push(v);

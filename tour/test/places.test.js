@@ -2,7 +2,7 @@
 // and its platforms, and you can walk from one of a place's stations to the other.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEGS, PLACES, BUILT, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
+import { LEGS, PLACES, BUILT, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain, legBuilt } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { STATION_STYLES } from '../station-style.js';
 import { makeWalkWorld } from '../walk-world.js';
@@ -49,10 +49,10 @@ test("no place's footprint, nor any of its extra parts, comes onto a line or its
 });
 
 // Walking through the town, in the page's own walk world (makeWalkWorld and each station's stationWalk, as main.js
-// builds them). Without kits in Node, the town's land is the place's footprint rectangle, no margin; a station's
-// building stands in it where buildTerminus puts it. From the middle of one town-side platform to the other there must
-// be a way on foot, and every such way must cross the town's land: none goes round it, past the buffer ends or along
-// the lines.
+// builds them), with the stations the page builds: those on its built legs (world-data legBuilt), none stood in for.
+// Without kits in Node, the town's land is the place's footprint rectangle, no margin; a station's building stands in it
+// where buildTerminus puts it. From the middle of one town-side platform to the other there must be a way on foot, and
+// every such way must cross the town's land: none goes round it, past the buffer ends or along the lines.
 const stubPlace = (def, terrain) => {
   const f = footprint(def), spots = (def.extras ?? []).map((e) => f.toWorld(e.x, e.z));
   const onLand = (x, z) => f.outside(x, z) === 0;
@@ -66,12 +66,15 @@ function platformMiddle(st) {
   return r.offsetAt((w.sFrom + w.sTo) / 2, Math.sign(lane) * 5.75);
 }
 export const ROUND_THE_TOWN = 'a way between the stations goes round the town', NO_WAY = 'no way between the stations through the town';
+export const ONE_STATION = 'only one of its stations is built';
 // def: the place's data (PLACES[id], or a variant of it)
 export function walkThroughTown(def) {
   const terrain = worldTerrain(), place = stubPlace(def, terrain);
   // the station building stood in from the place's station style (its footprint)
   const building = STATION_STYLES[def.station ?? 'countryside'].building;
-  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building }) }));
+  const built = def.stations.filter((st) => legBuilt(st.leg));
+  if (built.length < 2) return { ok: false, why: ONE_STATION };
+  const termini = built.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building }) }));
   const world = makeWalkWorld({ place, termini, terrain, seaLevel: SEA_LEVEL });
   const ok = (x, z) => world.inBounds(x, z) && !world.blocked(x, z, BODY);
   const [a, b] = def.stations.map(platformMiddle);
@@ -161,7 +164,6 @@ test('no walk through the Wild West put across a line, past the buffers or back 
   }
 });
 // the Futuristic place: its town where the walk from the bullet's platform to the Metro Glide's would not pass through it
-// (the Metro Glide's station is built in Task 9: here, as for City, its walk stands in from the data)
 test('no walk through the Futuristic place put across a line, past the buffers or back from its stations', () => {
   assert.ok(PLACES.future.size, 'the Futuristic place has no footprint to move');
   for (const [what, centre] of [
@@ -172,6 +174,20 @@ test('no walk through the Futuristic place put across a line, past the buffers o
   ]) {
     const r = walkThroughTown(moved('future', centre));
     assert.equal(r.ok, false, `a walk was found through the Futuristic place ${what}`);
+    assert.ok([ROUND_THE_TOWN, NO_WAY].includes(r.why), `${what}: ${r.why}`);
+  }
+});
+// Downtown City: its streets where the walk from the Metro Glide's platform (north) to the Seaside Excursion's (south)
+// would not pass through them
+test('no walk through Downtown City put across a line, past the buffers or back from its stations', () => {
+  for (const [what, centre] of [
+    ['south of the Seaside Excursion\'s line, its departure platform\'s far side', { x: 128, z: 80 }],
+    ['north of the Metro Glide\'s line, its arrival platform\'s far side', { x: 128, z: -230 }],
+    ['west, past the Seaside Excursion\'s buffers and the Metro Glide\'s platform\'s open end', { x: -60, z: -74 }],
+    ['east, past the Metro Glide\'s buffers and the Seaside Excursion\'s platform\'s open end', { x: 330, z: -74 }],
+  ]) {
+    const r = walkThroughTown(moved('city', centre));
+    assert.equal(r.ok, false, `a walk was found through Downtown City ${what}`);
     assert.ok([ROUND_THE_TOWN, NO_WAY].includes(r.why), `${what}: ${r.why}`);
   }
 });

@@ -25,11 +25,12 @@ import { makeJourney } from './journey.js';
 import { makeFleet } from './fleet.js';
 import { makeKeys } from './keys.js';
 import { makeSkyDome } from './sky-dome.js';
-import { skyAt, ringPosition } from './sky.js';
+import { skyAt, ringPosition, towards } from './sky.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
 import { makeSteamCab, STEAM_MODELS } from './cabs/steam.js';
 import { makeFutureCab } from './cabs/future.js';
+import { makeShuttleCab } from './cabs/shuttle.js';
 
 // each train spec's cab, made for its leading vehicle (a steam cab is measured per locomotive model)
 const CABS = {
@@ -39,10 +40,11 @@ const CABS = {
     if (!model) throw new Error(`no steam cab measured for the ${car.key}`);
     return makeSteamCab(model);
   },
-  // the Silver Arrow's cab is made to its own front car
-  future: (car) => {
-    if (car.key !== 'bullet') throw new Error(`no futuristic cab measured for the ${car.key}`);
-    return makeFutureCab();
+  // the Silver Arrow's cab is made to its own front car; the Metro Glide's to the guideway shuttle's shell (measured)
+  future: (car, spec) => {
+    if (car.key === 'bullet') return makeFutureCab();
+    if (car.key === 'guideway-rail-shuttle') return makeShuttleCab({ ride: spec.ride, top: Math.round(spec.top * 3.6) });
+    throw new Error(`no futuristic cab measured for the ${car.key}`);
   },
 };
 
@@ -74,7 +76,7 @@ async function boot() {
   const terrain = worldTerrain();
 
   // ---- places, legs and trains load through the streamer, by id: only the places whose kits are wired in, the legs
-  // between them (bar any held back for a later task: world-data legBuilt), and those legs' trains (`train:<leg>`) ----
+  // between them (world-data legBuilt), and those legs' trains (`train:<leg>`) ----
   const builtLegs = Object.keys(LEGS).filter(legBuilt);
   const routes = Object.fromEntries(builtLegs.map((id) => [id, legRoute(id)]));
   const journey = makeJourney({ legs: LEGS, places: PLACES });
@@ -208,7 +210,7 @@ async function boot() {
     const t = fleet.trains[leg];
     if (!t) throw new Error(`the train on ${leg} has not loaded yet`);
     if (!CABS[t.spec.cab]) throw new Error(`no ${t.spec.cab} cab for the ${t.spec.name} yet`);
-    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0]));
+    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0], t.spec));
     return t;
   }
   function take(leg, dir) {
@@ -416,7 +418,7 @@ async function boot() {
     const where = journey.where(state, run, drive.s);
     streamer.want(wanted(where));
     const want = ringPosition(where);
-    skyPos = skyPos === null ? want : skyPos + (want - skyPos) * Math.min(1, dt * 1.5);
+    skyPos = skyPos === null ? want : towards(skyPos, want, Math.min(1, dt * 1.5));   // the short way round the ring
     const sky = skyAt(skyPos);
     if (Math.abs(sky.stage - lastStage) > 0.003) {
       dimmer.setTime(() => look.setTime(sky.stage)); lastStage = sky.stage;

@@ -36,7 +36,7 @@ export function makeFleet({ scene, look, journey }) {
     async build(leg) {
       const spec = TRAIN_SPECS[LEGS[leg].train];
       setLoading(`the ${spec.name}`);
-      const model = await buildTrain({ name: spec.name, kit: spec.kit, cars: spec.cars, builder: spec.builder, carCount: spec.carCount });
+      const model = await buildTrain({ name: spec.name, kit: spec.kit, ride: spec.ride, cars: spec.cars, builder: spec.builder, carCount: spec.carCount });
       scene.add(model.group);
       look.shadows(model.group);
       model.night?.(look.night);   // a train with its own lit windows lights them as the place's lamps are

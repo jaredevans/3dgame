@@ -123,3 +123,25 @@ test('the bullet leg takes 80 to 100 seconds, stepped at 60 frames a second', ()
   assert.ok(Math.abs(st.s - stopS) < 2, `stopped at ${st.s.toFixed(1)}, the mark is ${stopS.toFixed(1)}`);
   assert.ok(t >= 80 && t <= 100, `${t.toFixed(1)} s`);
 });
+
+test('the Metro Glide spec', () => {
+  const m = TRAIN_SPECS.futureCity;
+  near(m.top, 120 / 3.6, 1e-9); assert.equal(m.accel, 1.0); assert.equal(m.brake, 1.2);
+  assert.equal(m.cab, 'future'); assert.equal(m.sound, 'future');
+  assert.ok(m.cars.every(([key]) => key === 'guideway-rail-shuttle'), 'a rake of guideway shuttles');
+});
+
+test('the Metro Glide leg takes 80 to 100 seconds, stepped at 60 frames a second', () => {
+  const m = TRAIN_SPECS.futureCity, L = legRoute('future-city').length;
+  // three 10.28 m shuttles with two 0.15 m couplings behind the start's buffers; its mark 12 m short of the far ones
+  const sMin = 3 * 10.28 + 2 * 0.15 + 1.5, stopS = L - 1.5 - 12;
+  let st = { s: sMin, v: 0, throttle: 1 }, t = 0;
+  while (st.v > 0 || st.s < sMin + 1) {
+    const brake = st.s + st.v ** 2 / (2 * m.brake) >= stopS;
+    st = stepTrain(st, { brake }, 1 / 60, m, { sMin, sMax: L - 1.5 });
+    t += 1 / 60;
+    if (t > 300) break;
+  }
+  assert.ok(Math.abs(st.s - stopS) < 2, `stopped at ${st.s.toFixed(1)}, the mark is ${stopS.toFixed(1)}`);
+  assert.ok(t >= 80 && t <= 100, `${t.toFixed(1)} s`);
+});

@@ -35,6 +35,13 @@ export function skyAt(pos) {
   return out;
 }
 
+// a ring position eased a fraction k of the way from `from` to `to`, the short way round (the ring closes at 5 = 0: out of
+// the Metro Glide's leg into City the sky goes on across sunrise, not back through the day). Not wrapped: skyAt is.
+export function towards(from, to, k) {
+  const d = ((((to - from) % 5) + 7.5) % 5) - 2.5;
+  return from + d * k;
+}
+
 const PLACE_AT = { city: 0, ocean: 1, mountain: 2, west: 3, future: 4 };
 const LEG_AT = { 'city-ocean': 0, 'ocean-mountain': 1, 'mountain-west': 2, 'west-future': 3, 'future-city': 4 };
 

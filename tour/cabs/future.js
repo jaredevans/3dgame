@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { BULLET_CAB, ring, bandOf, halfAt, CANOPY, BANDS } from '../trains/bullet-shape.js';
 
 const mat = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, flatShading: true, ...extra });
-const M = {
+export const M = {
   panel: mat('#e8ecf2'), trim: mat('#9aa8b8'), floor: mat('#3f4a58'), console: mat('#2a323d', { roughness: 0.4 }),
   seat: mat('#dde3e9'), cushion: mat('#5d6b7c'), door: mat('#c7cfd8'),
   glass: new THREE.MeshStandardMaterial({ color: '#bfd9e8', roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }),
@@ -16,7 +16,7 @@ const M = {
 };
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
-function mesher() {
+export function mesher() {
   const pos = [], ab = new THREE.Vector3(), ac = new THREE.Vector3();
   return {
     tri(a, b, d, out) {
@@ -34,7 +34,7 @@ function mesher() {
     },
   };
 }
-function box(w, h, d, m, x, y, z) {
+export function box(w, h, d, m, x, y, z) {
   const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
   b.position.set(x, y, z);
   return b;
@@ -111,7 +111,6 @@ export function makeFutureCab(c = BULLET_CAB) {
     g.add(f.mesh(M.floor, 'floor'));
   }
 
-  let readout = null;
   // the console: a low, sleek desk swept across the front, its top falling toward the glass; a cyan light along its edge
   const cz0 = c.zFront - 1.05, cz1 = c.zFront - 0.02, top0 = c.floor + 0.42, top1 = c.floor + 0.25;
   {
@@ -132,16 +131,10 @@ export function makeFutureCab(c = BULLET_CAB) {
   // stands in the way down the middle of the bill
   const [ex, ey, ez] = c.eye, onTop = (z) => top0 + (top1 - top0) * (z - cz0) / (cz1 - cz0) + 0.015;
   const facing = (o) => { g.add(o); o.lookAt(ex, ey, ez); return o; };
-  if (typeof document !== 'undefined') {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256; canvas.height = 128;
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    readout = { ctx: canvas.getContext('2d'), tex, shown: null };
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.22), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
-    scr.name = 'speed readout';
-    scr.position.set(0.45, onTop(cz0 + 0.3) + 0.06, cz0 + 0.3);
-    facing(scr);
+  const readout = speedReadout(300);
+  if (readout.screen) {
+    readout.screen.position.set(0.45, onTop(cz0 + 0.3) + 0.06, cz0 + 0.3);
+    facing(readout.screen);
   }
   const side = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), M.screen);
   side.position.set(-0.45, onTop(cz0 + 0.3) + 0.05, cz0 + 0.3);
@@ -158,21 +151,7 @@ export function makeFutureCab(c = BULLET_CAB) {
   g.add(box(0.12, 0.45, 0.12, M.seat, ex, c.floor + 0.22, ez - 0.25));
   g.add(box(0.6, 0.04, 0.6, M.seat, ex, c.floor + 0.02, ez - 0.25));
 
-  // the readout shows whole km/h, drawn again only when it changes
-  g.userData.speed = (kmh) => {
-    if (!readout) return;
-    const n = Math.round(kmh);
-    if (n === readout.shown) return;
-    readout.shown = n;
-    const x = readout.ctx;
-    x.fillStyle = '#0b1820'; x.fillRect(0, 0, 256, 128);
-    x.fillStyle = '#7fe7da'; x.fillRect(16, 104, Math.min(224, 224 * n / 300), 8);
-    x.font = 'bold 64px system-ui, sans-serif'; x.textAlign = 'right'; x.fillStyle = '#e8f6ff';
-    x.fillText(String(n), 176, 80);
-    x.font = '22px system-ui, sans-serif'; x.textAlign = 'left'; x.fillStyle = '#8fc7e8';
-    x.fillText('km/h', 184, 80);
-    readout.tex.needsUpdate = true;
-  };
+  g.userData.speed = readout.set;
   g.userData.speed(0);
 
   const seat = new THREE.Vector3(ex, ey, ez);
@@ -180,4 +159,33 @@ export function makeFutureCab(c = BULLET_CAB) {
   // the console), though everything takes the shell's
   g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = o.material !== M.glass; } });
   return { group: g, seat, box: { zBack: c.zBack, zFront: c.zFront, floor: c.floor, roof: c.roof, half: c.half } };
+}
+
+// a speed readout (a screen showing whole km/h and a bar to `top`), drawn again only when the figure changes: { screen
+// (a mesh, null without a document), set(kmh) }
+export function speedReadout(top) {
+  if (typeof document === 'undefined') return { screen: null, set() {} };
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 128;
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const x = canvas.getContext('2d');
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.22), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+  screen.name = 'speed readout';
+  let shown = null;
+  return {
+    screen,
+    set(kmh) {
+      const n = Math.round(kmh);
+      if (n === shown) return;
+      shown = n;
+      x.fillStyle = '#0b1820'; x.fillRect(0, 0, 256, 128);
+      x.fillStyle = '#7fe7da'; x.fillRect(16, 104, Math.min(224, 224 * n / top), 8);
+      x.font = 'bold 64px system-ui, sans-serif'; x.textAlign = 'right'; x.fillStyle = '#e8f6ff';
+      x.fillText(String(n), 176, 80);
+      x.font = '22px system-ui, sans-serif'; x.textAlign = 'left'; x.fillStyle = '#8fc7e8';
+      x.fillText('km/h', 184, 80);
+      tex.needsUpdate = true;
+    },
+  };
 }

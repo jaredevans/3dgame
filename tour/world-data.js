@@ -18,11 +18,10 @@ export const SEA_LEVEL = 0;
 // a place's extra parts (Oceanside's seafront) are its town too: the ground this far round each one
 export const EXTRA_REACH = 6;
 
-// the places whose kits the page builds so far; a leg is built once both its ends are, unless it is HELD back: its
-// stations and train come in a later task (the Metro Glide's leg into City, with City's north station: Task 9)
+// the places whose kits the page builds; a leg (its track, its train and its stations at both ends) is built once both
+// its places are: with all five, the whole ring
 export const BUILT = ['city', 'ocean', 'mountain', 'west', 'future'];
-export const HELD = ['future-city'];
-export const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to) && !HELD.includes(id);
+export const legBuilt = (id) => BUILT.includes(LEGS[id].from) && BUILT.includes(LEGS[id].to);
 
 export const RING = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],
@@ -168,8 +167,9 @@ export const LEGS = {
   },
   'west-future': {
     from: 'west', to: 'future', train: 'westFuture', side: -1,
-    // up on the guideway for all but the ends, along the dry wash below it (see FEATURES)
-    structures: [{ kind: 'guideway', s0: 190, s1: 3950 }],
+    // up on the guideway for all but the ends, along the dry wash below it (see FEATURES); coming down to the embankment
+    // short of the Futuristic place, it runs on at grade through its platforms to the buffers (s1 Infinity: the line's end)
+    structures: [{ kind: 'guideway', s0: 190, s1: 3950 }, { kind: 'guideway', s0: 3950, s1: Infinity, grade: true }],
     // the bullet's run: 4.1 km west-north-west across the desert, all but straight, weaving through long 4 km curves
     // (4 degrees out, 8 back, 4 out again), gently down from 15 m to 10 m
     points: [
@@ -185,8 +185,10 @@ export const LEGS = {
   },
   'future-city': {
     from: 'future', to: 'city', train: 'futureCity', side: -1,
-    // the long bridge over the river (see FEATURES), in pale stone
-    structures: [{ kind: 'viaduct', s0: 495, s1: 705, stone: 'limestone' }],
+    // out of the Futuristic place on its guideway, at grade from the buffers through the platforms, ending on an abutment
+    // past the town's edge (s 120) where ordinary track runs on into the suburbs; then the long bridge over the river
+    // (see FEATURES), in pale stone
+    structures: [{ kind: 'guideway', s0: 0, s1: 160, grade: true }, { kind: 'viaduct', s0: 495, s1: 705, stone: 'limestone' }],
     // north-north-east out of the Futuristic place through the suburbs, a long right-hand curve, and in heading
     // east along the north edge of Downtown City
     points: [
@@ -310,14 +312,16 @@ export function placePads() {
   }));
 }
 
-// a leg's structures (structures.js): found from the land, plus the ones it asks for, none on its platforms
+// a leg's structures (structures.js): found from the land, plus the ones it asks for (held to the line's length); none on
+// its platforms bar a guideway laid at grade
 export const STRUCTURE_ENDS = 125;
 let sectioned = false;
 function giveSections(t) {
   if (sectioned) return;
   for (const id of Object.keys(LEGS)) {
     const r = legRoute(id);
-    r.sections = structuresFor(r, t.natural, { forced: LEGS[id].structures ?? [], ends: STRUCTURE_ENDS });
+    const forced = (LEGS[id].structures ?? []).map((f) => ({ ...f, s0: Math.max(0, f.s0), s1: Math.min(r.length, f.s1) }));
+    r.sections = structuresFor(r, t.natural, { forced, ends: STRUCTURE_ENDS });
   }
   sectioned = true;
 }
