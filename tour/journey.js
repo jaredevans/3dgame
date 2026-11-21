@@ -61,6 +61,15 @@ export function makeJourney({ legs, places }) {
       if (!ends(state.leg).includes(placeId)) throw new Error(`${placeId} is not an end of ${state.leg}`);
       return { ...state, mode: 'foot', place: placeId };
     },
+    // once you've got out (state on foot, leg and dir the run you got out of): what becomes of the two trains here.
+    // turn: the train you came on, if it arrived here, turning round for the trip back (null if it hadn't left yet);
+    // wait: the other train serving this place, to be put at its own station. Entries as trainsAt's.
+    arrive(state) {
+      if (state.mode !== 'foot') throw new Error('not on foot');
+      const here = trainsAt(state, state.place);
+      const mine = here.find((t) => t.leg === state.leg);
+      return { turn: mine && mine.dir !== state.dir ? mine : null, wait: here.filter((t) => t.leg !== state.leg) };
+    },
     board(state, leg, dir) {
       if (state.mode !== 'foot') throw new Error('not on foot');
       if (!trainsAt(state, state.place).some((t) => t.leg === leg && t.dir === dir)) throw new Error(`no ${leg} ${dir} train waits at ${state.place}`);

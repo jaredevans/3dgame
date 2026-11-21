@@ -108,3 +108,29 @@ test('the sky and the streamer follow any leg, either way', () => {
   near(ringPosition(j.where(j.start('city-ocean', 'out'), out, out.route.length / 2)), 0.5, 1e-9);
   assert.deepEqual(j.where(arrive('city-ocean', 'out'), out, 0), { place: 'ocean' });
 });
+
+// what happens to the trains when you get out: the one you came on turns round for the trip back (or, if it hasn't
+// left yet, stays as it is); the other train serving this place is put at its own station
+test('arriving forwards at Oceanside: your train turns for City, the climb waits at the departure station', () => {
+  const a = j.arrive(arrive('city-ocean', 'out'));
+  assert.deepEqual(a.turn, { leg: 'city-ocean', dir: 'back', station: 'arrival', to: 'city' });
+  assert.deepEqual(a.wait, [{ leg: 'ocean-mountain', dir: 'out', station: 'departure', to: 'mountain' }]);
+});
+
+test('arriving backwards at Oceanside: your train turns for the Mountain, City\'s waits at the arrival station', () => {
+  const a = j.arrive(arrive('ocean-mountain', 'back'));
+  assert.deepEqual(a.turn, { leg: 'ocean-mountain', dir: 'out', station: 'departure', to: 'mountain' });
+  assert.deepEqual(a.wait, [{ leg: 'city-ocean', dir: 'back', station: 'arrival', to: 'city' }]);
+  // both face away from the town: each one's run leaves from Oceanside
+  for (const t of [a.turn, ...a.wait]) assert.equal(j.runRoute(t.leg, t.dir).origin.place, 'ocean');
+});
+
+test('getting out before leaving: no turn, the other leg\'s train waits', () => {
+  const a = j.arrive(j.getOut(j.start('city-ocean', 'out'), 'city'));
+  assert.equal(a.turn, null);
+  assert.deepEqual(a.wait, [{ leg: 'future-city', dir: 'back', station: 'arrival', to: 'future' }]);
+  const b = j.arrive(j.getOut(j.start('ocean-mountain', 'back'), 'mountain'));
+  assert.equal(b.turn, null);
+  assert.deepEqual(b.wait, [{ leg: 'mountain-west', dir: 'out', station: 'departure', to: 'west' }]);
+  assert.throws(() => j.arrive(j.start('city-ocean', 'out')), 'only once you\'re on foot');
+});

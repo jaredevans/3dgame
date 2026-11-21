@@ -150,10 +150,9 @@ async function boot() {
     train.s = drive.s;
     // the two trains waiting here: yours stays at its platform (turning round for the trip back once you're away from
     // it, if you've arrived); the other is put at its station
-    pendingTurn = null;
-    for (const w of journey.trainsAt(state, here).filter((w) => legBuilt(w.leg))) {
-      if (w.leg === train.leg) { if (w.dir !== run.dir) pendingTurn = w; } else fleet.wait(w.leg, w.dir);
-    }
+    const { turn, wait } = journey.arrive(state);
+    pendingTurn = turn;
+    for (const w of wait.filter((w) => legBuilt(w.leg))) fleet.wait(w.leg, w.dir);
     views.setDriving(false);
     $('driver').classList.remove('on');
   }
