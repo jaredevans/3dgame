@@ -19,7 +19,7 @@ import { horn } from './audio.js';
 import { buildPlace, seamCheck } from './places.js';
 import { buildTerminus, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
-import { nearestBoardable } from './walk.js';
+import { nearestBoardable, BODY } from './walk.js';
 import { makeWalkWorld } from './walk-world.js';
 import { makeJourney } from './journey.js';
 import { makeFleet } from './fleet.js';
@@ -28,9 +28,17 @@ import { makeSkyDome } from './sky-dome.js';
 import { skyAt, ringPosition } from './sky.js';
 import { makeCameras, fitCab } from './cameras.js';
 import { makeDieselCab } from './cabs/diesel.js';
+import { makeSteamCab, STEAM_MODELS } from './cabs/steam.js';
 
-const CABS = { diesel: makeDieselCab };
-const WALK_RADIUS = { city: 130 };   // how far from a place's centre you may walk (beyond its stations); 75 m elsewhere
+// each train spec's cab, made for its leading vehicle (a steam cab is measured per locomotive model)
+const CABS = {
+  diesel: () => makeDieselCab(),
+  steam: (car) => {
+    const model = STEAM_MODELS[car.key];
+    if (!model) throw new Error(`no steam cab measured for the ${car.key}`);
+    return makeSteamCab(model);
+  },
+};
 
 const fail = (err) => { console.error(err); showLoadError(err?.url ? loadError(err.url, err) : `Something went wrong: ${err?.message ?? err}`); };
 addEventListener('unhandledrejection', (e) => fail(e.reason));
@@ -188,13 +196,20 @@ async function boot() {
   // ---- the train you drive: its run (journey.runRoute) and where its front is along it ----
   const drive = { s: 0, v: 0, throttle: 0 };
   let train = null, run = null;
-  function take(leg, dir) {
+  // the train on a leg, ready to drive: loaded, with its cab fitted. Checked before anything changes, so a train you
+  // can't drive yet leaves you where you were
+  function drivable(leg) {
     const t = fleet.trains[leg];
+    if (!t) throw new Error(`the train on ${leg} has not loaded yet`);
+    if (!CABS[t.spec.cab]) throw new Error(`no ${t.spec.cab} cab for the ${t.spec.name} yet`);
+    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab](t.model.cars[0]));
+    return t;
+  }
+  function take(leg, dir) {
+    const t = drivable(leg);
     if (t.run.dir !== dir) fleet.park(leg, dir);   // turned round for the trip back: it waits on its run's start
     train = t; run = t.run;
     Object.assign(drive, { s: t.s, v: 0, throttle: 0 });
-    if (!CABS[t.spec.cab]) throw new Error(`no ${t.spec.cab} cab for the ${t.spec.name} yet`);
-    t.cab ??= fitCab(renderer, t.model.cars[0], CABS[t.spec.cab]());
     views.attachCab(t.cab);
   }
   take(state.leg, state.dir);
@@ -205,7 +220,7 @@ async function boot() {
 
   const walkWorld = () => makeWalkWorld({
     place: places[state.place], termini: PLACES[state.place].stations.map((st) => termini[`${state.place}:${st.leg}`]),
-    terrain, seaLevel: SEA_LEVEL, radius: WALK_RADIUS[state.place] ?? 75,
+    terrain, seaLevel: SEA_LEVEL, radius: PLACES[state.place].walkRadius ?? 75,
   });
   // where you can get out: the platform you're heading for, or the one you haven't left yet
   const stopHere = () => journey.stopAt(run, drive);
@@ -213,7 +228,15 @@ async function boot() {
     const here = stopHere();
     state = journey.getOut(state, here);
     // step out onto the platform beside the line, a little behind the cab
-    const out = journey.stepOut(run, drive.s), p = run.route.offsetAt(out.s, out.lateral);
+    const out = journey.stepOut(run, drive.s);
+    // stopped past the mark, the cab is beside the station building: step down further from the buffers, clear of it
+    const w = walkWorld(), away = out.s > run.route.length / 2 ? -1 : 1;
+    for (let k = 0; k < 40; k++) {
+      const q = run.route.offsetAt(out.s, out.lateral);
+      if (!w.blocked(q.x, q.z, BODY)) break;
+      out.s += away;
+    }
+    const p = run.route.offsetAt(out.s, out.lateral);
     player.enter(p.x, p.z, p.yaw, p.y + PLATFORM_TOP);
     Object.assign(drive, leaveCab(drive));
     train.s = drive.s;
@@ -244,6 +267,7 @@ async function boot() {
     .filter((w) => legBuilt(w.leg) && fleet.trains[w.leg])
     .map((w) => ({ ...w, stopped: true, cars: trainPoints(fleet.trains[w.leg].model) })));
   function board(w) {
+    drivable(w.leg);
     turnPending();
     state = journey.board(state, w.leg, w.dir);
     take(w.leg, w.dir);

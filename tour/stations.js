@@ -7,9 +7,9 @@ import * as THREE from 'three';
 import { KITS } from './config.js';
 import { part } from './parts.js';
 import { legRoute, laneOf, platformWindow, BUFFER_GAP, STOP_SHORT } from './world-data.js';
+import { stationWalk, PLATFORM_TOP } from './station-walk.js';
 
-export { BUFFER_GAP, STOP_SHORT };   // the buffer gap and stopping point (world-data holds them)
-export const PLATFORM_TOP = 1.175;
+export { BUFFER_GAP, STOP_SHORT, PLATFORM_TOP };   // the buffer gap and stopping point (world-data holds them), the platform top
 const PIECE = 4;
 
 // where a piece goes: `s` is the piece's start along the route, `side` +1 left of the lane, -1 right of it (turned
@@ -84,7 +84,6 @@ export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick
   }
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
-
   // for walking: solid things (not the platforms and canopies you walk on and under), and the station's own frame
   group.updateMatrixWorld(true);
   const solid = [];
@@ -93,24 +92,6 @@ export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick
     if (!key || /platform-run|canopy|buffer-stop/.test(key)) continue;   // buffers stand in the track zone, already out of bounds
     solid.push({ key, box: new THREE.Box3().setFromObject(o) });
   }
-  const mid = (p0 + p1) / 2, o = route.at(mid), sn = Math.sin(o.yaw), cs = Math.cos(o.yaw);
-  const local = (x, z) => { const dx = x - o.x, dz = z - o.z; return { along: dx * sn + dz * cs, across: dx * cs - dz * sn }; };
-  const half = (p1 - p0) / 2, lineEnd = atEnd ? L - mid : -mid;   // where the track stops, along the station
-  const walk = {
-    inStation(x, z) { const l = local(x, z); return Math.abs(l.along) <= half + 40 && Math.abs(l.across) <= 30; },
-    onTrack(x, z) {
-      const l = local(x, z);
-      const pastEnd = atEnd ? l.along > lineEnd : l.along < lineEnd;
-      return Math.abs(l.across) < 3.6 && !pastEnd && Math.abs(l.along) <= half + 40;
-    },
-    platformY(x, z) {
-      const l = local(x, z), a = Math.abs(l.across);
-      return a >= 3.5 && a <= 8 && Math.abs(l.along) <= half ? o.y + PLATFORM_TOP : null;
-    },
-    blocked(x, z, r) {
-      for (const b of solid) if (x > b.box.min.x - r && x < b.box.max.x + r && z > b.box.min.z - r && z < b.box.max.z + r) return b.key;
-      return null;
-    },
-  };
+  const walk = stationWalk(leg, end, { platformLength, solid });
   return { group, platform: { sFrom: p0, sTo: p1, stopS }, buffersS, walk };
 }

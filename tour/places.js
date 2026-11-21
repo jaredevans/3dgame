@@ -3,42 +3,7 @@ import * as THREE from 'three';
 import { kitModule, part } from './parts.js';
 import { kitUrl, KIT_BASE } from './config.js';
 import { PLACES } from './world-data.js';
-
-const LAND_MIN = -2;   // kit ground below this (local metres) is off its island: its underside, not land
-const REACH = 50, CELL = 1;
-
-// For a kit with its own (island) ground: on a 1 m grid round its origin, each cell's height at the nearest land and
-// its distance from the land. Computed once when the place is built.
-function landSampler(kitPlace) {
-  const n = (2 * REACH) / CELL + 1, H = new Float32Array(n * n), D = new Float32Array(n * n), landCells = [];
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-    const g = kitPlace.groundAt(-REACH + i * CELL, -REACH + j * CELL);
-    if (g != null && g >= LAND_MIN) { landCells.push(j * n + i); H[j * n + i] = g; D[j * n + i] = 0; } else D[j * n + i] = Infinity;
-  }
-  for (let k = 0; k < n * n; k++) {
-    if (D[k] === 0) continue;
-    const i = k % n, j = (k - i) / n;
-    let best = Infinity, bh = 0;
-    for (const c of landCells) {
-      const ci = c % n, cj = (c - ci) / n, d = (ci - i) ** 2 + (cj - j) ** 2;
-      if (d < best) { best = d; bh = H[c]; }
-    }
-    D[k] = Math.sqrt(best) * CELL; H[k] = bh;
-  }
-  const edge = landCells.filter((c) => { const i = c % n; return [c - 1, c + 1, c - n, c + n].some((k) => k >= 0 && k < n * n && D[k] > 0) && i > 0 && i < n - 1; })
-    .map((c) => [-REACH + (c % n) * CELL, -REACH + Math.floor(c / n) * CELL]);
-  // how far from the origin the land reaches
-  const radius = landCells.reduce((r, c) => Math.max(r, Math.hypot(-REACH + (c % n) * CELL, -REACH + Math.floor(c / n) * CELL)), 0) + CELL;
-  return {
-    edge, radius,
-    sample(lx, lz) {
-      const i = Math.round((lx + REACH) / CELL), j = Math.round((lz + REACH) / CELL);
-      if (i < 0 || j < 0 || i >= n || j >= n) return null;
-      const k = j * n + i;
-      return D[k] === 0 ? { h: kitPlace.groundAt(lx, lz) ?? H[k], d: 0 } : { h: H[k], d: D[k] };
-    },
-  };
-}
+import { landSampler, LAND_MIN } from './land.js';
 
 export async function buildPlace(id) {
   const def = PLACES[id];
@@ -57,7 +22,8 @@ export async function buildPlace(id) {
   const toWorld = (lx, lz) => [def.centre.x + lx * c + lz * s, def.centre.z - lx * s + lz * c];
 
   const b = kitPlace.bounds;
-  const land = kitPlace.terrain ? landSampler(kitPlace) : null;
+  const landMin = def.landMin ?? LAND_MIN;
+  const land = kitPlace.terrain ? landSampler(kitPlace, landMin) : null;
   // the kit's own ground as a terrain patch, blended out from the edge of its land
   const patch = land ? { x: def.centre.x, y: def.y, z: def.centre.z, rot: def.rot, drop: 0.15, r: land.radius, sample: land.sample } : null;
 
@@ -90,7 +56,7 @@ export async function buildPlace(id) {
     // standing on the kit's own ground: its island's land if it has one, else its footprint
     onLand(x, z) {
       const [lx, lz] = toLocal(x, z);
-      if (land) { const r = land.sample(lx, lz); return !!r && r.d === 0 && (kitPlace.groundAt(lx, lz) ?? -Infinity) >= LAND_MIN; }
+      if (land) { const r = land.sample(lx, lz); return !!r && r.d === 0 && (kitPlace.groundAt(lx, lz) ?? -Infinity) >= landMin; }
       return lx >= b.min.x && lx <= b.max.x && lz >= b.min.z && lz <= b.max.z;
     },
     contains(x, z, margin = 0) {

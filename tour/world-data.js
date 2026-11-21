@@ -17,7 +17,7 @@ export const laneFor = (dir) => (dir === 'out' ? laneOf('city-ocean') : -laneOf(
 export const SEA_LEVEL = 0;
 
 // the places whose kits the page builds so far; a leg is built once both its ends are
-export const BUILT = ['city', 'ocean'];
+export const BUILT = ['city', 'ocean', 'mountain'];
 
 export const RING = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],
@@ -25,10 +25,13 @@ export const RING = {
 };
 
 // centre: where the place's kit is put (its own origin), turned by rot; y: the level its kit's ground 0 goes at;
-// ground: its stations' formation level (= its lines' ends). Each place has two stations on two sides of its town:
-// the arrival of the leg from the previous place and the departure of the leg to the next, each with its town beside it.
+// ground: its stations' formation level (= its lines' ends); size: its footprint [x, z] in its kit's own frame, centred
+// `offset` from its origin; landMin: an island kit's ground below this (kit metres) is its underside, not land (-2 if
+// not given); walkRadius: how far from its centre you may walk, beyond its stations (75 m if not given). Each place has
+// two stations on two sides of its town: the arrival of the leg from the previous place and the departure of the leg to
+// the next, each with its town beside it.
 export const PLACES = {
-  city: { name: 'Downtown City', kit: KITS.city, centre: { x: 128, z: -74 }, y: 8, rot: 0, ground: 8, size: [150, 118],
+  city: { name: 'Downtown City', kit: KITS.city, centre: { x: 128, z: -74 }, y: 8, rot: 0, ground: 8, size: [150, 118], walkRadius: 130,
     build: { city: { seed: 11, blocks: [2, 2], boundary: false } },
     // departures along the south edge, arrivals from the Futuristic place along the north edge
     stations: [
@@ -56,8 +59,14 @@ export const PLACES = {
       { leg: 'city-ocean', end: 'end', role: 'arrival', platformLength: 120 },
       { leg: 'ocean-mountain', end: 'start', role: 'departure', platformLength: 120 },
     ] },
-  // the Alpine kit's composed village on its mountainside (ground -2..17 m in its own frame, 98 x 97 m)
-  mountain: { name: 'Mountain', kit: KITS.mountain, centre: { x: 2520, z: 660 }, y: 22, rot: 0, ground: 22,
+  // the Alpine kit's composed mountainside on its own island ground: land from -18 to +18 m in its own frame (its skirt,
+  // below landMin, is the island's underside), 112 x 112 m about (-4.5, -1.5). Turned 130 degrees so its low end, the
+  // chalet and the lift's base station, faces the corner between the two lines and its summit rises behind; raised
+  // 32.5 m so the rim of its land facing both platforms meets the hillside there (about 21 m, the shoulder below) and the
+  // village stands just below the platforms, its far side falling to the land round it over the patch's blend. Its
+  // footprint keeps 20 m from both lines.
+  mountain: { name: 'Mountain', kit: KITS.mountain, centre: { x: 2500, z: 680 }, y: 32.5, rot: 130 * Math.PI / 180, ground: 22,
+    size: [112, 112], offset: [-4.5, -1.5], landMin: -21, walkRadius: 110,
     build: {},
     // the climb from Oceanside arrives along the north side; the Canyon Express leaves down the east side
     stations: [
@@ -196,6 +205,11 @@ export const FEATURES = [
   // river falls into it from the mountains at its head
   { kind: 'ridge', leg: 'ocean-mountain', s0: 420, s1: 665, rise: 28, half: 35, fade: 110, ease: 50, only: 'up' },
   { kind: 'valley', leg: 'ocean-mountain', x0: 2048, z0: 734, x1: 2342, z1: 212, floor: 2, half: 22, fade: 105, ease: 80, easeHead: 60, water: true, fall: true },
+  // the Mountain's own shoulder: past the gorge the land climbs back up to the line, so the village and both its
+  // stations stand on the hillside at their level, not on a viaduct and an embankment above the plain (each runs on
+  // past its line's end, so it holds full height there)
+  { kind: 'ridge', leg: 'ocean-mountain', s0: 850, s1: 1300, rise: -1, half: 45, fade: 130, ease: 70, only: 'up' },
+  { kind: 'ridge', leg: 'mountain-west', s0: -200, s1: 200, rise: -1, half: 45, fade: 130, ease: 70, only: 'up' },
   // the pass: foothills come up to just under the line; then the gulch the trestle crosses in the canyon, and the canyon
   // floor brought up to the line beyond it
   { kind: 'ridge', leg: 'mountain-west', s0: 80, s1: 745, rise: -2, half: 30, fade: 160, ease: 55, only: 'up' },
@@ -220,6 +234,8 @@ export const BIOMES = [
   { kind: 'snow', x: 2650, z: 650, r: 900 },
   // the snowy pass: the line tops out at 29 m on an embankment through low foothills, so snow here ignores altitude (line below the ground)
   { kind: 'snow', x: 2670, z: 1140, r: 170, line: -50 },
+  // and the Mountain's own hillside, snowy all round its village (whose island ground is snow) and its two stations
+  { kind: 'snow', x: 2500, z: 680, r: 120, line: -50 },
   { kind: 'desert', x: 3000, z: 1900, r: 900 },
   { kind: 'desert', x: 2000, z: 1950, r: 700 },
   { kind: 'desert', x: 1000, z: 1800, r: 700 },

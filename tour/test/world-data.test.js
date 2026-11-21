@@ -56,6 +56,6 @@ test('the ring is in order', () => {
 });
 
 test('the page builds only the places whose kits are wired in', () => {
-  assert.ok(BUILT.includes('city') && BUILT.includes('ocean'));
+  assert.ok(BUILT.includes('city') && BUILT.includes('ocean') && BUILT.includes('mountain'));
   for (const id of BUILT) assert.ok(PLACES[id], id);
 });
