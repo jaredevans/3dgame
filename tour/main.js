@@ -246,7 +246,8 @@ async function boot() {
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
   Object.assign(window.__tour, { drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap });
   Object.defineProperties(window.__tour, {
-    run: { get: () => run }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
+    // the run you're on, with Phase 1's limits and originPlatform alongside it
+    run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
     pendingTurn: { get: () => pendingTurn }, walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
   });
   // developer aid: render a still from any viewpoint into an overlay (click it to close)
