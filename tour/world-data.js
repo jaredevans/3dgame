@@ -29,7 +29,8 @@ export const RING = {
   legs: ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future', 'future-city'],
 };
 
-// centre: where the place's kit is put (its own origin), turned by rot; y: the level its kit's ground 0 goes at;
+// centre: where the place's kit is put (its own origin), turned by rot; station: its stations' style (station-style.js;
+// the Countryside Railway's if not given); y: the level its kit's ground 0 goes at;
 // ground: its stations' formation level (= its lines' ends); size: its footprint [x, z] in its kit's own frame, centred
 // `offset` from its origin; landMin: an island kit's ground below this (kit metres) is its underside, not land (-2 if
 // not given). Each place has two stations on two sides of its town: the arrival of the leg from the previous place and
@@ -107,6 +108,7 @@ export const PLACES = {
   // footprint keeps 15 m from both lines. At y 10 its ground 0 is the stations' ground.
   future: { name: 'Futuristic', kit: KITS.future, centre: { x: -1065, z: 1200 }, y: 10, rot: 165 * Math.PI / 180, ground: 10,
     size: [140, 156], offset: [-2, 2], landMin: -4.5,
+    station: 'future',   // its stations in its own style (station-style.js): the Chrome Arcology's
     build: {},
     // the bullet train arrives along the south side; the Metro Glide leaves from the north-west side, heading north-north-east
     stations: [

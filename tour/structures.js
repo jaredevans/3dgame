@@ -72,3 +72,16 @@ export function tunnelDepth(sections, s) {
   for (const sec of sections ?? []) if (sec.kind === 'tunnel' && s > sec.s0 && s < sec.s1) return Math.min(s - sec.s0, sec.s1 - s);
   return 0;
 }
+
+// where a route's track is laid, as [s0, s1] runs: everywhere but on its guideways, where its train glides on the
+// guideway's own deck (viaducts, trestles and tunnels carry the track)
+export function trackRuns(length, sections = []) {
+  const runs = [];
+  let from = 0;
+  for (const sec of [...sections].filter((x) => x.kind === 'guideway').sort((a, b) => a.s0 - b.s0)) {
+    if (sec.s0 > from) runs.push([from, Math.min(sec.s0, length)]);
+    from = Math.max(from, sec.s1);
+  }
+  if (from < length) runs.push([from, length]);
+  return runs;
+}

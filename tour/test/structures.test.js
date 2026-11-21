@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
 import { makeTerrain, BED_DROP } from '../terrain.js';
 import { structuresFor, sectionAt, tunnelDepth, TUBE_TOP } from '../structures.js';
-import { LEGS, legRoute, worldTerrain } from '../world-data.js';
+import { LEGS, legRoute, worldTerrain, legSections as legSectionsOf } from '../world-data.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 // a straight, level line along +x at 10 m, 1 km long
@@ -186,5 +186,20 @@ test('every tunnel is buried and every bridge stands clear of its ground', () =>
         else assert.ok(h <= p.y - BED_DROP + 1e-6, `${id} ${sec.kind} s=${s.toFixed(0)} d=${d}: ground ${(h - p.y).toFixed(2)} m`);
       }
     }
+  }
+});
+
+// the track is laid everywhere but on a guideway: the bullet glides on the guideway's own deck
+test('track runs skip guideways, and only guideways', async () => {
+  const { trackRuns } = await import('../structures.js');
+  assert.equal(typeof trackRuns, 'function', 'structures.js has no trackRuns');
+  assert.deepEqual(trackRuns(1000, []), [[0, 1000]]);
+  assert.deepEqual(trackRuns(1000, [{ kind: 'viaduct', s0: 100, s1: 200 }, { kind: 'tunnel', s0: 300, s1: 400 }, { kind: 'trestle', s0: 500, s1: 600 }]), [[0, 1000]]);
+  assert.deepEqual(trackRuns(4144.5, [{ kind: 'guideway', s0: 190, s1: 3950 }]), [[0, 190], [3950, 4144.5]]);
+  assert.deepEqual(trackRuns(1000, [{ kind: 'guideway', s0: 0, s1: 300 }, { kind: 'viaduct', s0: 400, s1: 450 }, { kind: 'guideway', s0: 600, s1: 1000 }]), [[300, 600]]);
+  // the bullet's leg: no track on its guideway at all
+  const r = legRoute('west-future'), runs = trackRuns(r.length, legSectionsOf('west-future'));
+  for (const sec of legSectionsOf('west-future').filter((x) => x.kind === 'guideway')) {
+    for (const [a, b] of runs) assert.ok(b <= sec.s0 || a >= sec.s1, `track laid over the guideway, ${a}..${b}`);
   }
 });

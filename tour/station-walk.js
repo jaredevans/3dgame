@@ -6,13 +6,12 @@
 // APPROACH). Nothing round the buffer ends, past the platform's ends or across the lines, so the only way from one of a
 // place's stations to the other is through its town.
 import { legRoute, platformWindow, laneOf } from './world-data.js';
+import { STATION_STYLES } from './station-style.js';
 
 export const PLATFORM_TOP = 1.175;   // a platform's top above the formation
 
-// The station building, in the station's frame, as buildTerminus places it (measured from the built termini): 24 m
-// long, measured from the platform's buffer end towards the buffers (-18..+6 m at a leg's end, -26..-2 m at its start),
-// and 7.6..16 m out on the town side.
-export const BUILDING = { end: [-18, 6], start: [-26, -2], near: 7.6, far: 16 };
+// The station building's footprint in the station's frame (station-style.js): the red-brick one, unless a style's is given.
+export const BUILDING = STATION_STYLES.countryside.building;
 export const APPROACH = 100;   // the furthest a station's approach reaches out to its town
 const STEP = 1;                // the approach is found every metre along the platform, to the half metre across
 const PLATFORM_OUT = 8;        // the town-side platform's outer edge, across the line's centre
@@ -36,8 +35,10 @@ export function approaches(walks, inTown) {
   });
 }
 
-// solid: the station's built things [{ key, box: { min: { x, z }, max: { x, z } } }]; building: true stands in for the
-// station building from BUILDING where nothing has been built (the walk tests)
+// solid: the station's built things, each [{ key, box: { min: { x, z }, max: { x, z } } }] (a world box) or { key,
+// corners: [[x, z] x 4] } (its own footprint, for a part standing square to the line: blocked within that, not the
+// world box round it turned); building: a footprint (station-style.js) to stand in for the station building where
+// nothing has been built (the walk tests), true for the red-brick one
 export function stationWalk(leg, end, { platformLength = 120, solid = [], building = false } = {}) {
   const route = legRoute(leg), L = route.length, atEnd = end === 'end';
   const { sFrom: p0, sTo: p1 } = platformWindow(L, end, platformLength);
@@ -46,7 +47,14 @@ export function stationWalk(leg, end, { platformLength = 120, solid = [], buildi
   const half = (p1 - p0) / 2, lineEnd = atEnd ? L - mid : -mid;   // where the track stops, along the station
   const town = Math.sign(laneOf(leg));   // the town's side, in `across`
   const toward = atEnd ? 1 : -1;         // the buffers' way, in `along`
-  const B = BUILDING, [u0, u1] = B[end], b0 = toward * (half + u0), b1 = toward * (half + u1);
+  const B = building === true ? BUILDING : building || BUILDING, [u0, u1] = B[end], b0 = toward * (half + u0), b1 = toward * (half + u1);
+  // a built part's own footprint, in the station's frame
+  const footprints = solid.filter((b) => b.corners).map((b) => {
+    const ls = b.corners.map(([x, z]) => local(x, z));
+    return { key: b.key, a0: Math.min(...ls.map((l) => l.along)), a1: Math.max(...ls.map((l) => l.along)),
+      c0: Math.min(...ls.map((l) => l.across)), c1: Math.max(...ls.map((l) => l.across)) };
+  });
+  const boxes = solid.filter((b) => b.box);
   const inBuilding = (l, r) => Math.min(b0, b1) - r < l.along && l.along < Math.max(b0, b1) + r
     && B.near - r < l.across * town && l.across * town < B.far + r;
   // a point `a` metres out on the town side, `along` the platform from its middle
@@ -86,8 +94,10 @@ export function stationWalk(leg, end, { platformLength = 120, solid = [], buildi
       return a >= 3.5 && a <= 8 && Math.abs(l.along) <= half ? o.y + PLATFORM_TOP : null;
     },
     blocked(x, z, r) {
-      if (building && inBuilding(local(x, z), r)) return 'station-building';
-      for (const b of solid) if (x > b.box.min.x - r && x < b.box.max.x + r && z > b.box.min.z - r && z < b.box.max.z + r) return b.key;
+      const l = local(x, z);
+      if (building && inBuilding(l, r)) return 'station-building';
+      for (const f of footprints) if (l.along > f.a0 - r && l.along < f.a1 + r && l.across > f.c0 - r && l.across < f.c1 + r) return f.key;
+      for (const b of boxes) if (x > b.box.min.x - r && x < b.box.max.x + r && z > b.box.min.z - r && z < b.box.max.z + r) return b.key;
       return null;
     },
   };

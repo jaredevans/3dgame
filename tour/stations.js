@@ -8,6 +8,7 @@ import { KITS } from './config.js';
 import { part } from './parts.js';
 import { legRoute, laneOf, platformWindow, BUFFER_GAP, STOP_SHORT } from './world-data.js';
 import { stationWalk, PLATFORM_TOP } from './station-walk.js';
+import { STATION_STYLES } from './station-style.js';
 
 export { BUFFER_GAP, STOP_SHORT, PLATFORM_TOP };   // the buffer gap and stopping point (world-data holds them), the platform top
 const PIECE = 4;
@@ -21,8 +22,11 @@ function place(obj, route, s, lane, side, extent = [0, PIECE]) {
   return obj;
 }
 
-// leg: the leg id; end: 'start' or 'end' of it. Returns the platform its trains use there, in the leg's s.
-export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120 } = {}) {
+// leg: the leg id; end: 'start' or 'end' of it; style: its place's station style (station-style.js). Returns the
+// platform its trains use there, in the leg's s, its walk frame, and (a kit style) the parts its place's kit lights after
+// dark: { group, platform, buffersS, walk, lit: [[object, part key]] }.
+export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120, style = 'countryside' } = {}) {
+  if (style === 'future') return futureTerminus(leg, end, { name, platformLength });
   const route = legRoute(leg);
   const group = new THREE.Group();
   group.name = `terminus ${name}`;
@@ -93,5 +97,126 @@ export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick
     solid.push({ key, box: new THREE.Box3().setFromObject(o) });
   }
   const walk = stationWalk(leg, end, { platformLength, solid });
-  return { group, platform: { sFrom: p0, sTo: p1, stopS }, buffersS, walk };
+  return { group, platform: { sFrom: p0, sTo: p1, stopS }, buffersS, walk, lit: [] };
+}
+
+// ---- the Futuristic terminus, from the Chrome Arcology kit (station-style.js future) ----
+// Its parts are measured (station-style.js): the transit-station-module's deck is 4 m up on its piers, its 'side' layout
+// open to +z, 16 x 8 m at 4 bays; the plaza stair rises 4 m over 8 m to its -z end; the shelter is 4 x 1.8 m; the arc
+// lamp's arm reaches out along +z. A part turned by the line's yaw has its +z along the line and its +x to the left.
+const FUT = {
+  slab: '#e8ecf2', face: '#9aa8b8', end: '#f4f7fa', endTrim: '#7b8a9c',
+  glow: new THREE.MeshStandardMaterial({ color: '#7fe7da', emissive: '#7fe7da', emissiveIntensity: 0.9, roughness: 0.4 }),
+  red: new THREE.MeshStandardMaterial({ color: '#ff5a4a', emissive: '#ff3020', emissiveIntensity: 1.4 }),
+};
+const flat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.05, flatShading: true });
+const PLATFORM_IN = 1.6, PLATFORM_OUTER = 6;   // a platform from this far off its line's lane to this far (as the kit's run)
+
+// a strip along the route from s0 to s1, at each s a cross-section [[lateral, height above the formation], ...], one
+// colour per segment (faces turned out from `inside`, a lateral and height inside the strip)
+function strip(route, s0, s1, section, colours, inside) {
+  const pos = [], col = [], c = new THREE.Color(), p = {}, n = Math.max(1, Math.ceil((s1 - s0) / 2));
+  const ring = (s) => section.map(([d, h]) => { route.offsetAt(s, d, p); return new THREE.Vector3(p.x, p.y + h, p.z); });
+  const centre = (s) => { route.offsetAt(s, inside[0], p); return new THREE.Vector3(p.x, p.y + inside[1], p.z); };
+  const tri = (a, b, d, o, colour) => {
+    const nrm = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(d, a));
+    if (nrm.dot(new THREE.Vector3().subVectors(a, o)) < 0) [b, d] = [d, b];
+    c.set(colour);
+    for (const v of [a, b, d]) { pos.push(v.x, v.y, v.z); col.push(c.r, c.g, c.b); }
+  };
+  let prev = ring(s0);
+  const cap = (r, o, dir) => { for (let k = 1; k < r.length - 1; k++) tri(r[0], r[k], r[k + 1], o.clone().addScaledVector(dir, -1), colours[0]); };
+  const fwd = (s) => { const q = route.at(s); return new THREE.Vector3(Math.sin(q.yaw), 0, Math.cos(q.yaw)); };
+  cap(prev, prev[0], fwd(s0).negate());
+  for (let i = 1; i <= n; i++) {
+    const s = s0 + (s1 - s0) * i / n, cur = ring(s), o = centre((s + s0 + (s1 - s0) * (i - 1) / n) / 2);
+    for (let k = 0; k < cur.length - 1; k++) { tri(prev[k], prev[k + 1], cur[k + 1], o, colours[k]); tri(prev[k], cur[k + 1], cur[k], o, colours[k]); }
+    prev = cur;
+  }
+  cap(prev, prev[0], fwd(s1));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+async function futureTerminus(leg, end, { name, platformLength }) {
+  const S = STATION_STYLES.future, route = legRoute(leg), group = new THREE.Group();
+  group.name = `terminus ${name}`;
+  const L = route.length, atEnd = end === 'end', buffersS = atEnd ? L : 0, toward = atEnd ? 1 : -1;
+  const { sFrom: p0, sTo: p1, stopS } = platformWindow(L, end, platformLength);
+  const lanes = { town: laneOf(leg), other: -laneOf(leg) };
+  const kit = (key, params) => part(S.kit, key, params);
+  const lit = [], solid = [];
+  // a kit part at s, `across` metres left of the line's centre, `up` above the formation, turned `turn` from the line's
+  // yaw; solid ones are walked round (their own footprint, square to the line)
+  async function put(key, params, s, across, up, turn, { solid: isSolid = true } = {}) {
+    const obj = await kit(key, params);
+    const box = new THREE.Box3().setFromObject(obj);   // its own frame, unturned
+    const p = route.offsetAt(s, across);
+    obj.position.set(p.x, p.y + up, p.z);
+    obj.rotation.y = p.yaw + turn;
+    obj.updateMatrixWorld(true);
+    group.add(obj);
+    lit.push([obj, key]);
+    if (isSolid) {
+      const corners = [[box.min.x, box.min.z], [box.max.x, box.min.z], [box.max.x, box.max.z], [box.min.x, box.max.z]]
+        .map(([x, z]) => { const v = new THREE.Vector3(x, 0, z).applyMatrix4(obj.matrixWorld); return [v.x, v.z]; });
+      solid.push({ key, corners });
+    }
+    return obj;
+  }
+  const facing = (side) => -side * Math.PI / 2;   // a part's +z turned towards the line, from a platform on `side`
+
+  // the platforms: clean white slabs, a lit mint strip along each edge
+  for (const lane of Object.values(lanes)) {
+    const side = Math.sign(lane), a = lane + side * PLATFORM_IN, b = lane + side * PLATFORM_OUTER;
+    const slab = new THREE.Mesh(strip(route, p0, p1, [[a, -0.06], [a, PLATFORM_TOP], [b, PLATFORM_TOP], [b, -0.06]],
+      [FUT.face, FUT.slab, FUT.face], [(a + b) / 2, PLATFORM_TOP / 2]), flat);
+    slab.name = 'platform';
+    const edge = new THREE.Mesh(strip(route, p0 + 0.5, p1 - 0.5, [[a + side * 0.12, PLATFORM_TOP], [a + side * 0.12, PLATFORM_TOP + 0.01], [a + side * 0.3, PLATFORM_TOP + 0.01], [a + side * 0.3, PLATFORM_TOP]],
+      ['#7fe7da', '#7fe7da', '#7fe7da'], [a + side * 0.21, PLATFORM_TOP]), FUT.glow);
+    edge.name = 'platform edge';
+    group.add(slab, edge);
+    // the buffers: a white end block across the line, a lit band on its face and two red lamps
+    const sEnd = atEnd ? L - BUFFER_GAP / 2 : BUFFER_GAP / 2, q = route.offsetAt(sEnd, lane);
+    const block = new THREE.Group();
+    block.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.3, BUFFER_GAP), new THREE.MeshStandardMaterial({ color: FUT.end, roughness: 0.5 })));
+    block.children[0].position.y = 0.65;
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(3.3, 0.12, BUFFER_GAP + 0.1), new THREE.MeshStandardMaterial({ color: FUT.endTrim, roughness: 0.5 }));
+    cap.position.y = 1.36;
+    const band = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.14, 0.04), FUT.glow);
+    band.position.set(0, 0.95, -toward * (BUFFER_GAP / 2 + 0.02));
+    block.add(cap, band);
+    for (const x of [-1.1, 1.1]) { const l = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.05, 12).rotateX(Math.PI / 2), FUT.red); l.position.set(x, 0.55, -toward * (BUFFER_GAP / 2 + 0.03)); block.add(l); }
+    block.position.set(q.x, q.y, q.z);
+    block.rotation.y = q.yaw;
+    block.name = 'end block';
+    group.add(block);
+    // along each platform: arc lamps at its back, their arms out over it; capsule benches between them; shelters on the
+    // town side's
+    for (let s = p0 + 8; s < p1 - 4; s += 16) {
+      await put('arc-street-lamp', { colorway: 'arc-cyan' }, s, lane + side * 5.3, PLATFORM_TOP, facing(side));
+      if ((s - p0) % 32 === 24) await put('floating-capsule-bench', { colorway: 'arc-white', length: '3.0', backrest: true }, s + 6, lane + side * 4.9, PLATFORM_TOP, facing(side));
+    }
+  }
+  // the concourse beside the town-side platform's buffer end, and its stair up from the town, in the style's footprint
+  const town = lanes.town, ts = Math.sign(town), B = S.building, across = ts * (B.near + B.far) / 2;
+  const span = atEnd ? [p1 + B.end[0], p1 + B.end[1]] : [p0 - B.start[1], p0 - B.start[0]];   // its stretch, in s
+  const moduleAt = atEnd ? span[1] - S.module.length / 2 : span[0] + S.module.length / 2;
+  const stairAt = atEnd ? span[0] + S.stairRun / 2 : span[1] - S.stairRun / 2;
+  await put(S.parts.building, { colorway: 'transit-blue', layout: 'side', canopy: 'enclosed', bays: 4 }, moduleAt, across, -0.05, facing(ts));
+  await put(S.parts.stair, { colorway: 'arcology-white' }, stairAt, across, -0.05, atEnd ? Math.PI : 0);
+  // shelters along the town-side platform's back half, from the concourse towards the open end
+  for (let k = 0; k < 6; k++) {
+    const s = atEnd ? span[0] - 4 - 4.2 * k : span[1] + 4 + 4.2 * k;
+    await put(S.parts.canopy, { colorway: 'arcology-mint', endScreens: k === 0 || k === 5 }, s, town + ts * 4.9, PLATFORM_TOP, facing(ts), { solid: false });
+  }
+  // two signs on the town-side platform, where the running-in boards would be
+  for (const s of [atEnd ? p0 + 30 : p1 - 30, atEnd ? p1 - 58 : p0 + 58]) await put(S.parts.sign, { colorway: 'transit-cyan', height: 3 }, s, town + ts * 5.6, PLATFORM_TOP, facing(ts));
+  group.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== FUT.glow && o.material !== FUT.red; o.receiveShadow = true; } });
+  group.updateMatrixWorld(true);
+  const walk = stationWalk(leg, end, { platformLength, solid });
+  return { group, platform: { sFrom: p0, sTo: p1, stopS }, buffersS, walk, lit };
 }

@@ -90,8 +90,9 @@ async function boot() {
     // the place's stations: a terminus at its end of each built leg it serves
     const ids = [];
     for (const st of PLACES[id].stations.filter((s) => legBuilt(s.leg))) {
-      const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength });
+      const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station });
       scene.add(t.group); look.shadows(t.group);
+      for (const [obj, key] of t.lit) place.kitPlace.light?.(obj, key);   // a kit-style station's lamps and windows come on with its place's
       termini[`${id}:${st.leg}`] = t; ids.push(`${id}:${st.leg}`);
     }
     places[id] = place;
@@ -100,7 +101,7 @@ async function boot() {
   // a leg: its two lines' track, and its viaducts, tunnels, trestles and guideways (with any river they cross)
   async function buildLeg(id) {
     const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
-    const tracks = lanes.map((lane) => buildTrack(route, lane));
+    const tracks = lanes.map((lane) => buildTrack(route, lane, route.sections));   // none on its guideways
     for (const t of tracks) scene.add(t);
     const structures = await buildStructures(route, lanes, route.sections, {
       terrain, waters: FEATURES.filter((f) => f.kind === 'valley' && f.water && f.leg === id),

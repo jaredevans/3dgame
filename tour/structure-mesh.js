@@ -1,6 +1,6 @@
 // A line's structures (structures.js sections) as meshes: stone viaducts on piers and arches, tunnels (a dark tube round
 // both lines, the Countryside Railway's portal at each end, a headwall over it), timber trestles on bents, and the
-// Chrome Arcology's maglev guideway on piers; plus a leg's river water and waterfall. Generated pieces follow the
+// Chrome Arcology's maglev guideway on piers (bare: no track on it); plus a leg's river water and waterfall. Generated pieces follow the
 // curve and keep to the kits' look: flat colours, few faces. route.y is the formation; rails top it by 0.30 m.
 import * as THREE from 'three';
 import { part } from './parts.js';
@@ -267,8 +267,14 @@ async function portal(route, s, inward, stone) {
   return obj;
 }
 
-// ---- guideway: the Chrome Arcology's maglev beam (support 'none'), one under each line, on piers every 24 m ----
-const G = { piece: 8, top: 3.22, depth: 3.34, every: 3 };
+// ---- guideway: the Chrome Arcology's maglev beam (support 'none'), one under each line, on piers every 24 m. No track is
+// laid on it (track-mesh.js): the train glides on the beam itself. The beam (measured) is 4 m wide, its deck 2.8 m wide
+// at 3.0 m up its own height, its own guide rail 0.8 m wide down the middle standing 0.22 m above that, and a cross band
+// at each piece's middle 0.34 m above it. Its deck stands GUIDE_DECK above the formation, where the rail tops are off
+// the guideway (0.30): so a train rides at one height on and off it, its skirts (0.40 m up) a hand's breadth over the
+// deck, the guide rail running up under its flat belly ----
+export const GUIDE_DECK = 0.3;
+const G = { piece: 8, deck: 3.0, every: 3 };
 async function guideway(route, lanes, sec, ground) {
   const group = new THREE.Group();
   const src = await part(KITS.future, 'maglev-guideway-run', { support: 'none' });
@@ -285,26 +291,26 @@ async function guideway(route, lanes, sec, ground) {
     const s = sec.s0 + (i + 0.5) * len;
     route.offsetAt(s, lane, p);
     e.set(0, p.yaw - Math.PI / 2, p.pitch);
-    v.set(p.x, p.y + DECK - G.top, p.z);
+    v.set(p.x, p.y + GUIDE_DECK - G.deck, p.z);
     beams.setMatrixAt(k++, mat.compose(v, q.setFromEuler(e), sc));
   }
   beams.castShadow = true; beams.receiveShadow = true;
   beams.name = 'guideway beams';
   beams.userData.own = true;
   group.add(beams);
-  // piers, and a block at each end where the beams come down to the embankment
-  const m = mesher();
+  // piers under the beams' feet, and a block at each end where the beams come down to the embankment
+  const m = mesher(), under = (s) => route.at(s).y + GUIDE_DECK - G.deck;
   for (let i = G.every; i < n; i += G.every) for (const lane of lanes) {
-    const s = sec.s0 + i * len, under = route.at(s).y + DECK - G.depth;
+    const s = sec.s0 + i * len, top = under(s);
     const foot = lowest(route, ground, s - 1, s + 1, lane - 1.2, lane + 1.2) - EMBED;
-    if (under - foot < 0.2) continue;
-    block(m, route, s - 0.75, s + 0.75, lane - 0.9, lane + 0.9, foot, under, GUIDE.pier);
-    block(m, route, s - 1.1, s + 1.1, lane - 1.6, lane + 1.6, under - 0.6, under + 0.01, GUIDE.trim);
+    if (top - foot < 0.2) continue;
+    block(m, route, s - 0.75, s + 0.75, lane - 0.9, lane + 0.9, foot, top, GUIDE.pier);
+    block(m, route, s - 1.1, s + 1.1, lane - 1.6, lane + 1.6, top - 0.6, top + 0.01, GUIDE.trim);
     block(m, route, s - 0.8, s + 0.8, lane - 0.95, lane + 0.95, foot + EMBED, foot + EMBED + 0.4, GUIDE.trim);
   }
   const lo = Math.min(...lanes) - 2, hi = Math.max(...lanes) + 2;
   for (const [s0, s1] of [[sec.s0, sec.s0 + 3], [sec.s1 - 3, sec.s1]]) {
-    const foot = lowest(route, ground, s0, s1, lo, hi) - EMBED, top = route.at((s0 + s1) / 2).y + DECK - G.depth;
+    const foot = lowest(route, ground, s0, s1, lo, hi) - EMBED, top = under((s0 + s1) / 2);
     block(m, route, s0, s1, lo, hi, foot, top + 0.02, GUIDE.pier);
   }
   group.add(meshOf(m, 'guideway piers'));

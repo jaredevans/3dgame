@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LEGS, PLACES, BUILT, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
+import { STATION_STYLES } from '../station-style.js';
 import { makeWalkWorld } from '../walk-world.js';
 import { BODY } from '../walk.js';
 
@@ -68,7 +69,9 @@ export const ROUND_THE_TOWN = 'a way between the stations goes round the town', 
 // def: the place's data (PLACES[id], or a variant of it)
 export function walkThroughTown(def) {
   const terrain = worldTerrain(), place = stubPlace(def, terrain);
-  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true }) }));
+  // the station building stood in from the place's station style (its footprint)
+  const building = STATION_STYLES[def.station ?? 'countryside'].building;
+  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building }) }));
   const world = makeWalkWorld({ place, termini, terrain, seaLevel: SEA_LEVEL });
   const ok = (x, z) => world.inBounds(x, z) && !world.blocked(x, z, BODY);
   const [a, b] = def.stations.map(platformMiddle);
