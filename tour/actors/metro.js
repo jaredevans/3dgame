@@ -1,5 +1,5 @@
 // The Metro Glide's leg (future-city): hover pods and cargo skiffs flying their lanes among the towers of the Futuristic
-// place and over Downtown City, lit after dark; cars, taxis and trucks going both ways along the suburbs' streets, their
+// place (not over Downtown City), lit after dark; cars, taxis and trucks going both ways along the suburbs' streets, their
 // headlights on in the dark; and an airliner coming in low over the line to land, gear down, lit after dark. (The level
 // crossing at the city end is crossing.js's; the bridge and the skyline are showpieces: shots, no actor.)
 //
@@ -82,10 +82,12 @@ function litShapes(obj, night) {
 }
 
 // ---- the fliers ----
-// twelve: six over each town, on the lanes paths.js LANES lays out (round its towers, gliding at 15 m/s and banked into
-// their turns), four commuter pods and two cargo skiffs in each, from the Chrome Arcology kit; lit after dark (their
+// six over the Futuristic place (not Downtown City: owner, 2026-11-21), on the lanes paths.js LANES lays out (round its
+// towers, gliding at 15 m/s and banked into their turns), four commuter pods and two cargo skiffs, from the Chrome
+// Arcology kit; lit after dark (their
 // headlights, tail lamps and light strips, a skiff's lift slots). Always shown, wherever you are: by the clock, so each
 // is where it would be
+export const FLIER_TOWNS = ['future'];
 const FLIERS = [
   ['commuter-hover-pod', { colorway: 'arcology-white' }], ['commuter-hover-pod', { colorway: 'lilac-line' }],
   ['hover-cargo-skiff', { colorway: 'arc-white', bays: '2' }], ['commuter-hover-pod', { colorway: 'butter-cab' }],
@@ -111,7 +113,8 @@ async function buildFliers({ leg, def, slicer, kit }) {
   }
   if (!kinds.some(Boolean)) throw new Error('none of its fliers could be made');
   const fliers = [];
-  for (const town of ['future', 'city']) {
+  // over the Futuristic place only: Downtown City is an older city with no flying cars (owner, 2026-11-21)
+  for (const town of FLIER_TOWNS) {
     for (const [i, lane] of LANES[town].entries()) {
       const k = kinds[i] ?? kinds.find(Boolean);   // (a kind that couldn't be made: another flies its lane)
       const f = new THREE.Group();
