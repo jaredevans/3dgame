@@ -1,5 +1,6 @@
 // Loading self-hosted Polyfork kit modules and parts. Every failure names the URL it tried.
 import { kitUrl, PART_BASES } from './config.js';
+import { maskAccount } from './hd-switch.js';
 
 // modules by URL, each imported once. A load that hangs can be given up on (forgetPending(), when the build it was for
 // stalled): it's forgotten, and the next load of that URL imports it afresh under a query (?retry=n), since the browser's
@@ -70,11 +71,12 @@ export async function firstOf(bases, file, load, onFallback = () => {}) {
   throw err;
 }
 const warned = new Set();
-// a part not self-hosted yet is said once: run scripts/extract-parts.mjs to copy it beside the kits
+// a part not self-hosted yet is said once: run scripts/extract-parts.mjs to copy it beside the kits (the account CDN's
+// link, when that was the base it wanted, masked: it's never printed)
 export const fellBack = (url, wanted) => {
   if (warned.has(wanted)) return;
   warned.add(wanted);
-  console.warn(`${wanted} isn't self-hosted (run node scripts/extract-parts.mjs): loaded from ${url}`);
+  console.warn(maskAccount(`${wanted} isn't self-hosted (run node scripts/extract-parts.mjs): loaded from ${url}`));
 };
 export const partBases = () => PART_BASES.map(absolute);
 

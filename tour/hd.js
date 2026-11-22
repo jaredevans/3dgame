@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { PART_BASES } from './config.js';
 import { firstOf, partBases } from './parts.js';
-import { hdOn, hdCarUrl, envLevel, animalDress, isAccountCdn, HD_ANIMALS } from './hd-switch.js';
+import { hdOn, hdCarUrl, envLevel, animalDress, isAccountCdn, withTimeout, maskAccount, HD_ANIMALS } from './hd-switch.js';
 
 export const HD = hdOn(globalThis.location?.search ?? '', PART_BASES);
 // the environment's strength by day, where the HD models sit with the flat models and the towns beside them. It lights a
@@ -20,25 +20,47 @@ export const HD = hdOn(globalThis.location?.search ?? '', PART_BASES);
 const ENV_METAL = 0.45, ENV_DIELECTRIC = 0.06;
 const envBase = (m) => ENV_DIELECTRIC + (ENV_METAL - ENV_DIELECTRIC) * Math.min(1, Math.max(0, m.metalness ?? 0));
 
+// How long an HD load from the account CDN is waited on before the flat model is built instead. A host that never
+// answers would otherwise hold a train's build for ever (at boot, the loading screen; after it, the streamer's retries
+// would import the same hung URL again each time)
+export const HD_WAIT = 15;       // s, a train car's HD module and its createAsset
+export const PARAMS_WAIT = 8;    // s, an animal's -params.json from one base (then the next base is tried)
 const failed = new Set();   // kit part keys whose HD edition failed to load: flat from then on, not tried again
-// a kit car's HD module, or null (HD off, the part has no HD edition, or it failed to load before)
-export const hdUrlFor = (key) => (failed.has(key) ? null : hdCarUrl(key, { on: HD, bases: partBases() }));
+let down = false;           // the account CDN didn't answer in time: every train car flat from then on
+// a kit car's HD module, or null (HD off, the part has no HD edition, it failed to load before, or the account CDN is
+// down)
+export const hdUrlFor = (key) => (down || failed.has(key) ? null : hdCarUrl(key, { on: HD, bases: partBases() }));
+// load(): a car's HD edition, given up on after HD_WAIT s (thrown, as a failed load is)
+export const hdCar = (key, load) => withTimeout(load(), HD_WAIT * 1000, `the ${key}'s HD edition`);
 
 const warned = new Set();
 // each thing that fell back to flat is said once, by its name (never the account link)
 export function warnFlat(what, err) {
   if (warned.has(what)) return;
   warned.add(what);
-  const why = String(err?.message ?? err).replace(/https?:\/\/\S+\/c\/[^/\s]+\//g, '<account CDN>/');
+  const why = maskAccount(err?.message ?? err);
   console.warn(`HD ${what} could not be loaded (${why}): using the flat model`);
 }
-// a car's HD edition failed: built flat, now and from now on
+// a car's HD edition failed: built flat, now and from now on; one that timed out takes every HD train car with it (the
+// account CDN isn't answering: the next car would only wait as long again)
 export function hdFailed(key, err) {
   failed.add(key);
-  warnFlat(`edition of the ${key}`, err);
+  if (err?.timeout) down = true;
+  warnFlat(err?.timeout ? 'editions (the account CDN did not answer)' : `edition of the ${key}`, err);
 }
 
 let envMap = null, level = 1;
+// every HD material, held weakly (one let go of with its train is forgotten with it), its strength written to each as the
+// daylight changes. A copy of one (fitCab clones the lead car's shell materials) is registered as it's made
+const lit = new Set();   // WeakRef<Material>
+function register(m) {
+  lit.add(new WeakRef(m));
+  m.clone = function clone() {
+    const c = THREE.Material.prototype.clone.call(this);
+    register(c);
+    return c;
+  };
+}
 // made once, at boot (behind the loading screen), only while HD is on. The unloader frees what a train let go of uses and
 // nothing still in the scene does: the environment outlives every model, so freeing it is a no-op (a render target's
 // texture never comes back)
@@ -52,13 +74,16 @@ export function makeHdEnvironment(renderer) {
   envMap.dispose = () => {};
 }
 
-// give every physically based material under root the environment, at today's strength (before its programs are warmed:
-// the envMap is part of the program, the strength only a uniform). Its copies (a cab's clipped shell) keep the flag.
-export function hdLight(root) {
+// give every physically based material under root (of the meshes `only` picks) the environment, at today's strength
+// (before its programs are warmed: the envMap is part of the program, the strength only a uniform). Its copies (a cab's
+// clipped shell) are registered too.
+export function hdLight(root, only = () => true) {
   if (!envMap) return root;
   root.traverse((o) => {
-    for (const m of [].concat(o.material ?? [])) {
+    if (!o.material || !only(o)) return;
+    for (const m of [].concat(o.material)) {
       if (!m?.isMeshStandardMaterial) continue;
+      if (m.userData.hdEnv === undefined) register(m);
       m.envMap = envMap;
       m.userData.hdEnv = envBase(m);   // its daytime strength
       m.envMapIntensity = m.userData.hdEnv * level;
@@ -68,18 +93,19 @@ export function hdLight(root) {
   return root;
 }
 
-// once a frame: the environment's strength from stage()'s hemisphere light now; when it changes, every HD material in
-// the scene is written (the scene walked, as the tunnel dimmer walks it for its lights)
-export function updateHdLight(hemi, scene) {
+// once a frame: the environment's strength from stage()'s hemisphere light now; when it changes, every HD material is
+// written, in the scene or not (a train being built, an animal's source)
+export function updateHdLight(hemi) {
   if (!envMap) return;
   const next = envLevel(hemi.intensity, hemi.color);
   if (next === level) return;
   level = next;
-  scene.traverse((o) => {
-    if (!o.material) return;
-    for (const m of [].concat(o.material)) if (m.userData.hdEnv) m.envMapIntensity = m.userData.hdEnv * level;
-  });
+  for (const ref of lit) {
+    const m = ref.deref();
+    if (m) m.envMapIntensity = m.userData.hdEnv * level; else lit.delete(ref);
+  }
 }
+export const hdMaterials = () => lit.size;   // (the debug hook's: how many are registered, freed ones included until next write)
 
 // Polyfork's materials engine, imported once while HD is on, from beside the parts (scripts/extract-parts.mjs fetches it:
 // polyfork.dev serves it without the CORS headers a page here needs to import it, and the account CDN hasn't it); null if
@@ -94,8 +120,9 @@ export function materialsEngine() {
   return engine;
 }
 
+// each base given PARAMS_WAIT s (a host that never answers is given up on, and the next base tried)
 const fetchJson = async (url) => {
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(PARAMS_WAIT * 1000) });
   if (!r.ok) throw new Error(`${r.status}`);
   return r.json();
 };

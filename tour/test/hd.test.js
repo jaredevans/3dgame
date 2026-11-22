@@ -104,3 +104,28 @@ test('every animal the actors load is one whose HD maps are made at boot', async
   assert.ok(loaded.size >= 4, `found ${[...loaded]}`);
   for (const id of loaded) assert.ok(HD_ANIMALS.includes(id), `${id} is not in HD_ANIMALS`);
 });
+
+// an HD load from the account CDN that hangs (the host never answers) must not stall a build for ever: it's given up on
+// after a while and the flat model is built instead
+test('withTimeout settles with the promise, or rejects once the time is up (marked as a timeout)', async () => {
+  const { withTimeout } = await import('../hd-switch.js');
+  assert.equal(await withTimeout(Promise.resolve(7), 50), 7);
+  await assert.rejects(withTimeout(Promise.reject(new Error('404')), 50), /404/);
+  const hung = new Promise(() => {});
+  const t0 = Date.now();
+  await assert.rejects(withTimeout(hung, 30, 'the coach'), (err) => err.timeout === true && /the coach/.test(err.message) && /30 ms/.test(err.message));
+  assert.ok(Date.now() - t0 < 1000);
+  // a late answer after the time is up changes nothing (no unhandled rejection either)
+  let late;
+  const slow = new Promise((r, j) => { late = j; });
+  await assert.rejects(withTimeout(slow, 10), (err) => err.timeout === true);
+  late(new Error('too late'));
+  await new Promise((r) => setTimeout(r, 5));
+});
+
+test("the account CDN's link is masked in messages", async () => {
+  const { maskAccount } = await import('../hd-switch.js');
+  assert.equal(maskAccount('https://polyfork.dev/c/abc123/deer-base.glb isn\'t self-hosted'), "<account CDN>/deer-base.glb isn't self-hosted");
+  assert.equal(maskAccount('failed: http://10.255.255.1/c/x/a-hd.mjs and https://polyfork.dev/c/y/b.mjs'), 'failed: <account CDN>/a-hd.mjs and <account CDN>/b.mjs');
+  assert.equal(maskAccount('./kits/parts/deer-base.glb from https://polyfork.dev/cdn/deer-base.glb'), './kits/parts/deer-base.glb from https://polyfork.dev/cdn/deer-base.glb');
+});

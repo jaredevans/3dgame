@@ -44,3 +44,19 @@ test('firstOf loads from the first base that has the file, saying so when it fal
   assert.deepEqual(said, [['https://cdn.test/b.mjs', './kits/parts/b.mjs']]);
   await assert.rejects(firstOf(bases, 'c.mjs', load), /404 https:\/\/cdn\.test\/c\.mjs/, 'none has it: the last error');
 });
+
+// a part taken from a later base is said once; the base it wanted first may be the owner's account CDN, whose link is
+// never printed
+test("a part that fell back is said once, the account CDN's link masked", async () => {
+  const { fellBack } = await import('../parts.js');
+  const said = [], warn = console.warn;
+  console.warn = (...a) => said.push(a.join(' '));
+  try {
+    fellBack('http://x/kits/parts/a-1.glb', 'https://polyfork.dev/c/tok999/a-1.glb');
+    fellBack('http://x/kits/parts/a-1.glb', 'https://polyfork.dev/c/tok999/a-1.glb');
+  } finally { console.warn = warn; }
+  assert.equal(said.length, 1);
+  assert.ok(!said[0].includes('tok999'), said[0]);
+  assert.match(said[0], /<account CDN>\/a-1\.glb/);
+  assert.match(said[0], /http:\/\/x\/kits\/parts\/a-1\.glb/);
+});

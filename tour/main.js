@@ -851,7 +851,7 @@ async function boot() {
       for (const t of Object.values(fleet.trains)) t.model.night?.(look.night);   // a train's own lit windows
     }
     dimmer.update(Math.round(tunnelDark() * 100) / 100);   // in steps of 1%, so lights are written only as it changes
-    updateHdLight(look.hemi, scene);   // the HD materials' environment, after the daylight and the tunnel's dimming
+    updateHdLight(look.hemi);   // the HD materials' environment, after the daylight and the tunnel's dimming
     addWeather(sky);
     skyDome.update(sky, sunDir, dt);
     scene.background = null;

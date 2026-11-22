@@ -7,7 +7,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { firstOf, fellBack, partBases } from '../parts.js';
-import { animalHow, warnFlat, hdLight } from '../hd.js';
+import { animalHow, warnFlat, hdLight, HD_WAIT } from '../hd.js';
+import { withTimeout } from '../hd-switch.js';
 import { clipFor } from './clips.js';
 
 export { clipFor };
@@ -16,22 +17,26 @@ const loader = new GLTFLoader();
 const loads = new Map();   // id -> promise of the gltf
 
 // dress a loaded animal in HD (hd.js), in place, if HD is on: its zones found by their albedo, smoothed and blended as
-// the materials engine does for an organic body, and lit for its materials; -> meshes dressed (0: left flat)
+// the materials engine does for an organic body, and lit for its materials (whatever was dressed, even if dressing the
+// rest threw); -> meshes dressed (0: left flat). How it's dressed is waited on HD_WAIT s at most (its -params.json from a
+// host that never answers): after that it stays flat
 async function dressHd(id, scene) {
-  const how = await animalHow(id);
+  let how;
+  try { how = await withTimeout(animalHow(id), HD_WAIT * 1000, `the ${id}'s -params.json`); } catch (err) { warnFlat(`dress of the ${id}`, err); return 0; }
   if (!how) return 0;
   try {
-    const n = how.engine.dressByAlbedo(scene, how.zones, how.materials);
-    hdLight(scene);
-    return n;
-  } catch (err) { warnFlat(`dress of the ${id}`, err); return 0; }
+    return how.engine.dressByAlbedo(scene, how.zones, how.materials);
+  } catch (err) { warnFlat(`dress of the ${id}`, err); return 0; } finally { hdLight(scene, (o) => Array.isArray(o.material)); }
 }
 
 // -> { make() -> Animal }; throws an error naming the URL if the load fails (and forgets it, so it's tried again)
 export function loadAnimal(id) {
   if (!loads.has(id)) {
     const bases = partBases(), url = `${bases[bases.length - 1]}${id}.glb`;
-    loads.set(id, firstOf(bases, `${id}.glb`, (u) => loader.loadAsync(u), fellBack).then(async (gltf) => {
+    // each base given HD_WAIT s (the account CDN first, when configured: a host that never answers is given up on and the
+    // next base tried)
+    const load = (u) => withTimeout(loader.loadAsync(u), HD_WAIT * 1000, `${id}.glb`);
+    loads.set(id, firstOf(bases, `${id}.glb`, load, fellBack).then(async (gltf) => {
       await dressHd(id, gltf.scene);
       return gltf;
     }, (err) => {

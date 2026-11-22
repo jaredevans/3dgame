@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { KITS } from './config.js';
 import { part, urlPart } from './parts.js';
 import { placeCars } from './consist.js';
-import { hdUrlFor, hdFailed, hdLight } from './hd.js';
+import { hdUrlFor, hdCar, hdFailed, hdLight } from './hd.js';
 
 // The basement's measureVehicle (index.html), unchanged: finds a vehicle's pivots, bogies and spinnable wheels.
 export function measureVehicle(obj, flip) {
@@ -42,12 +42,12 @@ function asFlatWheels(wheels) {
   return wheels.filter((w) => depth(w.node) <= 1);
 }
 
-// one car: its HD edition when HD is on and it has one (lit for its materials: hd.js), else, or if that fails to load
-// (said once), its flat kit part -> { obj, hd }
+// one car: its HD edition when HD is on and it has one (lit for its materials: hd.js), else, or if that fails to load or
+// doesn't come in time (said once), its flat kit part -> { obj, hd }
 async function carPart(kit, key, params) {
   const url = hdUrlFor(key);
   if (url) {
-    try { return { obj: hdLight(await urlPart(url, key, params)), hd: true }; } catch (err) { hdFailed(key, err); }
+    try { return { obj: hdLight(await hdCar(key, () => urlPart(url, key, params))), hd: true }; } catch (err) { hdFailed(key, err); }
   }
   return { obj: await part(kit, key, params), hd: false };
 }

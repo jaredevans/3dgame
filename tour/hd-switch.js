@@ -44,3 +44,21 @@ export function envLevel(intensity, { r, g, b }) {
 
 // the animals the actors load (loadAnimal): dressed in HD, the maps their materials need are made at boot (hd.js)
 export const HD_ANIMALS = ['deer-base', 'cow-base', 'saddled-horse-da86d3', 'wild-horse-047e93'];
+
+// promise, or a rejection once `ms` have passed without it settling (err.timeout true): a load from a host that never
+// answers is given up on, not waited on for ever. What it does after that is ignored
+export function withTimeout(promise, ms, what = 'it') {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${what} took longer than ${ms} ms`);
+      err.timeout = true;
+      reject(err);
+    }, ms);
+  });
+  promise.catch(() => {});   // a rejection after the time is up is nobody's
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+// a message with the owner's account CDN link (https://host/c/<token>/) masked: it is never printed
+export const maskAccount = (text) => String(text).replace(/https?:\/\/[^\s/]+\/c\/[^\s/]+\//g, '<account CDN>/');
