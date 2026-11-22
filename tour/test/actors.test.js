@@ -407,3 +407,183 @@ test('formationReach covers every drone of every shape and morph along the line'
   assert.ok(reach >= 46, `reach ${reach}`);
   for (let t = 0; t < 40; t += 0.25) for (let i = 0; i < 24; i++) assert.ok(Math.abs(formationAt(t, i, 24).along) <= reach + 1e-9);
 });
+
+// ---- the Seaside Excursion's leg (actors/coast.js) ----
+import {
+  clearsLevel, landSpot, LIGHTHOUSE, lighthouseSpot, shoreTable, paceBounds, LEAP, leapAt, loopAt, FREIGHT, zoneOfTriangles,
+} from '../actors/paths.js';
+import { worldTerrain, SEA_LEVEL } from '../world-data.js';
+
+const CO = legRoute('city-ocean');
+const LAND = worldTerrain();
+
+test('clearsLevel holds only if the whole footprint stands over the level', () => {
+  const h = (x) => (x < 0 ? 10 : -5);
+  assert.equal(clearsLevel(h, -20, 0, 6, 3), true);
+  assert.equal(clearsLevel(h, -4, 0, 6, 3), false, 'its edge over the sea');
+  assert.equal(clearsLevel(h, 20, 0, 6, 3), false);
+});
+
+test('landSpot finds the nearest spot that fits, or null', () => {
+  const at = landSpot({ x: 0, z: 0 }, (x, z) => z >= 30, { step: 2, reach: 100 });
+  assert.ok(Math.abs(at.x) < 3 && at.z >= 30 && at.z < 33, `at ${at.x}, ${at.z}`);
+  assert.deepEqual(landSpot({ x: 5, z: 5 }, () => true, { step: 2, reach: 100 }), { x: 5, z: 5 });
+  assert.equal(landSpot({ x: 0, z: 0 }, () => false, { step: 2, reach: 20 }), null);
+});
+
+test('the lighthouse\'s spot: the brief\'s is in the sea, so it stands on the cliff top nearest it, on land 3 m up', () => {
+  assert.ok(LAND.heightAt(LIGHTHOUSE.x, LIGHTHOUSE.z) < SEA_LEVEL, 'the brief\'s spot is over the sea');
+  const at = lighthouseSpot(LAND.heightAt, SEA_LEVEL);
+  assert.ok(at, 'somewhere');
+  assert.equal(LIGHTHOUSE.above, 3);
+  assert.ok(clearsLevel(LAND.heightAt, at.x, at.z, LIGHTHOUSE.r, SEA_LEVEL + 3), 'its footprint all 3 m over the sea');
+  assert.ok(clearsLevel(LAND.heightAt, at.x, at.z, LIGHTHOUSE.r, LAND.heightAt(at.x, at.z) - 2), 'on the top, not over the edge');
+  assert.ok(Math.hypot(at.x - LIGHTHOUSE.x, at.z - LIGHTHOUSE.z) < 60, `${at.x}, ${at.z} is far from the brief's spot`);
+  // seaward of the line, and clear of it
+  const P = {};
+  let near = Infinity;
+  for (let s = 900; s <= 1300; s += 2) { CO.at(s, P); near = Math.min(near, Math.hypot(at.x - P.x, at.z - P.z)); }
+  assert.ok(near > 20, `only ${near} m from the line`);
+  assert.ok(at.z < -230, 'on the sea side');
+});
+
+test('shoreTable says how far out the waterline is on the sea side all along the cliffs', () => {
+  const shore = shoreTable(CO, LAND.heightAt, 1, 400, 1850, { step: 5 });
+  const P = {};
+  for (let s = 400; s <= 1850; s += 37) {
+    const l = shore(s);
+    assert.ok(l > 5 && l < 300, `at ${s}: ${l}`);
+    herdPath(CO, s, 1, l + 2, P);
+    assert.ok(LAND.heightAt(P.x, P.z) < SEA_LEVEL, `at ${s}: not sea 2 m past it`);
+    herdPath(CO, s, 1, l - 6, P);
+    assert.ok(LAND.heightAt(P.x, P.z) >= SEA_LEVEL - 1, `at ${s}: sea well short of it`);
+  }
+  assert.equal(shore(0), shore(400), 'held at its ends');
+  const one = shoreTable(CO, LAND.heightAt, 1, 1100, 1100);
+  assert.ok(Math.abs(one(1100) - shore(1100)) < 1 && one(0) === one(1100), 'a table of one place');
+  // and it's sea 80-900 m past it, where the dolphins and the boats go
+  for (const d of [80, 150, 300, 900]) { herdPath(CO, 1100, 1, shore(1100) + d, P); assert.ok(LAND.heightAt(P.x, P.z) < SEA_LEVEL - 1, `${d} m out`); }
+});
+
+test('the gulls keep clear of both platform windows, inside their own window', () => {
+  const def = EVENTS['city-ocean'].find((e) => e.id === 'gulls');
+  const { lo, hi } = paceBounds(def, CO.length, 20);
+  assert.ok(lo >= 122 + 20 && lo >= def.s0);
+  assert.ok(hi <= CO.length - 122 - 20 && hi <= def.s1, `hi ${hi}`);
+  assert.ok(hi < def.s1, 'its window runs into Oceanside\'s platform: cut short');
+  // paced at full speed, then the train slowing below 3 m/s: never out of lo..hi, and off once slow
+  let st = null, legS = 450;
+  for (let k = 0; k < 6000; k++) {
+    const v = k < 3000 ? 100 / 3.6 : 2;
+    st = paceStep(st, { legS, dir: 'out', v, dt: 1 / 60, lo, hi });
+    assert.ok(st.s >= lo && st.s <= hi);
+    legS += v / 60;
+  }
+  assert.equal(st.mode, 'off');
+});
+
+test('each dolphin\'s leap takes 1.2 s, from the surface and back, the pod leaping in turn', () => {
+  assert.equal(LEAP.secs, 1.2);
+  const n = 4, dt = 0.01, starts = [], o = {};
+  const was = Array(n).fill(false);
+  for (let t = 0; t < 20; t += dt) {
+    for (let i = 0; i < n; i++) {
+      leapAt(t, i, n, 10, o);
+      if (o.air && !was[i]) starts.push({ i, t });
+      was[i] = o.air;
+    }
+  }
+  // in turn: 0, 1, 2, 3, 0, ...
+  starts.slice(0, 8).forEach((s, k) => assert.equal(s.i, k % n));
+  // each one in the air for 1.2 s
+  for (let i = 0; i < n; i++) {
+    const t0 = starts.find((s) => s.i === i).t;
+    let air = 0;
+    for (let t = t0; t < t0 + 3; t += dt) if (leapAt(t, i, n, 10, o).air) air += dt;
+    assert.ok(Math.abs(air - 1.2) < 0.03, `dolphin ${i}: ${air} s up`);
+  }
+});
+
+test('a leap arcs out of the water and back, pitched along its arc', () => {
+  const t0 = 0, o = {};   // dolphin 0 leaps first, at t 0
+  const at = (u) => leapAt(t0 + u * LEAP.secs, 0, 4, 10, { ...o });
+  assert.ok(at(0.01).y < 0.2 && at(0.99).y < 0.2, 'from and to the surface');
+  assert.ok(at(0.5).y > 1.5, `up ${at(0.5).y} m at the top`);
+  assert.ok(at(0.1).pitch > 0.3, 'nose up rising');
+  assert.ok(at(0.9).pitch < -0.3, 'nose down falling');
+  assert.ok(Math.abs(at(0.5).pitch) < 0.05, 'level at the top');
+  // the pitch follows the arc's own slope for its forward speed
+  const u = 0.2, h = 1e-4, y1 = at(u).y, y2 = leapAt((u + h) * LEAP.secs, 0, 4, 10, {}).y;
+  assert.ok(Math.abs(Math.atan2((y2 - y1) / (h * LEAP.secs), 10) - at(u).pitch) < 1e-3);
+  // and between leaps it swims just under the surface, level
+  const under = leapAt(LEAP.secs + 0.2, 0, 4, 10, {});
+  assert.equal(under.air, false);
+  assert.ok(under.y < 0 && under.y > -1.5 && under.pitch === 0);
+});
+
+test('a slow pod still leaps (its pitch from a dolphin\'s own swimming pace, not standing straight up)', () => {
+  const p = leapAt(0.1, 0, 4, 0, {}).pitch;
+  assert.ok(p > 0.3 && p < 1.4, `pitch ${p}`);
+});
+
+test('the sailboats\' loops: on the ellipse, heading along it, at their speed', () => {
+  const loop = { a: 200, b: 80, speed: 1.5, phase: 0.7 }, o = {}, q = {};
+  for (let t = 0; t < 400; t += 13) {
+    loopAt(t, loop, o);
+    assert.ok(Math.abs((o.along / loop.a) ** 2 + (o.across / loop.b) ** 2 - 1) < 1e-9);
+    loopAt(t + 0.01, loop, q);
+    const v = Math.hypot(q.along - o.along, q.across - o.across) / 0.01;
+    assert.ok(v > 0.5 && v < 4, `speed ${v}`);
+    const head = Math.atan2(q.along - o.along, q.across - o.across);
+    const d = Math.atan2(Math.sin(head - o.heading), Math.cos(head - o.heading));
+    assert.ok(Math.abs(d) < 0.01, `heading off by ${d}`);
+  }
+});
+
+// the freight runs on bulletStep with its own speed and reach
+function freightRace({ dir, legS, v, lo, hi, meet, secs = 120 }) {
+  const sgn = dir === 'back' ? -1 : 1, dt = 1 / 60;
+  let st = null, meetS = null, before = null, lastShownBehind = -Infinity, minS = Infinity, maxS = -Infinity, rumbles = 0;
+  for (let k = 0; k < secs * 60; k++) {
+    st = bulletStep(st, { legS, v, dir, dt, meet, lo, hi, speed: FREIGHT.speed, behind: FREIGHT.behind, near: FREIGHT.near });
+    if (st.whoosh) rumbles++;
+    if (st.shown) {
+      minS = Math.min(minS, st.s); maxS = Math.max(maxS, st.s);
+      const ahead = (st.s - legS) * sgn;
+      if (before !== null && before > 0 && ahead <= 0) meetS = legS;
+      before = ahead;
+      lastShownBehind = Math.max(lastShownBehind, -ahead);
+    }
+    legS += sgn * v * dt;
+  }
+  return { meetS, rumbles, lastShownBehind, minS, maxS, st };
+}
+
+test('the freight: 60 km/h the other way, the fronts passing at its window\'s middle both ways, gone 400 m behind', () => {
+  assert.ok(Math.abs(FREIGHT.speed * 3.6 - 60) < 1e-9);
+  assert.equal(FREIGHT.behind, 400);
+  const def = EVENTS['city-ocean'].find((e) => e.id === 'freight'), meet = (def.s0 + def.s1) / 2, L = CO.length, length = 110;
+  assert.equal(meet, 875);
+  const bounds = { out: { lo: 122, hi: L - 122 - length }, back: { lo: 122 + length, hi: L - 122 } };
+  for (const v of [100 / 3.6, 60 / 3.6, 8]) {
+    for (const [dir, legS] of [['out', def.s0], ['back', def.s1]]) {
+      const { lo, hi } = bounds[dir];
+      const r = freightRace({ dir, legS, v, lo, hi, meet, secs: 200 });
+      assert.ok(r.meetS !== null && Math.abs(r.meetS - meet) < 3, `${dir} at ${v}: met at ${r.meetS}`);
+      assert.ok(r.lastShownBehind <= FREIGHT.behind + 3, `${dir}: shown ${r.lastShownBehind} m behind`);
+      assert.ok(r.minS >= lo && r.maxS <= hi, `${dir}: ran ${r.minS}..${r.maxS}`);
+      assert.equal(r.rumbles, 1);
+    }
+  }
+});
+
+test('zoneOfTriangles finds a zone\'s triangles by all three of their vertex colours, as Polyfork matches albedo', () => {
+  const glass = { r: 0.64, g: 0.62, b: 0.5 }, win = { r: 0.05, g: 0.07, b: 0.1 };
+  const tri = (c, d = c, e = c) => [c.r, c.g, c.b, d.r, d.g, d.b, e.r, e.g, e.b];
+  const other = { r: 0.3, g: 0.3, b: 0.3 }, near = { r: 0.642, g: 0.619, b: 0.501 };
+  const colors = new Float32Array([...tri(glass), ...tri(other), ...tri(win), ...tri(glass, glass, other), ...tri(near)]);
+  assert.deepEqual([...zoneOfTriangles(colors, 3, [glass, win])], [0, -1, 1, -1, 0]);
+  // four-wide colours (RGBA) too
+  const rgba = new Float32Array([glass.r, glass.g, glass.b, 1, glass.r, glass.g, glass.b, 1, glass.r, glass.g, glass.b, 1]);
+  assert.deepEqual([...zoneOfTriangles(rgba, 4, [win, glass])], [1]);
+});

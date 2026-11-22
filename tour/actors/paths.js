@@ -256,3 +256,120 @@ export function rocketAt(t, out = {}) {
   out.pitch = pitchAt(Math.min(ROCKET.secs, Math.max(0, t)));
   return out;
 }
+
+// ---- the Seaside Excursion's leg (coast.js) ----
+
+// true if the land under (x, z) and round it, out to radius r (two rings of eight), all stands above `level`
+// (heightAt: the world terrain's)
+export function clearsLevel(heightAt, x, z, r, level) {
+  if (!(heightAt(x, z) > level)) return false;
+  for (const k of [0.5, 1]) for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4;
+    if (!(heightAt(x + Math.cos(a) * r * k, z + Math.sin(a) * r * k) > level)) return false;
+  }
+  return true;
+}
+
+// the nearest point to `near` on a grid `step` apart, out to `reach`, where ok(x, z) holds: -> { x, z } or null
+export function landSpot(near, ok, { step = 2, reach = 120 } = {}) {
+  const n = Math.floor(reach / step), offs = [];
+  for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) if (Math.hypot(i, j) * step <= reach + 1e-9) offs.push([i, j]);
+  offs.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]));
+  for (const [i, j] of offs) {
+    const x = near.x + i * step, z = near.z + j * step;
+    if (ok(x, z)) return { x, z };
+  }
+  return null;
+}
+
+// the lighthouse: wanted near (x, z) on the cliff top seaward of the line (that's over the sea, past the cliff's edge,
+// so it stands on the nearest land that takes it): its footprint (radius r, round the model's 4.4 x 5.3 m islet) all
+// `above` metres over the sea, and within `slack` of the land under its middle, so it's on the top, not over the edge
+export const LIGHTHOUSE = { x: 1120, z: -300, r: 6, above: 3, slack: 2 };
+
+// -> { x, z } or null (heightAt: the world terrain's; seaLevel: SEA_LEVEL)
+export function lighthouseSpot(heightAt, seaLevel = 0) {
+  const L = LIGHTHOUSE;
+  const ok = (x, z) => clearsLevel(heightAt, x, z, L.r, seaLevel + L.above) && clearsLevel(heightAt, x, z, L.r, heightAt(x, z) - L.slack);
+  return landSpot(L, ok, { step: 2, reach: 120 });
+}
+
+// how far out from the line (metres, on `side`: +1 left of the leg's out direction) the waterline is at leg-s s, found
+// every `step` metres over s0..s1 by marching out to the first land under `level` (then halving in on it), and read
+// between them (held at the ends): -> shore(s) -> lateral
+export function shoreTable(route, heightAt, side, s0, s1, { step = 5, march = 2, reach = 600, level = 0 } = {}) {
+  const n = Math.max(1, Math.ceil((s1 - s0) / step)), table = new Float64Array(n + 1), P = {};
+  const wet = (s, l) => { herdPath(route, s, side, l, P); return heightAt(P.x, P.z) < level; };
+  for (let k = 0; k <= n; k++) {
+    const s = s0 + (s1 - s0) * k / n;
+    let l = 0;
+    while (l < reach && !wet(s, l)) l += march;
+    let a = Math.max(0, l - march), b = l;
+    for (let i = 0; i < 12; i++) { const m = (a + b) / 2; if (wet(s, m)) b = m; else a = m; }
+    table[k] = b;
+  }
+  if (!(s1 > s0)) return () => table[0];   // (one place)
+  return (s) => {
+    const c = Math.min(n, Math.max(0, (s - s0) / (s1 - s0) * n)), k = Math.min(n - 1, Math.floor(c)), u = c - k;
+    return table[k] + (table[k + 1] - table[k]) * u;
+  };
+}
+
+// the stretch of leg-s something keeping pace with the train keeps to: its event's window, less `spread` (how far its
+// members reach either way of its middle) clear of each platform window (`platform` metres at either end of the leg)
+export function paceBounds(def, length, spread, platform = 122) {
+  return { lo: Math.max(def.s0, platform + spread), hi: Math.min(def.s1, length - platform - spread) };
+}
+
+// the dolphins' leaps: each `secs` long, the pod's in turn `gap` seconds apart (so each of n leaps every n x gap
+// seconds); its origin (at its belly) from `deep` under the sea up to `high` over it and back. Between leaps each swims
+// `deep` under, its fin out. A leap is pitched along its arc for the pod's speed through the water, or a dolphin's own
+// `pace` if that's slower (a slow pod's dolphins still swim on as they leap)
+export const LEAP = { secs: 1.2, gap: 0.8, high: 2.2, deep: 0.7, pace: 7 };
+
+// t seconds in (dolphin 0 leaps first, at 0; none before its turn), dolphin i of n, the pod going `speed` m/s -> out,
+// filled ({ air, u: 0..1 through its leap, y: its height over the sea, pitch: radians nose-up })
+export function leapAt(t, i, n, speed, out = {}) {
+  const period = n * LEAP.gap, tau = (((t - i * LEAP.gap) % period) + period) % period;
+  out.air = t >= i * LEAP.gap && tau < LEAP.secs;
+  if (!out.air) { out.u = 0; out.y = -LEAP.deep; out.pitch = 0; return out; }
+  const u = tau / LEAP.secs, rise = LEAP.high + LEAP.deep;
+  out.u = u;
+  out.y = -LEAP.deep + rise * 4 * u * (1 - u);
+  out.pitch = Math.atan2(rise * 4 * (1 - 2 * u) / LEAP.secs, Math.max(speed, LEAP.pace));
+  return out;
+}
+
+// a sailboat's slow loop: an ellipse `a` metres along the coast either way of its middle and `b` across, sailed at
+// about `speed` m/s from `phase` (radians round it) -> out, filled ({ along, across, heading: its way, as
+// atan2(along, across) of its velocity })
+export function loopAt(t, { a, b, speed, phase = 0 }, out = {}) {
+  const w = speed / ((a + b) / 2), th = phase + w * t;
+  out.along = a * Math.cos(th);
+  out.across = b * Math.sin(th);
+  out.heading = Math.atan2(-a * Math.sin(th), b * Math.cos(th));
+  return out;
+}
+
+// the freight on the other line, the other way at 60 km/h (it runs on bulletStep with these): it rumbles as the fronts
+// come within `near`, and hides once more than `behind` metres behind you
+export const FREIGHT = { speed: 60 / 3.6, near: 60, behind: 400 };
+
+// which zone (index into targets, each { r, g, b } in the geometry's own colour space) each triangle of a non-indexed
+// geometry's vertex colours is: all three of its corners within `tol` of it, as Polyfork matches a zone by its albedo;
+// -1 for none -> Int16Array
+export function zoneOfTriangles(colors, itemSize, targets, tol = 0.004) {
+  const tris = Math.floor(colors.length / itemSize / 3), which = new Int16Array(tris).fill(-1);
+  for (let t = 0; t < tris; t++) {
+    for (let z = 0; z < targets.length && which[t] < 0; z++) {
+      const f = targets[z];
+      let ok = true;
+      for (let c = 0; c < 3 && ok; c++) {
+        const i = (t * 3 + c) * itemSize;
+        ok = Math.abs(colors[i] - f.r) < tol && Math.abs(colors[i + 1] - f.g) < tol && Math.abs(colors[i + 2] - f.b) < tol;
+      }
+      if (ok) which[t] = z;
+    }
+  }
+  return which;
+}
