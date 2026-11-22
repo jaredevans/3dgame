@@ -321,8 +321,21 @@ test('the escort stays on the path\'s line over its flight, clear of the towers 
     return TOWERS[town].map((w) => ({ ...w, P, wx: P.centre.x + w.x * c + w.z * s, wz: P.centre.z - w.x * s + w.z * c }));
   });
   let seen = 0;
+  const placed = offs.map(() => ({})), car = {};
   for (let s = ev.s0; s <= ev.s1; s += 4) {
     formationOffsets((s - ev.s0) / r.profile.v, offs);
+    r.path.at(s, car);
+    for (let i = 0; i < offs.length; i++) { Object.assign(slot, offs[i]); placeEscort(r, s, slot, placed[i]); }
+    // in placed space too, 8 m between craft in sight (and from the car once all have joined)
+    for (let i = 0; i < placed.length; i++) {
+      if (!placed[i].visible) continue;
+      if (s >= ESCORT.from + ESCORT.join) assert.ok(Math.hypot(placed[i].x - car.x, placed[i].y - car.y, placed[i].z - car.z) >= 8, `an escort within 8 m of the car at ${s}`);
+      for (let j = i + 1; j < placed.length; j++) {
+        if (!placed[j].visible) continue;
+        const d = Math.hypot(placed[i].x - placed[j].x, placed[i].y - placed[j].y, placed[i].z - placed[j].z);
+        assert.ok(d >= 8, `escorts ${i} and ${j} ${d.toFixed(1)} m apart at ${s}`);
+      }
+    }
     for (let i = 0; i < offs.length; i++) {
       Object.assign(slot, offs[i]);
       placeEscort(r, s, slot, o);

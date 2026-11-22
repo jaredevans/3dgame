@@ -288,13 +288,15 @@ const EP = {}, EQ = {};
 export function placeEscort(ride, s, slot, out) {
   const L = ride.path.length, C = PLACES.city.centre;
   const j = smooth((s - ESCORT.from) / ESCORT.join), k = smooth((s - (L - ESCORT.away - ESCORT.leaveOver)) / ESCORT.leaveOver);
-  const se = Math.min(L, Math.max(0, s + slot.along - (1 - j) * ESCORT.joinBehind));
+  const want = Math.max(0, s + slot.along - (1 - j) * ESCORT.joinBehind), se = Math.min(L, want);
   const p = ride.path.at(se, EP), car = ride.path.at(s, EQ);
+  // a craft ahead of the path's end carries straight on along its last heading, not bunched onto the end point
+  const over = want - se, px = p.x + Math.sin(p.yaw) * over, pz = p.z + Math.cos(p.yaw) * over;
   const d = Math.hypot(car.x - C.x, car.z - C.z);
   const spread = 0.2 + 0.8 * smooth((d - ESCORT.town[0]) / ESCORT.town[1]);
   const side = slot.side * spread * (1 + 2 * k);
-  out.x = p.x + Math.cos(p.yaw) * side;
-  out.z = p.z - Math.sin(p.yaw) * side;
+  out.x = px + Math.cos(p.yaw) * side;
+  out.z = pz - Math.sin(p.yaw) * side;
   out.y = p.y + slot.up + 90 * k;
   out.yaw = p.yaw;
   out.pitch = -p.pitch * 0.35;
