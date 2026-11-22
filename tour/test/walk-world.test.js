@@ -115,3 +115,17 @@ test('the City\'s arrival platform, and its departure across the town, to the sp
     for (const c of res.value.cells) assert.ok(w.heightAt(c.x, c.z) >= SEA_LEVEL + 1, `under the sea at ${c.x}, ${c.z}`);
   }
 });
+
+test('at Oceanside, from where the speedboat sets you down to the end of its jetty is a walk', () => {
+  const def = PLACES.ocean, f = footprint(def), terrainW = worldTerrain();
+  const stub = { def, blocked: () => null, onLand: (x, z) => f.outside(x, z) === 0, groundAt: (x, z) => terrainW.heightAt(x, z) };
+  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true }) }));
+  const w = makeWalkWorld({ place: stub, termini, terrain: terrainW, seaLevel: SEA_LEVEL });
+  const P = def.walkways[0].points, from = P[0], to = P[P.length - 1];
+  const it = findPath(w, from, to);
+  let res;
+  do res = it.next(); while (!res.done);
+  assert.ok(res.value, 'no way along the jetty');
+  for (const c of res.value.cells) assert.ok(w.heightAt(c.x, c.z) >= SEA_LEVEL + 1, `under the sea at ${c.x}, ${c.z}`);
+  assert.equal(w.heightAt(to.x, to.z), WALKWAY_DECK, 'its end is not on the deck');
+});

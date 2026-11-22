@@ -333,10 +333,10 @@ const OCTO_KEYS = [
   // u      along  side  rise
   [0.00,   52,   26,  -17],
   [0.15,   34,   19,  -11],
-  [0.30,   16,   10.5, -1.2],
-  [0.42,   7,    7.8, -0.1],
-  [0.52,   3,    8.4, -0.3],
-  [0.64,   -4,   9.5, -1.5],
+  [0.30,   16,   10.5, -3.4],
+  [0.42,   7,    6.8, -2.6],   // (its arms' crown just out of the water, its back arms awash)
+  [0.52,   3,    8.4, -2.8],
+  [0.64,   -4,   9.5, -3.6],
   [0.78,   -18,  13,  -4.5],
   [0.90,   -34,  18,  -11],
   [1.00,   -46,  22,  -17],
@@ -362,11 +362,11 @@ export const OCTOPUS_BODY = { hips: [0, 0.72, -0.031], head: [0, 1.045, 0.314], 
 // segment), arms' segments root to tip; and how far the clips move its hips off rest at most (Swim backward)
 export const OCTOPUS_GIRTH = { arm: [0.26, 0.22, 0.235, 0.13], tip: 0.08, hips: 0.7, head: 0.6, mantle: 0.75, sway: 0.85 };
 // each arm's bend at its root, mid, distal and curl joints (radians about its axis; + up), in each of its poses
-const LIFT = [1.9, -0.15, -0.2, 0];       // the front arms reared up out of the sea
-const ARCH = [1.12, -0.9, -1.5, -0.2];   // and arched over the boat
+const LIFT = [2.1, -0.15, -0.2, 0];       // the front arms reared up out of the sea
+const ARCH = [1.4, -0.7, -1.2, -0.3];   // and arched over the boat
 const SLAM = [0.05, 0.12, 0.05, 0.1];     // flung out low across the water where the boat was
-const RAISE = [0.75, -0.25, -0.35, -0.4]; // the next pair lifted, menacing
-const DROOP = [-0.4, 0.15, 0.2, 0.3];     // the back arms hanging down into the sea
+const RAISE = [0.95, -0.25, -0.35, -0.4]; // the next pair lifted, menacing
+const DROOP = [0.3, 0.05, 0.1, 0.2];      // the back arms lying out awash
 const ROLE = ['front', 'raise', 'droop', 'droop', 'front', 'raise', 'droop', 'droop'];
 const ramp = (u, a, b) => smooth((u - a) / (b - a));
 // the octopus at u through its window: into out { along, side, rise, w (0..1: how much of its pose is ours, not its
@@ -428,13 +428,14 @@ export function armJoints(pose, a, out = Array.from({ length: 5 }, () => ({ x: 0
 // the boat's swerve at ride-s s: into out { lateral (m to its left: negative, right), yaw (radians its heading turns:
 // + left), bank (radians it heels into the turn: + its right side down, as ride-run.js rolls it) }. Smooth (C1) and 0
 // outside its stretch
+// (a ramp's slope: the smoothstep's derivative)
+const dRamp = (x, a, b) => (x <= a || x >= b ? 0 : 6 * ((x - a) / (b - a)) * (1 - (x - a) / (b - a)) / (b - a));
 export function swerveAt(s, out = { lateral: 0, yaw: 0, bank: 0 }) {
   const O = OCTOPUS, len = O.s1 - O.s0, u = (s - O.s0) / len;
-  const [a0, a1] = O.swerveIn, [b0, b1] = O.swerveOut;
+  const a0 = O.swerveIn[0], a1 = O.swerveIn[1], b0 = O.swerveOut[0], b1 = O.swerveOut[1];
   const k = ramp(u, a0, a1) * (1 - ramp(u, b0, b1));
-  // its slope along the path (d lateral / d s): the smoothsteps' derivatives
-  const ds = (x, a, b) => (x <= a || x >= b ? 0 : 6 * ((x - a) / (b - a)) * (1 - (x - a) / (b - a)) / (b - a));
-  const dk = ds(u, a0, a1) * (1 - ramp(u, b0, b1)) - ramp(u, a0, a1) * ds(u, b0, b1);
+  // its slope along the path (d lateral / d s)
+  const dk = dRamp(u, a0, a1) * (1 - ramp(u, b0, b1)) - ramp(u, a0, a1) * dRamp(u, b0, b1);
   const slope = -O.swerve * dk / len;
   out.lateral = k > 0 ? -O.swerve * k : 0;
   out.yaw = Math.atan(slope);

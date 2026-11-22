@@ -64,6 +64,7 @@ export async function buildBoat({ ride, slicer, still, cdnPart, loadAnimal, kit,
   // its captain, standing at the wheel (Polyfork's humanoid clips: Idle); left out, the boat going on, if he can't be had
   let anim = null;
   await slicer.frame();
+  await still();   // (the captain made and his clips put on: only where it may land)
   try {
     const captain = await kit('ocean', 'fisherman', { age: 'adult', build: 1.05 });
     captain.name = 'captain';
@@ -82,6 +83,7 @@ export async function buildBoat({ ride, slicer, still, cdnPart, loadAnimal, kit,
 
   // the wake and spray, in the world's frame (left where they were thrown as the boat runs on)
   await slicer.frame();
+  await still();
   const wake = makeSpray({ count: 520, size: 1.4, life: WAKE.life, gravity: 0, name: 'speedboat wake', opacity: 0.85 });
   const bow = makeSpray({ count: 160, size: 0.55, life: BOW.life, gravity: 9.8, name: 'speedboat spray' });
   const marker = new THREE.Group();   // (its jetty is the City's own: here, only what it throws up)

@@ -16,12 +16,16 @@ const CREST = 1.95;   // the top of its mantle over its origin (model metres)
 // its moments, in u through its window: the water surging as its mantle breaks the surface, its arms slamming down,
 // and it going under
 const SLAM = 0.56, UNDER = 0.8;
+const PLAY = { fade: 0.5 };   // (its clips cross-fade over half a second)
+// each splash's spray: how fast it's flung up and out (m/s, lowest and highest)
+const RISE_UP = [5, 11], RISE_OUT = [2, 7], SLAM_UP = [4, 9], SLAM_OUT = [1.5, 5], UNDER_UP = [3, 7], UNDER_OUT = [2, 6];
 
 export async function buildOctopus({ ride, slicer, still, loadAnimal }) {
   await slicer.frame();
   await still();
   const kind = await loadAnimal('octopus-base');
   await slicer.frame();
+  await still();   // (cloned with its skeleton: only where it may land)
   const a = kind.make(), obj = a.object;
   obj.name = 'giant octopus';
   obj.scale.setScalar(OCTOPUS.scale);
@@ -61,32 +65,32 @@ export async function buildOctopus({ ride, slicer, still, loadAnimal }) {
       obj.visible = true;
       obj.position.set(at.x, at.y, at.z);
       obj.rotation.set(0, at.yaw, 0);
-      a.play(pose.clip, { fade: 0.5 });
+      a.play(pose.clip, PLAY);
       a.update(f.dt);
       // ours over the clip's, by w: its hips held still and its arms bent as the pose says
       const w = pose.w;
       if (w > 0) {
-        for (const { b, rest } of body) b.position.lerp(rest, w);
+        for (let k = 0; k < body.length; k++) body[k].b.position.lerp(body[k].rest, w);
         hips.quaternion.slerp(none, w);
         for (let i = 0; i < 8; i++) {
           const arm = arms[i];
           for (let j = 0; j < 5; j++) {
-            const { b, rest } = arm.bones[j];
+            const bj = arm.bones[j];
             if (j < 4) q.setFromAxisAngle(arm.axis, pose.bend[4 * i + j]); else q.identity();
-            b.quaternion.slerp(q, w);
-            b.position.lerp(rest, w);
+            bj.b.quaternion.slerp(q, w);
+            bj.b.position.lerp(bj.rest, w);
           }
         }
       }
       // its moments, each once as the window passes it
       if (last >= 0) {
-        if (crossed(last, u, surfaceU)) { burst(at.x, at.z, 160, [5, 11], [2, 7]); sound('surge'); }
+        if (crossed(last, u, surfaceU)) { burst(at.x, at.z, 160, RISE_UP, RISE_OUT); sound('surge'); }
         if (crossed(last, u, SLAM)) {
           obj.updateMatrixWorld(true);
-          for (const t of tips) { t.getWorldPosition(v); burst(v.x, v.z, 110, [4, 9], [1.5, 5]); }
+          for (let k = 0; k < tips.length; k++) { tips[k].getWorldPosition(v); burst(v.x, v.z, 110, SLAM_UP, SLAM_OUT); }
           sound('splash');
         }
-        if (crossed(last, u, UNDER)) { burst(at.x, at.z, 120, [3, 7], [2, 6]); sound('splash'); }
+        if (crossed(last, u, UNDER)) { burst(at.x, at.z, 120, UNDER_UP, UNDER_OUT); sound('splash'); }
       }
       last = u;
       spray.update(f.dt);

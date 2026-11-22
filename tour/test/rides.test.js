@@ -479,7 +479,15 @@ test('the octopus rises out of the sea beside the boat, arches its front arms ov
   const r = ride('boat'), q = {};
   const at = (u) => octopusPose(u);
   assert.ok(at(0).rise < -12 && at(1).rise < -12, 'it is not deep at the ends of its window');
-  assert.ok(at(0.42).rise > -1, 'it does not rise out of the sea');
+  // at the height of it, risen out of the sea to its arms' crown (0.727 m up the model), its mantle's top (1.95 m)
+  // 5 m and more over the water, its back arms lying awash (not hanging down under it like legs)
+  const K = OCTOPUS.scale, top = at(0.42);
+  assert.ok(top.rise + 0.727 * K > 0 && top.rise + 0.727 * K < 1.5, 'its arms\' crown is not at the waterline');
+  assert.ok(top.rise + 1.95 * K >= 5, 'it does not rise out of the sea');
+  for (const a of [2, 3, 6, 7]) {
+    const tip = armJoints(top, a)[3];
+    assert.ok(top.rise + K * tip.y > -1.5, `its back arm ${a} hangs down under it`);
+  }
   assert.ok(at(0.42).side > 6 && at(0).side > 15, 'it is not out on the sea side');
   // at the height of it, a front arm's curl over the hull's plan (within its half-width), above it
   let over = false;
