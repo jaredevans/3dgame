@@ -25,6 +25,8 @@ const RIM = 7.9;                  // the saucer's rim, metres from its middle (U
 const PALETTE = ['#f4fff6', '#4dff7a'].map((c) => new THREE.Color(c));
 const LOUD = 60;                  // m: a zap nearer the camera than this is at its loudest
 const FLASH = 0.1;                // s a bolt's flash at the rim shows
+// the blast's sparks and its fireball's smoke puffs: how fast they fly up and out (m/s; made once, not each burst)
+const SPARK_UP = [4, 26], SPARK_OUT = [10, 40], PUFF_UP = [1, 5], PUFF_OUT = [2, 9];
 const FIRE_COLOURS = ['#fff2c4', '#ffd06a', '#ff9a3c', '#ff6a2a'].map((c) => new THREE.Color(c));
 
 const metal = () => new THREE.MeshStandardMaterial({ color: '#aeb6c0', metalness: 0.75, roughness: 0.32, flatShading: true });
@@ -153,6 +155,8 @@ export async function buildUfo({ ride, slicer, still, cdnPart = null, warn = () 
     } catch (err) { if (err?.dropped) throw err; warn('missile', err); }
   }
   group.add(missile);
+  await slicer.frame();
+  await still();   // (the blast's sprites and its smoke and sparks pools made: only where it may land)
 
   // the blast: a flash, the fireball (FIRE sprites, each its own colour and place in it), the shock ring; smoke and sparks
   const blastFlash = new THREE.Sprite(additive(glowTex, '#ffffff'));
@@ -178,7 +182,8 @@ export async function buildUfo({ ride, slicer, still, cdnPart = null, warn = () 
   const c = new THREE.Color(), toLocal = new THREE.Quaternion(), p = new THREE.Vector3();
   let next = 0, fired = -1, flashFor = 0, phase = 0, spin = 0, launched = false, struck = false, puff = 0;
   const reset = () => {
-    for (const pc of sc.pieces) { pc.position.copy(pc.userData.rest); pc.rotation.set(0, 0, 0); pc.scale.setScalar(1); }
+    // (whole again for the next ride of a kept kit: each piece back in its place, shown)
+    for (const pc of sc.pieces) { pc.position.copy(pc.userData.rest); pc.rotation.set(0, 0, 0); pc.scale.setScalar(1); pc.visible = true; }
     sc.lights.visible = true; sc.glow.visible = true;
   };
   const hide = () => {
@@ -283,7 +288,7 @@ export async function buildUfo({ ride, slicer, still, cdnPart = null, warn = () 
         craft.updateMatrixWorld(true);
         sc.group.getWorldQuaternion(toLocal).invert();   // (the pieces moved in the saucer's frame, frozen as it was struck)
         sound('boom');
-        sparks.burst(origin.x, origin.y, origin.z, 200, [4, 26], [10, 40], 3);
+        sparks.burst(origin.x, origin.y, origin.z, 200, SPARK_UP, SPARK_OUT, 3);
       }
       if (!struck) return;
       const live = t <= BLAST.life;
@@ -310,7 +315,7 @@ export async function buildUfo({ ride, slicer, still, cdnPart = null, warn = () 
         sp.scale.setScalar(FB.r * 2 * sp.userData.size);
         sp.material.opacity = FB.a * glow * (0.55 + 0.45 * Math.sin(f.time * 9 + i));
       }
-      if (FB.a > 0.05 && (puff += dt) > 0.05) { puff = 0; smoke.burst(FB.x, FB.y, FB.z, 6, [1, 5], [2, 9], FB.r * 0.6); }
+      if (FB.a > 0.05 && (puff += dt) > 0.05) { puff = 0; smoke.burst(FB.x, FB.y, FB.z, 6, PUFF_UP, PUFF_OUT, FB.r * 0.6); }
       blastFlash.visible = t < BLAST.flash;
       if (blastFlash.visible) {
         blastFlash.position.set(origin.x, origin.y, origin.z);

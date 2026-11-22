@@ -2,6 +2,7 @@
 // (or on it, the coach; on the sea, the boat), boarded from its departure station's walk and landing by the next
 // place's arrival station, its progress mapped onto the leg. Pure, no three.js.
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
   OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
@@ -1153,4 +1154,26 @@ test('the land while riding: a slow ride\'s as a train\'s; the jet\'s asked for 
     if (from === null && st.s > r.path.length / 2 && Math.hypot(o.x - end.x, o.z - end.z) + 150 <= o.mid) from = st.t;
   }
   assert.ok(from !== null && r.duration - from >= 10, `its landing within the land asked for only ${(r.duration - from).toFixed(1)} s before it stops`);
+});
+
+// ---- the starfighter's kit, read from its source (three.js isn't in Node: as main-wiring.test.js reads main.js) ----
+
+test('a kept starfighter kit is ridden again whole: the UFO\'s pieces put back and shown when it\'s let go; its blast pools made at a standstill and burst with no new arrays; the craft parked with its plumes out and its nozzles at rest', () => {
+  const ufo = readFileSync(new URL('../rides/ufo.js', import.meta.url), 'utf8'), jet = readFileSync(new URL('../rides/jet.js', import.meta.url), 'utf8');
+  // the saucer whole again: reset() puts every piece back, shown (the blast's end hides them), and hide() calls it
+  const reset = ufo.match(/const reset = \(\) => \{[\s\S]*?\n {2}\};/);
+  assert.ok(reset, 'no reset()');
+  assert.match(reset[0], /for \(const pc of sc\.pieces\) \{[^}]*pc\.position\.copy\(pc\.userData\.rest\)[^}]*pc\.visible = true;/);
+  assert.match(reset[0], /sc\.lights\.visible = true; sc\.glow\.visible = true;/);
+  assert.match(ufo.match(/const hide = \(\) => \{[\s\S]*?\n {2}\};/)[0], /if \(struck\) reset\(\);/);
+  // a standstill after the missile's load, before the blast's sprites and pools
+  const afterMissile = ufo.slice(ufo.indexOf('await cdnPart(MISSILE'), ufo.indexOf('makeSpray('));
+  assert.match(afterMissile, /await still\(\);/);
+  // no array made as it bursts
+  for (const call of ufo.match(/\.burst\([^)]*\)/g)) assert.ok(!/\[/.test(call), `${call} makes arrays`);
+  // parked (not ridden: the page's idle frames), no hover, no thrust: nozzles at rest, plumes out
+  assert.match(jet, /const hover = riding \? [^;]+ : 0;/);
+  assert.match(jet, /thrust = riding \? [^;]+ : 0;/);
+  assert.match(jet, /plumeMat\.opacity = thrust \* /);
+  assert.match(jet, /nozzles\[i\]\.rotation\.x = NOZZLE\.down \* DEG \* hover;/);
 });
