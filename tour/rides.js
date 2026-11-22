@@ -645,13 +645,23 @@ function vAt(p, t) {
   return p.v;
 }
 
-// state { s, t } (s: metres along the ride's path, t: seconds since it set off) -> the next, dt on (at most RIDE_DT)
-export function rideStep(state, dt, ride) {
+// state { s, t } (s: metres along the ride's path, t: seconds since it set off) -> the next, dt on (at most RIDE_DT):
+// into out { s, t, v, done } (the runner passes the state itself, every frame: it's read before it's written)
+export function rideStep(state, dt, ride, out = {}) {
   let t = Math.min(ride.duration, state.t + Math.min(RIDE_DT, Math.max(0, dt)));
   if (t > ride.duration - 1e-9) t = ride.duration;   // (sixtieths of a second don't add up to it exactly)
   const s = sAt(ride.profile, t);
-  return { s, t, v: vAt(ride.profile, t), done: s >= ride.path.length };
+  out.s = s; out.t = t; out.v = vAt(ride.profile, t); out.done = s >= ride.path.length;
+  return out;
 }
+
+// ---- the far place's trains ----
+// Riding, the next place's two trains are put at their platforms before you land and out of your sight (the Highland
+// Climber, say, from Oceanside's platform to the Mountain's): on the first frame past a third of the way along the leg
+// that neither where each stands nor where it's going is in view (seen(): asked only then, it costs a frustum test),
+// or else as you land, behind the step-down. -> whether to put them there now
+export const FAR_TRAINS_FROM = 1 / 3;
+export const placeFarTrains = (legS, legLength, seen) => legS > legLength * FAR_TRAINS_FROM && !seen();
 
 // ---- the leg-s ----
 

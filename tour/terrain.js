@@ -25,6 +25,9 @@ const TUBE_HALF = 6.5;          // a chunk's skirt never hangs below the tube's 
 const ROAD_SMOOTH = 0.2;        // a road's level is the ground along its centre smoothed, never more than this off it
 const ROAD_RAMP = 36;           // metres: a road eases to a pad's level over this, before the pad
 const ROAD_CELL = 16;           // metres: a road's samples are found by this grid (wider than its reach either side)
+// a grid cell's key as one number, not a string (the ground is asked for every frame): unique for cells within
+// 32768 of the origin either way (half a million km at ROAD_CELL)
+export const cellKey = (i, j) => (i + 32768) * 65536 + (j + 32768);
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -314,7 +317,7 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     y = eased;
     const grid = new Map();
     for (let i = 0; i < n - 1; i++) {
-      const k = `${Math.floor(b.pts[i].x / ROAD_CELL)},${Math.floor(b.pts[i].z / ROAD_CELL)}`;
+      const k = cellKey(Math.floor(b.pts[i].x / ROAD_CELL), Math.floor(b.pts[i].z / ROAD_CELL));
       if (!grid.has(k)) grid.set(k, []);
       grid.get(k).push(i);
     }
@@ -332,7 +335,7 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
       const ci = Math.floor(x / ROAD_CELL), cj = Math.floor(z / ROAD_CELL), pts = b.pts, reach = b.half + b.blend;
       let bd = reach * reach, ly = 0, hit = false;
       for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
-        const list = b.grid.get(`${i},${j}`);
+        const list = b.grid.get(cellKey(i, j));
         if (!list) continue;
         for (let k = 0; k < list.length; k++) {
           const a = list[k], p = pts[a], q = pts[a + 1], dx = q.x - p.x, dz = q.z - p.z;

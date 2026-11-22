@@ -126,7 +126,7 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   const near = src.match(/const rideNear = \(\) => \{[\s\S]*?\n {2}\};/);
   assert.ok(near, 'no rideNear()');
   assert.match(near[0], /nearRide\(player\.state, \w+, RIDE_REACH\)/);
-  assert.match(src, /const RIDE_REACH = 6;/);
+  assert.match(src, /import \{[^}]*\bRIDE_REACH\b[^}]*\} from '\.\/ride-run\.js'/);   // (6 m: ride-run.test.js)
   const press = src.match(/function pressE\(\) \{[\s\S]*?\n {2}\}/);
   assert.ok(press, 'no pressE()');
   assert.match(press[0], /const w = boardable\(\);/);
@@ -182,4 +182,44 @@ test('main.js tells the leg\'s actors a ride\'s frame from a train\'s; the signa
   const climb = readFileSync(new URL('../actors/climb.js', import.meta.url), 'utf8');
   assert.match(climb, /import \{[^}]*\bworkTrainRuns\b[^}]*\} from '\.\/paths\.js'/);
   assert.match(climb, /if \(!workTrainRuns\(f\)\) \{ workS = WORK\.at; work\.group\.visible = false; return; \}/);
+});
+
+// the rides' vehicles are solid on foot (walk-world.js vehicles): every built ride's but the one you're on, its
+// footprint where its holder stands now (waiting, or landed and kept); the walk world gets them each time it's made
+test('main.js gives the walk world the rides\' standing vehicles', () => {
+  assert.match(src, /import \{[^}]*\bsolidVehicles\b[^}]*\} from '\.\/walk-world\.js'/);
+  const fn = src.match(/function rideVehicles\(\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(fn, 'no rideVehicles()');
+  assert.match(fn[0], /for \(let k = 0; k < RIDE_IDS\.length; k\+\+\)/);
+  assert.match(fn[0], /if \(!kit \|\| kit === runner\.kit\) continue;/);
+  assert.match(fn[0], /foot: vehicleFoot\(kit\.vehicle\), holder: kit\.vehicle\.holder/);
+  assert.match(fn[0], /return solidVehicles\(rideStanding, player\.state\.x, player\.state\.z, BODY, rideSolid\);/);
+  assert.match(src, /const walkWorld = \(\) => makeWalkWorld\(\{[\s\S]*?vehicles: rideVehicles\(\),\n {2}\}\);/);
+});
+
+// riding, the far place's trains are put at their platforms out of view (rides.js placeFarTrains, this frame's camera,
+// after the views have moved it), and as you land if they never were
+test('main.js puts the far place\'s trains at their platforms on a frame neither is in view, after the views move', () => {
+  assert.match(src, /import \{[^}]*\bplaceFarTrains\b[^}]*\} from '\.\/rides\.js'/);
+  const views = src.indexOf("else if (state.mode === 'ride') views.update(dt, runner.train, runner.viewContext(dt));");
+  const place = src.indexOf("if (state.mode === 'ride' && !rideLeg.placed && placeFarTrains(ridden.legS, routes[state.leg].length, farTrainsSeen))");
+  assert.ok(views > 0 && place > views, 'the trains are placed before the camera has moved this frame');
+  assert.doesNotMatch(src, /ridden\.legS > routes\[state\.leg\]\.length \/ 2/);
+  assert.match(src, /farView\.frustum\.setFromProjectionMatrix\(farView\.m\)/);
+});
+
+// a hidden tab has no frames, but WebAudio plays on: the ride's engine (and any sound) is suspended while it's hidden
+test('main.js quiets the sound while the tab is hidden', () => {
+  assert.match(src, /import \{[^}]*\bhideSound\b[^}]*\} from '\.\/audio\.js'/);
+  assert.match(src, /document\.addEventListener\('visibilitychange', \(\) => \{[^\n]*hideSound\(document\.hidden\)/);
+});
+
+// the ride loop makes nothing new each frame: an always actor's ride frame is its own, kept and filled
+test('main.js keeps each always actor\'s ride frame, not a new one a frame', () => {
+  const frame = src.match(/function actorFrame\(leg, id, on, dt\) \{[\s\S]*?\n {2}\}/);
+  const [rideBranch] = frame[0].split(/\n {4}return \{\n {6}legS: mine/);
+  assert.match(rideBranch, /let f = rideFrames\.get\(id\);/);
+  assert.match(rideBranch, /return f;/);
+  assert.equal((rideBranch.match(/\{ front:/g) ?? []).length, 1, 'its train made more than once');
+  assert.match(src, /rideLeg\.on = rideLeg\.track\.step\(rideLegAt\);/);
 });

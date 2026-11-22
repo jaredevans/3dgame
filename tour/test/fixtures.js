@@ -34,3 +34,17 @@ export function footprint(p) {
     outside(x, z) { const [lx, lz] = toLocal(x, z); return Math.hypot(Math.max(0, Math.abs(lx - ox) - hx), Math.max(0, Math.abs(lz - oz) - hz)); },
   };
 }
+
+// The rides' vehicles as the walker meets them (walk-world.js vehicleBlocks), measured in the page (tour.html?debug, each
+// kit built at its departure place): foot, each one's footprint in its holder's frame (+z forward; its box's x and z,
+// the balloon's its basket and side jets, kit.vehicle.foot); and walk, the nearest point to where it waits that the
+// page's walk world lets a body (walk.js BODY, 0.35 m) stand on, the vehicle solid (inBounds and not blocked, searched
+// every 0.05 m out to 8 m). The page's walk is the place kits' own land (the Alpine kit's island at the Mountain, its
+// ground ending 5.5 m short of the coach), which Node can't load: the tests' footprint rectangles reach further.
+export const RIDE_VEHICLES = {
+  boat: { foot: { min: { x: -1.344, z: -3.66 }, max: { x: 1.344, z: 3.66 } }, walk: { x: 203.70, z: -321.08 } },
+  balloon: { foot: { min: { x: -1.75, z: -0.85 }, max: { x: 1.75, z: 0.85 } }, walk: { x: 1965.35, z: -173.35 } },
+  coach: { foot: { min: { x: -1, z: -2.25 }, max: { x: 1, z: 5.444 } }, walk: { x: 2591.5, z: 755.0 } },
+  jet: { foot: { min: { x: -3.187, z: -3.5 }, max: { x: 3.187, z: 3.5 } }, walk: { x: 2882.24, z: 2009.44 } },
+  car: { foot: { min: { x: -1, z: -2.26 }, max: { x: 1, z: 2.25 } }, walk: { x: -1112.96, z: 1107.38 } },
+};

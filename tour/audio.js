@@ -127,6 +127,17 @@ const SOUNDS = {
     noiseBurst({ type: 'highpass', freq: 3000, q: 0.5, peak: 0.03 * level, attack: 0.002, dur: 0.05, at: 0.12 });
   },
 };
+// the tab hidden (true) or shown again (false): a hidden tab has no frames, but WebAudio would play on, the ride's
+// engine droning with nothing moving. So the sound is suspended while it's hidden (its clock stops too, so a ride's
+// roar keeps with its flame) and resumed when it's shown, if it was this that suspended it (not the browser's own
+// wait for a first click)
+let hiddenByUs = false;
+export function hideSound(hidden) {
+  if (!audio) return;
+  if (hidden && audio.state === 'running') { hiddenByUs = true; audio.suspend().catch(() => {}); }
+  else if (!hidden && hiddenByUs) { hiddenByUs = false; audio.resume().catch(() => {}); }
+}
+
 // level: how loud (0..1) for the sounds that take one (the gang's shots)
 export function sound(name, level) {
   audio ||= new AudioContext();

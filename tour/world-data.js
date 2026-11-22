@@ -452,14 +452,17 @@ export function legSections(id) {
 }
 
 let cached = null;
-export function worldTerrain({ patches = [] } = {}) {
-  if (cached && !patches.length) return cached;
+// rides: false gives the land without the rides' own works (the stagecoach road's bench and the starfighter's pads), to
+// test them against: never cached, so the world's own land is always the one with them
+export function worldTerrain({ patches = [], rides = true } = {}) {
+  if (cached && !patches.length && rides) return cached;
+  if (!rides) worldTerrain();   // (the lines' structures are found from the world's own land, once)
   const routes = Object.keys(LEGS).map(legRoute);
   const legs = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
   const clearings = Object.values(PLACES).map((p) => ({ x: p.centre.x, z: p.centre.z, r: 130 }));
-  const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads(), ...ridePads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
-    features: FEATURES, biomes: BIOMES, clearings, roads: [{ pts: coachRoad().pts, ...BENCH }] });
+  const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads(), ...(rides ? ridePads() : [])], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
+    features: FEATURES, biomes: BIOMES, clearings, roads: rides ? [{ pts: coachRoad().pts, ...BENCH }] : [] });
   giveSections(t);   // the land without beds decides them, and the beds (read as the ground is asked for) follow them
-  if (!patches.length) cached = t;
+  if (!patches.length && rides) cached = t;
   return t;
 }

@@ -247,6 +247,9 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   return {
     vehicle: {
       holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y, SEAT.z),
+      // what you walk into on its pad: the basket and the jets on its sides (the envelope is far over your head, and
+      // its 17 m would shut you out of the pad)
+      foot: { min: { x: -(JET.x + JET.r), z: -Math.max(BASKET.half, JET.len / 2) }, max: { x: JET.x + JET.r, z: Math.max(BASKET.half, JET.len / 2) } },
       // its basket hangs level, however it climbs or turns
       attitude: { pitch: 0, bank: 0 },
     },

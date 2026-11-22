@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeWalkWorld, WALKWAY_DECK } from '../walk-world.js';
+import { makeWalkWorld, WALKWAY_DECK, vehicleBlocks, solidVehicles } from '../walk-world.js';
 import { PLACES, SEA_LEVEL, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { findPath, PATH } from '../autopath.js';
@@ -167,4 +167,44 @@ test('the City\'s departure station signposts the speedboat: a board within 25 m
   do res = it.next(); while (!res.done);
   assert.ok(res.value, 'no way across the town past the board');
   assert.ok(RIDE_SIGN.out > 8.5);
+});
+
+// ---- the rides' vehicles (walk-world.js vehicleBlocks): solid over their footprints, turned as they stand ----
+const standing = (x, z, yaw, foot) => ({ foot, holder: { position: { x, z }, rotation: { y: yaw } } });
+const FOOT = { min: { x: -1, z: -2 }, max: { x: 1, z: 3 } };   // 2 m across, 5 m long, its origin 2 m from its tail
+
+test('a vehicle is solid over its footprint, turned with its holder, and a body touches it within its radius', () => {
+  const v = standing(10, 20, 0, FOOT);
+  assert.ok(vehicleBlocks(v, 10, 20, 0.35), 'at its origin');
+  assert.ok(vehicleBlocks(v, 10, 22.9, 0.35), 'by its nose');
+  assert.ok(vehicleBlocks(v, 11.3, 20, 0.35), 'a body 0.3 m off its side');
+  assert.equal(vehicleBlocks(v, 11.4, 20, 0.35), false, 'a body 0.4 m off its side');
+  assert.equal(vehicleBlocks(v, 10, 23.4, 0.35), false, 'past its nose');
+  // turned a quarter (yaw pi/2: its +z, its nose, along world +x; its +x, its left, along world -z)
+  const q = standing(10, 20, Math.PI / 2, FOOT);
+  assert.ok(vehicleBlocks(q, 12.9, 20, 0.35), 'its nose, turned');
+  assert.equal(vehicleBlocks(q, 10, 22.9, 0.35), false, 'where its nose was');
+  assert.ok(vehicleBlocks(q, 10, 18.8, 0.35), 'its left, turned');
+});
+
+test('the walk world takes the rides\' vehicles as solid, the ground round them still walkable', () => {
+  const v = standing(0, 0, 0.7, FOOT);
+  const w = makeWalkWorld({ place, termini: [terminus], terrain, seaLevel: 0, vehicles: [v] });
+  assert.equal(w.blocked(0, 0, BODY), 'ride-vehicle');
+  assert.equal(w.blocked(4, 4, BODY), null);
+  assert.ok(w.inBounds(0, 0), 'its ground is still in bounds (a pad), only its body is solid');
+  assert.equal(world.blocked(0, 0, BODY), null, 'none given, none solid');
+});
+
+test('a vehicle you already stand in lets you out (built round you), and is solid again once you\'re out of it', () => {
+  const v = standing(0, 0, 0, FOOT), out = [];
+  assert.deepEqual(solidVehicles([v], 0, 0, BODY, out), []);
+  const same = solidVehicles([v], 5, 0, BODY, out);
+  assert.equal(same, out, 'the same array each time');
+  assert.deepEqual(same, [v]);
+  // walking: from inside you may step out (nothing solid), from outside you can't step in
+  const inside = makeWalkWorld({ place, termini: [terminus], terrain, seaLevel: 0, vehicles: solidVehicles([v], 0.5, 0, BODY, []) });
+  assert.equal(inside.blocked(0.9, 0, BODY), null);
+  const outside = makeWalkWorld({ place, termini: [terminus], terrain, seaLevel: 0, vehicles: solidVehicles([v], 1.5, 0, BODY, []) });
+  assert.equal(outside.blocked(1.3, 0, BODY), 'ride-vehicle');
 });

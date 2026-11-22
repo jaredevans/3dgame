@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rideFor, rideLegS, RIDE_DT, burnAt } from '../rides.js';
-import { vehicleCar, nearRide, makeRideTrack, makeRideRunner, poseVehicle, parkVehicle } from '../ride-run.js';
+import { vehicleCar, nearRide, makeRideTrack, makeRideRunner, poseVehicle, parkVehicle, vehicleFoot, RIDE_REACH } from '../ride-run.js';
 
 // a stand-in for a three.js Object3D: just what the runner writes
 const holder = () => ({
@@ -178,4 +178,18 @@ test('the runner tells the engine the burners\' level on the ride\'s clock, thro
   assert.equal(rideFor('ocean-mountain').burn, burnAt);
   // a ride with no burners: always 0
   assert.ok(run('future-city', Array(30).fill(1 / 30)).sets.every(([, b]) => b === 0));
+});
+
+test('the reach is 6 m (owner\'s ruling R22), and nearRide takes it by default', () => {
+  assert.equal(RIDE_REACH, 6);
+  const r = rideFor('future-city'), b = r.board;
+  assert.equal(nearRide({ x: b.x + 5.9, z: b.z }, r), true);
+  assert.equal(nearRide({ x: b.x + 6.1, z: b.z }, r), false);
+});
+
+test('a vehicle\'s footprint is its own foot if it has one (the balloon\'s basket), else its box', () => {
+  const v = kitOf().vehicle;
+  assert.equal(vehicleFoot(v), v.box);
+  const foot = { min: { x: -1.75, z: -0.85 }, max: { x: 1.75, z: 0.85 } };
+  assert.equal(vehicleFoot({ ...v, foot }), foot);
 });

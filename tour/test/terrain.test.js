@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
-import { makeTerrain, BED_DROP, BED_HALF } from '../terrain.js';
+import { makeTerrain, BED_DROP, BED_HALF, cellKey } from '../terrain.js';
 import { worldTerrain, LEGS, FEATURES, PLACES, SEA_LEVEL, legRoute, legSections, coachRoad, BENCH } from '../world-data.js';
 import { sectionAt } from '../structures.js';
 
@@ -284,6 +284,19 @@ test('colouring can be given the height and slope it would otherwise work out', 
   assert.equal(t.regionAt(100, 100), t.regionAt(100, 100, t.heightAt(100, 100), 0));
 });
 
+test('a road\'s grid cells are keyed by number (no string made each time the ground is asked for), one key a cell', () => {
+  const seen = new Set();
+  for (let i = -300; i <= 300; i += 7) for (let j = -300; j <= 300; j += 7) {
+    const k = cellKey(i, j);
+    assert.equal(typeof k, 'number');
+    assert.ok(Number.isSafeInteger(k));
+    seen.add(k);
+  }
+  assert.equal(seen.size, 86 * 86);
+  assert.notEqual(cellKey(-1, 0), cellKey(0, -1));
+  assert.notEqual(cellKey(1, -32768), cellKey(0, 32767));   // (the edges of its range)
+});
+
 test('a road\'s bench: level across its middle, back to the land beyond its reach, never on a line\'s formation', () => {
   // a straight line along z, and a road beside it 20 m out that swings in to 9 m from it; on the noise's rolling land
   const line = makeRoute([{ x: 0, y: 12, z: -400 }, { x: 0, y: 12, z: 400 }]);
@@ -323,4 +336,32 @@ test('the stagecoach\'s road: its cut and fill are steep (a road cut into a hill
     worst = Math.max(worst, Math.abs(a - t.heightAt(o.x + 1, o.z)), Math.abs(a - t.heightAt(o.x, o.z + 1)));
   }
   assert.ok(worst <= 2.6, `steepest ${worst.toFixed(2)} m per metre`);
+});
+
+// the rides' works in the land (the stagecoach road's bench, the starfighter's pad and apron) leave the railway's own
+// land as it was: within 6 m of every leg's centre line (its formation, BED_HALF either side, both tracks on it) the
+// same to the millimetre with them and without. And they do change the land (so the test isn't empty): the bench
+// beside the Mountain -> Wild West line at leg-s ~1261-1271, 6.5-12 m out
+test('the rides\' works leave the land under and beside every line as it was: no change within 6 m of any leg\'s centre', () => {
+  const withRides = worldTerrain(), without = worldTerrain({ rides: false });
+  assert.notEqual(without, withRides, 'the land without them is its own');
+  assert.equal(worldTerrain(), withRides, 'the world\'s own land is still the one with them');
+  const q = {};
+  for (const id of Object.keys(LEGS)) {
+    const r = legRoute(id);
+    let most = 0, at = null;
+    for (let s = 0; s <= r.length; s += 2) for (let o = -6; o <= 6; o += 0.5) {
+      r.offsetAt(s, o, q);
+      const d = Math.abs(withRides.heightAt(q.x, q.z) - without.heightAt(q.x, q.z));
+      if (d > most) { most = d; at = { s, o }; }
+    }
+    assert.ok(most < 0.001, `${id}: the land ${most.toFixed(3)} m off at leg-s ${at?.s}, ${at?.o} m out`);
+  }
+  const r = legRoute('mountain-west');
+  let changed = 0;
+  for (let s = 1255; s <= 1280; s += 1) for (const o of [-12, -10, -8, -6.5, 6.5, 8, 10, 12]) {
+    r.offsetAt(s, o, q);
+    changed = Math.max(changed, Math.abs(withRides.heightAt(q.x, q.z) - without.heightAt(q.x, q.z)));
+  }
+  assert.ok(changed > 0.01, `the bench beside the line changes nothing (${changed.toFixed(3)} m)`);
 });

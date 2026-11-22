@@ -130,6 +130,14 @@ How the rides work:
 - **At the end** you step off on foot by the next place's station, with the trains standing at their platforms.
 - **The auto tour (`Z`)** takes the trains only.
 
+Left to the owner's call from Phase 4's final check:
+- **The balloon's chase** crops the top of the envelope, and the crows look small beside it.
+- **The starfighter's pad at the Wild West** is cut into rising land, and the cut bank is a slope you can see and walk up.
+- **The starfighter flies over woodland** for most of the ride, not "low over the desert".
+- **The land at 30 fps** is coarse, with holes in the haze 2.5–3.5 km out.
+- **The flying car waits about 83 m** from the Metro Glide's nearest car, on the same platform.
+- **A spot about 1 m across where you can't walk**, at the Futuristic place near (-1118, 1160). A walker can stall on it; the path search's grid steps over it. It was there before Phase 4.
+
 Two things came in from `main` meanwhile:
 - **Touch.** The HUD's keys can be tapped on a phone or tablet.
 - **Hiding the HUD.** `K`, or the "Hide HUD" button, hides the help panel and the title.

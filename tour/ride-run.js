@@ -4,10 +4,12 @@
 // an Object3D, by its position and rotation), so Node can test it.
 //
 // A RideKit (tour/rides/index.js builds one per ride, at a standstill) =
-//   { vehicle: { holder, box, seat, attitude? }, crew?, actors: Map<event id, Actor>, boardMarker, landPad?, update(f),
-//     dispose() }
+//   { vehicle: { holder, box, seat, foot?, attitude? }, crew?, actors: Map<event id, Actor>, boardMarker, landPad?,
+//     update(f), dispose() }
 //   holder  rides the path (its origin on it, +z forward); the model inside it stands `ride.rest` below
 //   box     the vehicle's bounds in the holder's frame; seat: where you sit, in the holder's frame (the seat view)
+//   foot    { min: { x, z }, max: { x, z } } in the holder's frame: what a walker runs into where it stands (walk-world.js
+//           vehicleBlocks), if not the box's own x and z (the balloon's basket, not its envelope)
 //   attitude { pitch: how much of the path's climb it takes (1: all; a hanging basket 0), bank: the most it rolls
 //            into a turn (radians; 0, the default, for one on the ground or the water), level: below this speed (m/s)
 //            its pitch and bank ease back to level (a craft lifting off or settling onto its pad) }
@@ -31,8 +33,12 @@ export function vehicleCar(vehicle) {
   return { holder: vehicle.holder, box: b, front: b.max.z, length: b.max.z - b.min.z };
 }
 
+// m: you take a ride from within this of where it waits (its board point, the vehicle's own origin), across the
+// ground (owner's ruling R22). The vehicle is solid (walk-world.js), so this reaches past its body: each has a side
+// within 3.2 m of its origin (the starfighter's foils, the widest), and no part of any reaches past 5.5 m (the coach's team)
+export const RIDE_REACH = 6;
 // p ({ x, z }) within r metres of where the ride waits, across the ground
-export function nearRide(p, ride, r = 6) {
+export function nearRide(p, ride, r = RIDE_REACH) {
   if (!p || !ride) return false;
   return Math.hypot(p.x - ride.board.x, p.z - ride.board.z) <= r;
 }
@@ -46,6 +52,9 @@ export function poseVehicle(holder, ride, s, roll = 0, pitch = 1) {
   holder.rotation.set(-p.pitch * pitch, p.yaw, roll, 'YXZ');
   return p;
 }
+
+// a kit's vehicle as the walker meets it (walk-world.js vehicleBlocks): its footprint, read where its holder stands now
+export const vehicleFoot = (vehicle) => vehicle.foot ?? vehicle.box;
 
 // a kit's vehicle standing still at ride-s s (built and waiting at its pad, or after landing): as the runner poses it
 // at no speed, level if it settles level
@@ -114,8 +123,10 @@ export function makeRideRunner({ views, audio = null, interior }) {
     roll = dt > 0 ? roll + (want - roll) * (1 - Math.exp(-dt * BANK_EASE)) : want;
     return poseVehicle(kit.vehicle.holder, ride, s, roll, att.pitch * level);
   }
+  const at = { s: 0, dt: 0 };   // (what the track is told each frame, the same object)
   function play(env, dt) {
-    const on = track.step({ s: state.s, dt });
+    at.s = state.s; at.dt = dt;
+    const on = track.step(at);
     out.on = on;
     started.length = 0;
     for (const id of on.started) { const e = defs.get(id); if (e?.shot) started.push(e); }
@@ -161,7 +172,7 @@ export function makeRideRunner({ views, audio = null, interior }) {
     // a frame: on along the path (dt clamped, as rideStep does) -> { done, s, t, v, legS, pos, yaw, on } (the same
     // object each frame). env: { time, camera, night, sunDir } for the set pieces
     update(dt, env = null) {
-      state = rideStep(state, dt, ride);
+      rideStep(state, dt, ride, state);
       const p = pose(Math.min(dt, T_STEP_MAX));
       out.done = state.done; out.s = state.s; out.t = state.t; out.v = state.v; out.yaw = p.yaw;
       out.legS = rideLegS(ride, state.s);

@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
   OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
-  BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand, LOW_FLIGHT, lowFlight } from '../rides.js';
+  BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand, LOW_FLIGHT, lowFlight,
+  FAR_TRAINS_FROM, placeFarTrains } from '../rides.js';
 import { makeRideTrack } from '../ride-run.js';
 import { legSections, FEATURES } from '../world-data.js';
 import { onWalkway } from '../walk-world.js';
@@ -17,7 +18,10 @@ import { eventsFor, makeEventTrack } from '../events.js';
 import { JET_PADS, ridePads, stationSpot } from '../world-data.js';
 import { ROCKET_CUE, BUZZ, FOIL_RIG, foilsAt, noseUp, aimAt, STRIKE, UFO, ufoOffset, BOLT, bolts, boltAt, missileAt, BLAST, DEBRIS, blastOrigin, blastTime, debrisAt, fireballAt, ringAt, placeOnPath, fromHull, fromCraft, craftDistance } from '../rides/jet-plan.js';
 import { scatter, VARIANTS } from '../scenery.js';
-import { TOWERS, footprint } from './fixtures.js';
+import { TOWERS, footprint, RIDE_VEHICLES } from './fixtures.js';
+import { makeWalkWorld } from '../walk-world.js';
+import { nearRide, RIDE_REACH } from '../ride-run.js';
+import { BODY } from '../walk.js';
 import { BENCH, ROAD, coachRoad, roadSurface } from '../world-data.js';
 import { BED_HALF } from '../terrain.js';
 import { CLEAR_LINE } from '../scenery.js';
@@ -93,6 +97,16 @@ test('each ride lasts 85-95 s from start to done, at dt 1/60', () => {
     assert.ok(v(0.5) < 0.1 * r.profile.v && v(r.duration - 0.5) < 0.1 * r.profile.v);
     assert.ok(Math.abs(v(r.duration / 2) - r.profile.v) < 1e-9);
   }
+});
+
+test('rideStep fills the out it\'s given (the state itself, as the runner steps it: no new object a frame)', () => {
+  const r = ride('jet'), st = { s: 0, t: 0, v: 0, done: false }, out = {};
+  assert.equal(rideStep(st, 0.05, r, out), out);
+  assert.deepEqual(out, rideStep(st, 0.05, r));
+  const want = rideStep({ s: 0, t: 30 }, 1 / 30, r);
+  const self = { s: 0, t: 30, v: 0, done: false };
+  assert.equal(rideStep(self, 1 / 30, r, self), self);
+  assert.deepEqual(self, want);
 });
 
 test('rideStep clamps a long frame and never jumps a set piece', () => {
@@ -279,6 +293,53 @@ test('you step off on the walk by the landing, and every vehicle stands on open 
       const n = nearestOn(leg, p.x, p.z);
       assert.ok(n.d >= 9, `the ${r.id} stands ${n.d.toFixed(1)} m from ${leg}'s line`);
     }
+  }
+});
+
+// ---- the vehicles are solid (walk-world.js vehicleBlocks), and each can still be walked up to and taken ----
+
+// a vehicle standing at a ride's end (its holder there, facing along the path, as parkVehicle and the runner leave it)
+const standingAt = (r, end, foot) => ({ foot, holder: { position: { x: r[end].x, z: r[end].z }, rotation: { y: r[end].yaw } } });
+// a walk world where all the ground is walkable but the vehicle, to see what the vehicle alone shuts off
+const openWorld = (vehicles) => makeWalkWorld({
+  place: { blocked: () => null, onLand: () => true, groundAt: () => 1 }, termini: [], terrain: { heightAt: () => 1 }, seaLevel: 0, vehicles,
+});
+
+test('each waiting vehicle is solid over its footprint (the board, its own origin, is inside it), its pad round it open, and its nearest walkable point (measured in the page) within reach of the board and clear of it', () => {
+  for (const r of rides) {
+    const V = RIDE_VEHICLES[r.id], v = standingAt(r, 'board', V.foot), w = openWorld([v]);
+    assert.equal(w.blocked(r.board.x, r.board.z, BODY), 'ride-vehicle', `the ${r.id}'s board is walkable`);
+    // just inside each side of it, and 0.4 m past each (a body's 0.35 m clear)
+    const f = V.foot, c = Math.cos(r.board.yaw), s = Math.sin(r.board.yaw);
+    const world = (lx, lz) => ({ x: r.board.x + lx * c + lz * s, z: r.board.z - lx * s + lz * c });
+    for (const [lx, lz] of [[f.min.x + 0.1, 0], [f.max.x - 0.1, 0], [0, f.min.z + 0.1], [0, f.max.z - 0.1]]) {
+      const p = world(lx, lz);
+      assert.equal(w.blocked(p.x, p.z, 0), 'ride-vehicle', `the ${r.id} is open at (${lx}, ${lz}) in its frame`);
+    }
+    for (const [lx, lz] of [[f.min.x - 0.4, 0], [f.max.x + 0.4, 0], [0, f.min.z - 0.4], [0, f.max.z + 0.4]]) {
+      const p = world(lx, lz);
+      assert.equal(w.blocked(p.x, p.z, BODY), null, `the ${r.id} is solid at (${lx}, ${lz}) in its frame, past its body`);
+    }
+    // the footprint leaves room to take it: it doesn't cover the whole reach
+    assert.ok(Math.max(-f.min.x, f.max.x, -f.min.z, f.max.z) + BODY < RIDE_REACH, `the ${r.id}'s body reaches past the reach`);
+    // where the page's walk comes nearest it (the coach's: the Alpine kit's land ends 5.5 m short of where it waits,
+    // so this, not the test's footprint rectangle, is how near you get): within reach, and clear of its body
+    const d = Math.hypot(V.walk.x - r.board.x, V.walk.z - r.board.z);
+    assert.ok(d <= RIDE_REACH - 0.25, `the ${r.id} is ${d.toFixed(2)} m from the nearest walkable point, against a ${RIDE_REACH} m reach`);
+    assert.ok(nearRide(V.walk, r), `the ${r.id} can't be taken from the nearest walkable point`);
+    assert.equal(w.blocked(V.walk.x, V.walk.z, BODY), null, `the ${r.id}'s nearest walkable point is in its body`);
+  }
+});
+
+test('you step off clear of the landed vehicle (the balloon, which turns slowly to its way, at any heading)', () => {
+  for (const r of rides) {
+    const f = RIDE_VEHICLES[r.id].foot;
+    if (r.id === 'balloon') {
+      const corner = Math.hypot(Math.max(-f.min.x, f.max.x), Math.max(-f.min.z, f.max.z));
+      assert.ok(Math.hypot(r.step.x - r.land.x, r.step.z - r.land.z) > corner + BODY, 'the balloon may land on you');
+      continue;
+    }
+    assert.equal(openWorld([standingAt(r, 'land', f)]).blocked(r.step.x, r.step.z, BODY), null, `the ${r.id} lands on where you step off`);
   }
 });
 
@@ -1176,4 +1237,15 @@ test('a kept starfighter kit is ridden again whole: the UFO\'s pieces put back a
   assert.match(jet, /thrust = riding \? [^;]+ : 0;/);
   assert.match(jet, /plumeMat\.opacity = thrust \* /);
   assert.match(jet, /nozzles\[i\]\.rotation\.x = NOZZLE\.down \* DEG \* hover;/);
+});
+
+test('the far place\'s trains are put at their platforms past a third of the way along the leg, only while neither is in view', () => {
+  let asked = 0;
+  const seen = (v) => () => { asked++; return v; };
+  assert.equal(placeFarTrains(100, 2000, seen(false)), false, 'too soon');
+  assert.equal(asked, 0, 'not looked for till a third of the way along');
+  assert.equal(placeFarTrains(700, 2000, seen(true)), false, 'in view');
+  assert.equal(placeFarTrains(700, 2000, seen(false)), true);
+  assert.equal(placeFarTrains(1990, 2000, seen(true)), false, 'in view to the end: left for the landing');
+  assert.equal(FAR_TRAINS_FROM, 1 / 3);
 });

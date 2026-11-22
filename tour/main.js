@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { quietToNonIndexed } from './three-guards.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, part, cdnPart, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
-import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL, COACH_ROAD_LEG } from './world-data.js';
+import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL, COACH_ROAD_LEG, stationSpot } from './world-data.js';
 import { departureFor, departureSign, rideSign, pointer } from './wayfinding.js';
 import { makeMap } from './map.js';
 import { wantedSet, neededToDrive, readyToLeave, readyToRide } from './streaming.js';
@@ -30,7 +30,7 @@ import { makeDimmer } from './dimmer.js';
 import { makeHdEnvironment, updateHdLight, prepareHdAnimals } from './hd.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
-import { horn, shimmer, engine } from './audio.js';
+import { horn, shimmer, engine, hideSound } from './audio.js';
 import { makeTeleport, teleportChoices, canTeleport, FIZZ } from './teleport.js';
 import { makeTeleportFx } from './teleport-fx.js';
 import { buildPlace, fetchPlace, seamCheck } from './places.js';
@@ -38,7 +38,7 @@ import { release, makeUnloader } from './dispose.js';
 import { buildTerminus, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
 import { nearestBoardable, BODY } from './walk.js';
-import { makeWalkWorld } from './walk-world.js';
+import { makeWalkWorld, solidVehicles } from './walk-world.js';
 import { makeJourney } from './journey.js';
 import { makeFleet } from './fleet.js';
 import { makeKeys } from './keys.js';
@@ -49,8 +49,8 @@ import { makeDieselCab } from './cabs/diesel.js';
 import { makeSteamCab, STEAM_MODELS } from './cabs/steam.js';
 import { makeFutureCab } from './cabs/future.js';
 import { makeShuttleCab } from './cabs/shuttle.js';
-import { RIDE_LEGS, RIDE_LAND, rideFor, rideLegEvents, rideLand } from './rides.js';
-import { nearRide, makeRideRunner, parkVehicle } from './ride-run.js';
+import { RIDE_LEGS, RIDE_LAND, rideFor, rideLegEvents, rideLand, placeFarTrains } from './rides.js';
+import { nearRide, makeRideRunner, parkVehicle, vehicleFoot, RIDE_REACH } from './ride-run.js';
 import { RIDE_BUILDERS } from './rides/index.js';
 import { roadJob, roadMesh } from './rides/road-mesh.js';
 
@@ -135,7 +135,8 @@ async function boot() {
       try { upload(obj); } catch (err) { console.error(err); } finally { done(); }
     }
   };
-  document.addEventListener('visibilitychange', () => { if (document.hidden) drawWaiting(); });
+  // (and the sound quiet while it's hidden: audio.js hideSound)
+  document.addEventListener('visibilitychange', () => { hideSound(document.hidden); if (document.hidden) drawWaiting(); });
   // the shared shadow-depth material's programs, one for each way a caster's shadow can differ: its side; plain,
   // instanced or skinned; clipped (a cab's shell) or not; textured or not. three.js picks a new one only when a caster
   // is instanced, skinned or clipped where the one before it wasn't, not for its side, so which ones a frame needs
@@ -523,7 +524,32 @@ async function boot() {
   const rideIdle = { rideS: null, rideV: 0, legS: null, dir: null, here: false, dt: 0, time: 0, on: null, react: null, camera, train: null, night: 0, sunDir: null };
   // the leg's `always` actors as you ride (the rocket, the pods over the towns: as for a train at the ride's leg-s), and
   // whether the far place's two trains are at their platforms yet
-  const rideLeg = { track: null, on: null, placed: false };
+  const rideLeg = { track: null, on: null, placed: false, far: [] };
+  const rideLegAt = { legS: 0, dt: 0 };   // (what its track is told each frame, the same object)
+  // whether either of the far place's two trains (rideLeg.far: each { leg, dir, platform: a sphere round the platform
+  // it's to stand at }) is in the camera's view this frame, where it stands now or at that platform: either in the
+  // frustum and nearer than the fog's far end. Scratch three.js objects, made once
+  const farView = { frustum: new THREE.Frustum(), m: new THREE.Matrix4(), sphere: new THREE.Sphere() };
+  const FAR_CAR = 15;   // m round a car's middle a sphere takes in the rest of it
+  function farTrainsSeen() {
+    camera.updateMatrixWorld();
+    farView.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    farView.frustum.setFromProjectionMatrix(farView.m);
+    const fog = scene.fog?.far ?? Infinity, cam = camera.position, S = farView.sphere;
+    const inView = () => S.center.distanceTo(cam) - S.radius < fog && farView.frustum.intersectsSphere(S);
+    for (let i = 0; i < rideLeg.far.length; i++) {
+      const w = rideLeg.far[i];
+      S.center.copy(w.platform.center); S.radius = w.platform.radius;
+      if (inView()) return true;
+      const cars = fleet.trains[w.leg]?.model.cars;
+      if (!cars?.length) continue;
+      const a = cars[0].holder.position, b = cars[cars.length - 1].holder.position;
+      S.center.copy(a).add(b).multiplyScalar(0.5);
+      S.radius = a.distanceTo(b) / 2 + FAR_CAR;
+      if (inView()) return true;
+    }
+    return false;
+  }
   // m: the vehicle you stepped off stays on its pad till you're this much further from it than where you stepped off (the
   // boat's jetty runs 31 m out from there)
   const RIDE_KEEP = 30;
@@ -575,15 +601,21 @@ async function boot() {
   }
   // what an actor is told each frame (on: its event's { t, u } while it's active, else null; here: you're driving a run
   // on its leg)
+  const rideFrames = new Map();   // event id -> the frame its actor is told riding along its leg
   function actorFrame(leg, id, on, dt) {
     const mine = state.mode === 'drive' && run.leg === leg;
     // riding along its leg: as for a train at the ride's leg-s, going out, with no reactions, told it's a ride (the leg's
     // train events, as the signal's work train, don't run for it)
     if (state.mode === 'ride' && state.leg === leg) {
-      return {
-        legS: ridden.legS, dir: 'out', here: true, ride: true, dt, time: clock.elapsedTime, on, react: null, camera,
-        train: { front: ridden.pos, v: ridden.v, length: runner.train.cars[0].length }, night: look.night, sunDir,
-      };
+      // (each always actor's own frame and train, filled afresh each frame: one ride's actors are many frames' callers)
+      let f = rideFrames.get(id);
+      if (!f) {
+        f = { legS: 0, dir: 'out', here: true, ride: true, dt: 0, time: 0, on: null, react: null, camera, train: { front: null, v: 0, length: 0 }, night: 0, sunDir: null };
+        rideFrames.set(id, f);
+      }
+      f.legS = ridden.legS; f.dt = dt; f.time = clock.elapsedTime; f.on = on; f.night = look.night; f.sunDir = sunDir;
+      f.train.front = ridden.pos; f.train.v = ridden.v; f.train.length = runner.train.cars[0].length;
+      return f;
     }
     return {
       legS: mine ? evLegS : null, dir: mine ? run.dir : null, here: mine, dt, time: clock.elapsedTime, on,
@@ -647,9 +679,25 @@ async function boot() {
   const player = await makePlayer(scene, camera, renderer.domElement, look);
   let pendingTurn = null;   // the train you came on: { leg, dir } it turns round to once you've walked away from it
 
+  // the rides' vehicles where they stand (waiting at their pads, or on the one they landed on: rideKeep keeps its kit),
+  // solid to you on foot, as a train's cars are; their pads stay walkable. One entry a kit, made as it's first met, and
+  // the same two arrays filled each time (the walk world is made afresh every frame)
+  const rideFoot = new WeakMap(), rideStanding = [], rideSolid = [];
+  function rideVehicles() {
+    rideStanding.length = 0;
+    for (let k = 0; k < RIDE_IDS.length; k++) {
+      const kit = streamer.get(RIDE_IDS[k])?.kit;
+      if (!kit || kit === runner.kit) continue;
+      let v = rideFoot.get(kit);
+      if (!v) { v = { foot: vehicleFoot(kit.vehicle), holder: kit.vehicle.holder }; rideFoot.set(kit, v); }
+      rideStanding.push(v);
+    }
+    // (one you already stand in, built round you on its pad, lets you out: walk-world.js solidVehicles)
+    return solidVehicles(rideStanding, player.state.x, player.state.z, BODY, rideSolid);
+  }
   const walkWorld = () => makeWalkWorld({
     place: places[state.place], termini: PLACES[state.place].stations.map((st) => termini[`${state.place}:${st.leg}`]),
-    terrain, seaLevel: SEA_LEVEL,
+    terrain, seaLevel: SEA_LEVEL, vehicles: rideVehicles(),
   });
   // where you can get out: the platform you're heading for, or the one you haven't left yet
   const stopHere = () => journey.stopAt(run, drive);
@@ -725,8 +773,7 @@ async function boot() {
     $('driver').classList.add('on');
   }
   // ---- a ride: on foot at a place's departure station, E beside where its ride waits takes it ----
-  // (6 m: none of them waits right on the edge of where you can walk; owner's ruling R22)
-  const RIDE_REACH = 6;
+  // (RIDE_REACH, 6 m: none of them waits right on the edge of where you can walk; owner's ruling R22)
   // riding, V and 1-3 give the seat, the chase (the drone) and the director only: no nose, which would sit over the
   // balloon's crown (owner's ruling R23); a train keeps all four
   const RIDE_VIEWS = ['cab', 'drone', 'director'];
@@ -749,6 +796,11 @@ async function boot() {
     // (the leg's always events, as for a train; one the ride cues itself, the jet's rocket, starts where the ride says)
     rideLeg.track = makeEventTrack(rideLegEvents(rideFor(leg), eventsFor(leg, 'out').filter((e) => e.always)));
     rideLeg.on = null; rideLeg.placed = false;
+    // the next place's two trains, and the platforms they're to stand at (the middle of each, 120 m long, in a sphere)
+    rideLeg.far = journey.landed(state).trains.map((w) => {
+      const to = LEGS[leg].to, p = stationSpot(to, w.station)(60, 0);
+      return { ...w, platform: new THREE.Sphere(new THREE.Vector3(p.x, PLACES[to].ground + 2, p.z), 75) };
+    });
     rideKeep = null;
     runner.start(rideFor(leg), kit);
     views.set('cab');   // you start in your seat aboard
@@ -1283,12 +1335,8 @@ async function boot() {
     if (state.mode === 'ride') {
       rideEnv.time = clock.elapsedTime; rideEnv.night = look.night; rideEnv.sunDir = sunDir;
       ridden = runner.update(dt, rideEnv);
-      rideLeg.on = rideLeg.track.step({ legS: ridden.legS, dt });
-      // the far place's two trains put at their platforms half way along, well out of sight of either end
-      if (!rideLeg.placed && ridden.legS > routes[state.leg].length / 2) {
-        rideLeg.placed = true;
-        for (const w of journey.landed(state).trains) fleet.wait(w.leg, w.dir);
-      }
+      rideLegAt.legS = ridden.legS; rideLegAt.dt = dt;
+      rideLeg.on = rideLeg.track.step(rideLegAt);
       if (ridden.done) stepOff();
     }
     if (state.mode === 'drive') {
@@ -1317,6 +1365,13 @@ async function boot() {
     else if (state.mode === 'foot') player.update(dt, auto.on ? auto.keys : footInput(), walkWorld());
     else if (state.mode === 'ride') views.update(dt, runner.train, runner.viewContext(dt));
     else views.update(dt, train.model, viewContext(dt));
+    // riding, the far place's two trains put at their platforms once you're a third of the way along and neither is in
+    // view where it stands or where it's going (this frame's camera, as the director has cut: rides.js placeFarTrains);
+    // else as you land (stepOff)
+    if (state.mode === 'ride' && !rideLeg.placed && placeFarTrains(ridden.legS, routes[state.leg].length, farTrainsSeen)) {
+      rideLeg.placed = true;
+      for (const w of rideLeg.far) fleet.wait(w.leg, w.dir);
+    }
     // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day). Riding,
     // where you are is the leg-s the ride's progress maps to, and its own kit stays wanted
     const where = state.mode === 'ride' ? journey.where(state, null, ridden.legS) : journey.where(state, run, drive.s);
