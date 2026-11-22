@@ -557,7 +557,8 @@ export function planeStep(st, { here, legS, v, top = v, accel = 0, dir, dt, meet
   st ??= { mode: 'wait', d: PLANE.far, speed: PLANE.speed, shown: false, roar: false };
   st.roar = false;
   if (!here) { Object.assign(st, { mode: 'wait', d: PLANE.far, speed: PLANE.speed, shown: false }); return st; }
-  const sgn = dir === 'back' ? -1 : 1, gap = (meet - legS) * sgn, coming = v > 0.5 && gap > 0;
+  // (below PACE.follow it's not timed to you: it comes as it would for a train standing)
+  const sgn = dir === 'back' ? -1 : 1, gap = (meet - legS) * sgn, coming = v >= PACE.follow && gap > 0;
   // gathering speed, you'll be there as soon as the train can be; holding it, at the speed you're going
   const gaining = st.v !== undefined && v > st.v + 0.02 * dt;
   st.v = v;

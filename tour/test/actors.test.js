@@ -825,6 +825,10 @@ test('re-timed as you slow or speed up, so it still comes over you', () => {
 test('standing still it comes only once you are inside its window, and once a run', () => {
   let r = planeRun({ dir: 'out', v: 0, legS: 900, secs: 20, vAt: () => 0 });
   assert.equal(r.first, null, 'not while you wait short of the window');
+  r = planeRun({ dir: 'out', v: 0, legS: 1050, secs: 20, vAt: () => 2.5 });
+  assert.equal(r.first, null, 'nor creeping up to it below 3 m/s: not timed to you');
+  r = planeRun({ dir: 'out', v: 0, legS: 1150, secs: 5, vAt: () => 2.5 });
+  assert.ok(r.first && r.first.d >= PLANE.far - 1, 'inside it, creeping, it comes from far off as if you stood');
   r = planeRun({ dir: 'out', v: 0, legS: 1200, secs: 120, vAt: () => 0 });
   assert.ok(r.first && r.first.d >= PLANE.far - 1, 'from far off');
   assert.equal(r.st.mode, 'gone');
