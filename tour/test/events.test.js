@@ -75,3 +75,18 @@ test('t counts at most 0.1 s a step', () => {
   assert.equal(tr.step({ legS: 10, dt: 0.05 }).active.get('a').t, 0.05);
 });
 function near(a, b) { assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`); }
+
+test('every leg ends with an arrival shot each way: from the end of the line, on the town-side line, picked first', async () => {
+  const { laneOf } = await import('../world-data.js');
+  const { ARRIVE } = await import('../events.js');
+  for (const leg of RING.legs) {
+    const L = legRoute(leg).length;
+    const out = eventsFor(leg, 'out').filter((e) => e.shot && !e.actor), back = eventsFor(leg, 'back').filter((e) => e.shot && !e.actor);
+    assert.equal(out[0].id, 'arrive', `${leg}: first showpiece out`);
+    assert.deepEqual([out[0].s0, out[0].s1], [L - ARRIVE, L]);
+    assert.deepEqual(out[0].shot, { kind: 'arrival', at: L, lateral: laneOf(leg) });
+    assert.equal(back[0].id, 'arrive-back', `${leg}: first showpiece back`);
+    assert.deepEqual([back[0].s0, back[0].s1], [0, ARRIVE]);
+    assert.deepEqual(back[0].shot, { kind: 'arrival', at: 0, lateral: laneOf(leg) });
+  }
+});

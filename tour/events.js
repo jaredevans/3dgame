@@ -10,6 +10,8 @@
 // ShotSpec = { kind, at?: leg-s, lateral?: metres (+ left of the leg's out direction), height?: metres, fov? }
 // Values marked ~ in the plan are first guesses, adjusted by the actor's task to suit the land.
 
+import { legRoute, laneOf } from './world-data.js';
+
 const ev = (id, s0, s1, extra = {}) => ({ id, s0, s1, actor: id, ...extra });
 const showpiece = (id, s0, s1, shot, extra = {}) => ({ id, s0, s1, shot, ...extra });
 
@@ -92,6 +94,18 @@ export const EVENTS = {
     showpiece('skyline', 1700, 2083, { kind: 'wide', at: 1600, lateral: 40 }),
   ],
 };
+
+// every leg, both ways: as the train comes in over the last ARRIVE m, the director stands at the end of the line, on the
+// train's own (town-side) line, and watches it come in head-on until it has stopped (owner, 2026-11-21). First in each
+// leg's list, so it's the showpiece picked there over any other whose window it shares.
+export const ARRIVE = 450;
+for (const leg of Object.keys(EVENTS)) {
+  const L = legRoute(leg).length, lane = laneOf(leg);
+  EVENTS[leg].unshift(
+    showpiece('arrive', L - ARRIVE, L, { kind: 'arrival', at: L, lateral: lane }, { dirs: ['out'] }),
+    showpiece('arrive-back', 0, ARRIVE, { kind: 'arrival', at: 0, lateral: lane }, { dirs: ['back'] }),
+  );
+}
 
 const BOTH = ['out', 'back'];
 

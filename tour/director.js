@@ -26,8 +26,11 @@ const GENERAL = ['trackside', 'chase', 'high-wide', 'heli'];
 const STILL = 0.05, TRACKSIDE_MIN_V = 3;
 const WIDE_LEAD = 20;           // m: a general high-wide stands where the front will be half way through it, and this on
 const TUNNEL_CLEAR = { before: 15, after: 30, ahead: 30 };   // m: a fixed general shot moved off a tunnel
-const FIXED = new Set(['trackside', 'below', 'wide', 'high-wide', 'portal']);
+const FIXED = new Set(['trackside', 'below', 'wide', 'high-wide', 'portal', 'arrival']);
 const QUEUE = 8;
+// the arrival shot (from the line's end, the train coming in head-on: owner, 2026-11-21) holds until the train has stood
+// still this long at the platform, up to ARRIVAL_HOLD s (a slow train takes ~40 s over its window's last 450 m)
+const ARRIVAL_HOLD = 60, ARRIVAL_STOPPED = 2;
 
 // per kind: fov, height and lateral (metres; `side` = random sign, mirrored either side) used where the spec gives none
 const DEFAULTS = {
@@ -39,6 +42,7 @@ const DEFAULTS = {
   below: { fov: 50, height: 1.5, lateral: 0 },
   portal: { fov: 45, height: 2.5, lateral: 12, side: true },
   arc: { fov: 42, height: 1.5, lateral: 0 },   // about level with the nose, not looking down on it
+  arrival: { fov: 40, height: 3, lateral: 0 },
 };
 
 // the tunnel (of `tunnels`) leg-s `s` lies in, or null
@@ -60,11 +64,12 @@ function tunnelWithin(tunnels, legS, dir, reach) {
 export function makeDirector({ rand = Math.random } = {}) {
   let cur = null, age = 0, recent = [], general = -1;
   let win = null, entered = false;   // the window a long-hold showpiece shot lasts for
+  let stoodFor = 0;                   // s the train has stood still (for the arrival shot)
   let event = null;                  // the event the current shot is for, while it is one
   const queue = [];                  // started events waiting for their cut, in order
   const out = { shot: null, cut: false };
 
-  const reset = () => { cur = null; age = 0; recent = []; general = -1; win = null; entered = false; event = null; queue.length = 0; };
+  const reset = () => { cur = null; age = 0; recent = []; general = -1; win = null; entered = false; stoodFor = 0; event = null; queue.length = 0; };
 
   const specFor = (kind, id, given, input) => {
     const d = DEFAULTS[kind] ?? DEFAULTS.chase;
@@ -163,7 +168,9 @@ export function makeDirector({ rand = Math.random } = {}) {
 
     if (cur && win && !entered && input.legS >= win.s0 && input.legS <= win.s1) entered = true;
     const leftWin = win && entered && !(input.legS >= win.s0 && input.legS <= win.s1);
-    const expired = cur && ((age >= cur.hold && !waiting(input)) || leftWin);
+    stoodFor = Math.abs(input.v) < STILL ? stoodFor + input.dt : 0;
+    const arrived = cur && cur.kind === 'arrival' && stoodFor >= ARRIVAL_STOPPED;
+    const expired = cur && ((age >= cur.hold && !waiting(input)) || leftWin || arrived);
     // what may be cut into: anything once it's expired; a general or short showpiece shot after EVENT_DELAY
     const open = !cur || expired || (!win && !event && age >= EVENT_DELAY);
 
@@ -183,8 +190,8 @@ export function makeDirector({ rand = Math.random } = {}) {
       const p = pickShowpiece(input);
       if (p) {
         const s = specFor(p.shot.kind, p.id, p.shot, input);
-        const long = p.shot.kind === 'portal' || p.shot.kind === 'below';
-        s.hold = long ? LONG_HOLD : HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN);
+        const long = p.shot.kind === 'portal' || p.shot.kind === 'below' || p.shot.kind === 'arrival';
+        s.hold = p.shot.kind === 'arrival' ? ARRIVAL_HOLD : long ? LONG_HOLD : HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN);
         return cutTo(s, input, long ? { s0: p.s0, s1: p.s1 } : null, null);
       }
       const s = specFor(nextGeneral(input), null, null, input);

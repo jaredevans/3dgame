@@ -39,7 +39,10 @@ const SHOT = {
 };
 const BRIDGES = new Set(['viaduct', 'trestle', 'guideway']);
 const onBridge = (sections, s) => !!sections?.some((x) => BRIDGES.has(x.kind) && !x.grade && s >= x.s0 && s <= x.s1);
-const FIXED = new Set(['trackside', 'high-wide', 'wide', 'below', 'portal']), WIDE = new Set(['high-wide', 'wide']);
+const FIXED = new Set(['trackside', 'high-wide', 'wide', 'below', 'portal', 'arrival']), WIDE = new Set(['high-wide', 'wide']);
+// the arrival shot: this far past the end of the line, on the train's own line, looking back up it at the train's
+// front as it comes in to stop (owner, 2026-11-21)
+const ARRIVAL = { beyond: 5 };
 
 export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
   let mode = 'cab', cab = null;   // cab: { holder, seat, clip(on), interior }
@@ -112,6 +115,10 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     if (shot.kind === 'portal') {
       route.offsetAt(shot.at + sign * SHOT.portal.beyond, Math.sign(shot.lateral || 1) * SHOT.portal.out, rp);
       shotCam.pos.set(rp.x, rp.y + SHOT.portal.up, rp.z);
+    } else if (shot.kind === 'arrival') {
+      // at the line's end (a route stops there, so step on past it along its heading), over the rails
+      route.offsetAt(shot.at, shot.lateral, rp);
+      shotCam.pos.set(rp.x + Math.sin(rp.yaw) * sign * ARRIVAL.beyond, rp.y + shot.height, rp.z + Math.cos(rp.yaw) * sign * ARRIVAL.beyond);
     } else {
       let at = shot.at ?? ctx.legS + sign * (Math.abs(ctx.v) * shot.hold / 2 + SHOT.lead);
       let lateral = shot.lateral;
@@ -141,9 +148,15 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     }
     shotCam.pos.y = lift(shotCam.pos.x, shotCam.pos.z, shotCam.pos.y);
   }
-  // what a fixed shot looks at: the train's middle; from the tunnel mouth, the mouth until the train is out of it
+  // what a fixed shot looks at: the train's middle; from the tunnel mouth, the mouth until the train is out of it; at the
+  // line's end, the train's front, head-on
   function aimFixed(shot, ctx, sign, train) {
     const cars = train.cars;
+    if (shot.kind === 'arrival') {
+      aim.copy(cars[0].holder.position);
+      aim.y += SHOT.aim;
+      return aim;
+    }
     if (shot.kind === 'portal') {
       const mid = ctx.legS - sign * ctx.length / 2;
       ctx.route.at(sign * (mid - shot.at) > 0 ? mid : shot.at, rp);

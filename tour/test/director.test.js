@@ -279,3 +279,24 @@ test('reset forgets the shot', () => {
   d.reset();
   assert.equal(d.step(base).cut, true);
 });
+
+test('the arrival shot holds through the approach until the train has stood still 2 s, longer than other holds', () => {
+  const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
+  const d = makeDirector({ rand: () => 0 });
+  const r = d.step({ ...base, legS: 1560, v: 16, showpieces: [arrive] });
+  assert.equal(r.shot.kind, 'arrival');
+  assert.equal(r.shot.id, 'arrive');
+  // 40 s of coming in (a slow train) with no cut
+  for (let i = 0; i < 400; i++) assert.equal(d.step({ ...base, legS: 1560 + i, v: Math.max(1, 16 - i * 0.04), showpieces: [arrive] }).cut, false, `cut at ${i * 0.1} s`);
+  // stopped: still held for 2 s, then it cuts
+  let t = 0, cut = false;
+  while (!cut && t < 10) { cut = d.step({ ...base, legS: 1986, v: 0, showpieces: [arrive] }).cut; t += 0.1; }
+  assert.ok(t >= 2 && t <= 2.3, `cut ${t.toFixed(1)} s after stopping`);
+});
+
+test('the arrival shot is picked over another showpiece sharing its window', () => {
+  const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
+  const skyline = { id: 'skyline', s0: 1500, s1: 2000, shot: { kind: 'wide', at: 1400, lateral: 40 } };
+  const d = makeDirector({ rand: () => 0 });
+  assert.equal(d.step({ ...base, legS: 1600, v: 20, showpieces: [arrive, skyline] }).shot.id, 'arrive');
+});
