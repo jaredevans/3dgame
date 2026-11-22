@@ -16,9 +16,12 @@
   #title #auto { display: none; margin-top: 6px; padding: 2px 8px; border-radius: 6px; background: #1d5a34d9; color: #fff;
     text-shadow: none; opacity: 1; }
   #title #auto.on { display: inline-block; }
-  #back { position: fixed; top: 14px; right: 18px; background: #0008; padding: 6px 12px; border-radius: 8px;
-    font-size: 13px; text-decoration: none; }
-  #back:hover { background: #000b; }
+  #corner { position: fixed; top: 14px; right: 18px; display: flex; gap: 8px; }
+  #back, #hudToggle { background: #0008; padding: 6px 12px; border-radius: 8px; font-size: 13px; text-decoration: none;
+    color: inherit; border: 0; font-family: inherit; cursor: pointer; }
+  #back:hover, #hudToggle:hover { background: #000b; }
+  /* the HUD hidden (tour/hud-toggle.js: the button, or K) */
+  body.hud-off #help, body.hud-off #title { display: none; }
   #help { position: fixed; top: 50px; right: 18px; font-size: 13px; line-height: 1.55; text-align: right;
     background: #0008; padding: 8px 12px; border-radius: 8px; }
   #help kbd { background: #fff2; border: 1px solid #fff4; border-radius: 4px; padding: 0 5px; font-family: inherit; font-size: 12px; }
@@ -28,11 +31,12 @@
     -webkit-user-select: none; -webkit-touch-callout: none; }
   #help kbd:active, #teleport kbd:active, #teleport li:not(.here):active, #prompt:active { background: #ffd98a55; }
   @media (pointer: coarse) {
-    #help { font-size: 12px; line-height: 2.5; padding: 6px 10px; max-width: min(92vw, 460px); }
+    #help { top: 62px; font-size: 12px; line-height: 2.5; padding: 6px 10px; max-width: min(92vw, 460px); }
     #help kbd { display: inline-block; min-width: 26px; padding: 5px 9px; font-size: 15px; line-height: 1.2; text-align: center; }
     #teleport ol { line-height: 2.6; }
     #teleport kbd { padding: 4px 10px; font-size: 15px; }
     #prompt { padding: 12px 20px; font-size: 16px; }
+    #back, #hudToggle { padding: 10px 14px; font-size: 15px; }
   }
   #map { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; pointer-events: none;
     border: 2px solid #3d4b5c; border-radius: 16px; box-shadow: 0 8px 32px #000a; }
@@ -98,13 +102,13 @@
 </head>
 <body>
 <div id="title"><h1>Scenic Tour</h1><p id="mode"></p><p id="auto"></p></div>
-<a id="back" href="index.html">◂ Basement</a>
+<div id="corner"><button id="hudToggle" type="button" aria-pressed="false">Hide HUD</button><a id="back" href="index.html">◂ Basement</a></div>
 <div id="help">
   <kbd>W</kbd> <kbd>S</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> throttle · <kbd>Space</kbd> brake · <kbd>H</kbd> horn<br>
   <kbd>V</kbd> change view: cab, nose, drone, director · <kbd>1</kbd> cab · <kbd>2</kbd> drone · <kbd>3</kbd> director · <kbd>4</kbd> nose<br>
   <kbd>E</kbd> get out / board · on foot <kbd>W</kbd> <kbd>S</kbd> walk, <kbd>A</kbd> <kbd>D</kbd> turn, <kbd>Shift</kbd> run<br>
   <kbd>M</kbd> map · standing still, drag to look round<br>
-  <kbd>Z</kbd> auto tour · <kbd>T</kbd> teleport
+  <kbd>Z</kbd> auto tour · <kbd>T</kbd> teleport · <kbd>K</kbd> hide this
 </div>
 <canvas id="map"></canvas>
 <div id="driver"><b id="spd">0</b><span>km/h</span><span id="thr">throttle 0%</span><span id="dist"></span></div>
@@ -117,5 +121,6 @@
 <div id="loading">Getting the tour ready…<small id="loadStep"></small></div>
 <script type="module" src="tour/main.js"></script>
 <script type="module" src="tour/touch.js"></script>
+<script type="module" src="tour/hud-toggle.js"></script>
 </body>
 </html>

@@ -26,3 +26,7 @@ test('only the keys counted per keydown repeat while held', () => {
   for (const c of REPEATS) assert.ok(Object.values(KEY_CODES).includes(c));
   assert.ok(REPEATS.has('KeyW') && !REPEATS.has('KeyE') && !REPEATS.has('Space'));
 });
+
+test('K, shown in the panel to hide the HUD, can be tapped too', () => {
+  assert.equal(codeFor('K'), 'KeyK');
+});

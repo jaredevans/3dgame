@@ -6,7 +6,7 @@
 
 // a key's label as the HUD shows it -> the KeyboardEvent code main.js reads
 export const KEY_CODES = {
-  W: 'KeyW', S: 'KeyS', A: 'KeyA', D: 'KeyD', E: 'KeyE', H: 'KeyH', V: 'KeyV', M: 'KeyM', Z: 'KeyZ', T: 'KeyT',
+  W: 'KeyW', S: 'KeyS', A: 'KeyA', D: 'KeyD', E: 'KeyE', H: 'KeyH', V: 'KeyV', M: 'KeyM', Z: 'KeyZ', T: 'KeyT', K: 'KeyK',
   '↑': 'ArrowUp', '↓': 'ArrowDown', '←': 'ArrowLeft', '→': 'ArrowRight',
   Space: 'Space', Shift: 'ShiftLeft', Esc: 'Escape',
   1: 'Digit1', 2: 'Digit2', 3: 'Digit3', 4: 'Digit4', 5: 'Digit5',
