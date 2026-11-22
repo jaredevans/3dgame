@@ -254,18 +254,19 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
       ride(lead.holder, v.set(0, lead.box.max.y + NOSE.up, lead.box.max.z - NOSE.back), look.pitch + 0.04 + NOSE.pitch);
       return;
     }
-    // drone: orbit the middle of the train, following it smoothly
-    const cars = train.cars;
+    // drone: orbit the middle of the train, following it smoothly (nearer something small: a ride's vehicle sets
+    // droneScale, its share of the train's distance)
+    const cars = train.cars, k = train.droneScale ?? 1;
     mid.copy(cars[0].holder.position).add(cars[cars.length - 1].holder.position).multiplyScalar(0.5);
     if (!drone.ready) { drone.target.copy(mid); drone.ready = true; }
     drone.target.lerp(mid, 1 - Math.exp(-dt * 6));
     const yawTrain = cars[0].holder.rotation.y;
     const az = yawTrain + drone.az;
-    v.set(Math.sin(az) * Math.cos(drone.el), Math.sin(drone.el), Math.cos(az) * Math.cos(drone.el)).multiplyScalar(drone.dist);
+    v.set(Math.sin(az) * Math.cos(drone.el), Math.sin(drone.el), Math.cos(az) * Math.cos(drone.el)).multiplyScalar(drone.dist * k);
     drone.pos.copy(drone.target).add(v);
     drone.pos.y = Math.max(drone.pos.y, heightAt(drone.pos.x, drone.pos.z) + 3);
     camera.position.copy(drone.pos);
-    camera.lookAt(drone.target.x, drone.target.y + 2, drone.target.z);
+    camera.lookAt(drone.target.x, drone.target.y + 2 * k, drone.target.z);
   }
 
   return {

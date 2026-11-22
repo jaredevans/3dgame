@@ -37,7 +37,7 @@ function seeded(seed) {
 // a kit part's night map (its module's `night`), each zone with the albedo it's painted in with `params` (its own colour
 // knob, its colourway's, or the part's default), as the kit's own buildKit finds them: -> { zone: { albedo, color,
 // intensity } } for coast.js lightZones
-async function kitNight(kitKey, key, params) {
+export async function kitNight(kitKey, key, params) {
   const m = await kitModule(KITS[kitKey], `${key}.mjs`);
   const knob = Object.keys(m.params ?? {}).find((n) => /^colou?rway$/i.test(n));
   const way = m.presets?.[params[knob] ?? m.params?.[knob]?.default];

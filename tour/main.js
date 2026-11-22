@@ -4,11 +4,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { quietToNonIndexed } from './three-guards.js';
 import { KITS, loadError } from './config.js';
-import { kitModule, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
+import { kitModule, part, cdnPart, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
 import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
 import { departureFor, departureSign, pointer } from './wayfinding.js';
 import { makeMap } from './map.js';
-import { wantedSet, neededToDrive, readyToLeave } from './streaming.js';
+import { wantedSet, neededToDrive, readyToLeave, readyToRide } from './streaming.js';
 import { makeArrival } from './arrival.js';
 import { makeStreamer, STALL, own, disown } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
@@ -19,6 +19,7 @@ import { buildTrack } from './track-mesh.js';
 import { buildStructures } from './structure-mesh.js';
 import { buildSuburbs } from './suburbs-mesh.js';
 import { buildEventActors } from './actors/index.js';
+import { loadAnimal } from './actors/animals.js';
 import { EVENTS, eventsFor, makeEventTrack } from './events.js';
 import { makeReactions, mustBrake } from './react.js';
 import { makeSlicer, scenery } from './slicer.js';
@@ -29,7 +30,7 @@ import { makeDimmer } from './dimmer.js';
 import { makeHdEnvironment, updateHdLight, prepareHdAnimals } from './hd.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
-import { horn, shimmer } from './audio.js';
+import { horn, shimmer, engine } from './audio.js';
 import { makeTeleport, teleportChoices, canTeleport, FIZZ } from './teleport.js';
 import { makeTeleportFx } from './teleport-fx.js';
 import { buildPlace, fetchPlace, seamCheck } from './places.js';
@@ -48,6 +49,9 @@ import { makeDieselCab } from './cabs/diesel.js';
 import { makeSteamCab, STEAM_MODELS } from './cabs/steam.js';
 import { makeFutureCab } from './cabs/future.js';
 import { makeShuttleCab } from './cabs/shuttle.js';
+import { RIDE_LEGS, rideFor } from './rides.js';
+import { nearRide, makeRideRunner, parkVehicle } from './ride-run.js';
+import { RIDE_BUILDERS } from './rides/index.js';
 
 // each train spec's cab, made for its leading vehicle (a steam cab is measured per locomotive model)
 const CABS = {
@@ -339,10 +343,54 @@ async function boot() {
     builders[id] = (ctx) => { setLoading('laying track'); return buildLeg(id, ctx); };
     builders[`train:${id}`] = (ctx) => fleet.build(id, ctx);
   }
+  // ---- the rides (rides.js): each ride's path and its tables worked out once, here behind the loading screen (the jet's
+  // take ~0.2 s), on the land as the tests measure it, before any place's patch is on it ----
+  setLoading('planning the rides');
+  for (const leg of RIDE_LEGS) rideFor(leg);
+  const RIDE_IDS = RIDE_LEGS.map((leg) => `ride:${leg}`);
+  // a ride waiting at its departure place (`ride:<leg>`, wanted while you stand there: streaming.js): its vehicle, pads
+  // and set pieces (rides/index.js), built at a standstill and shown once all are in and warmed, the vehicle at the start
+  // of its path. Only a ride with a builder is offered. One whose vehicle can't be loaded fails, warned (not an error on
+  // screen: the train still goes), and isn't offered; it's tried again as any failed build is
+  async function buildRide(leg, ctx) {
+    const ride = rideFor(leg);
+    await ctx.still();
+    let kit;
+    try {
+      kit = await RIDE_BUILDERS[ride.id]({
+        ride, slicer, terrain, still: ctx.still, check: ctx.check, cdnPart, loadAnimal,
+        kit: (kitKey, key, params) => part(KITS[kitKey], key, params),
+        warn: (what, err) => console.warn(`The ${ride.name}'s ${what} ${err?.url ? `could not be loaded (${err.url})` : `were left out: ${err?.message ?? err}`}`),
+      });
+    } catch (err) {
+      if (err?.dropped) throw err;
+      console.warn(`The ${ride.name} to ${PLACES[ride.to].name} isn't offered: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`);
+      throw Object.assign(new Error(`the ${ride.name} along ${leg} could not be built`), { warned: true });
+    }
+    const group = new THREE.Group();
+    group.name = `ride ${leg}`;
+    const thing = { kit, dispose() { kit.dispose?.(); unload.add(group); } };   // (freed at a standstill, with the rest)
+    try {
+      ctx.check();
+      group.add(kit.vehicle.holder, kit.boardMarker, ...(kit.landPad ? [kit.landPad] : []), ...[...kit.actors.values()].map((a) => a.group));
+      parkVehicle(kit, ride, 0);
+      group.visible = false;
+      scene.add(group); shadows(group);
+      await ctx.still();
+      await warm(group);
+      ctx.check();
+    } catch (err) { thing.dispose(); throw err; }
+    group.visible = true;
+    return thing;
+  }
+  for (const leg of RIDE_LEGS) {
+    if (RIDE_BUILDERS[rideFor(leg).id]) builders[`ride:${leg}`] = (ctx) => { setLoading(`the ${rideFor(leg).name}`); return buildRide(leg, ctx); };
+  }
   const ring = { places: RING.places, legs: RING.legs };
   // no stall time while booting (the loading screen shows how it's going; a slow connection is waited for): it's set
   // after boot. A build that stalls had an import hang: those still pending are given up on, so a retry fetches afresh
-  const streamer = makeStreamer(builders, { onError: (err) => { if (err?.stalled) forgetPending(); fail(err); } });
+  // (a ride that couldn't be built was warned about: it's left unoffered, no error on screen)
+  const streamer = makeStreamer(builders, { onError: (err) => { if (err?.stalled) forgetPending(); if (!err?.warned) fail(err); } });
   // anything coming in (a module, a file) is progress for the build in flight
   try { new PerformanceObserver(() => streamer.progress()).observe({ type: 'resource' }); } catch { /* none: kits' onProgress still counts */ }
   // what's near you: places and legs, and the trains on those legs (the one you're in always among them). Nothing new
@@ -454,6 +502,18 @@ async function boot() {
 
   // ---- views: the cab, the nose, the drone and the director ----
   const views = makeCameras(camera, renderer.domElement, { heightAt: terrain.heightAt, seaLevel: SEA_LEVEL });
+  // ---- a ride you've taken: the runner (ride-run.js) carries its vehicle and gives the views its seat as the cab ----
+  const runner = makeRideRunner({ scene, views, audio: { engine }, interior: new THREE.Group() });
+  let ridden = null;   // this frame's answer from the runner, while you ride
+  const rideEnv = { time: 0, camera, night: 0, sunDir: null };   // what its set pieces are told (filled each frame)
+  // what a ride's kit not being ridden is told each frame (waiting at its pad, or on the one it landed on: its lights)
+  const rideIdle = { rideS: null, rideV: 0, legS: null, dir: null, here: false, dt: 0, time: 0, on: null, react: null, camera, train: null, night: 0, sunDir: null };
+  // the leg's `always` actors as you ride (the rocket, the pods over the towns: as for a train at the ride's leg-s), and
+  // whether the far place's two trains are at their platforms yet
+  const rideLeg = { track: null, on: null, placed: false };
+  const RIDE_KEEP = 30;   // m: the vehicle you stepped off stays on its pad till you're this far from it
+  let rideKeep = null;    // { id, x, z } of that ride, meanwhile
+  let autoAfterRide = false;   // Z pressed mid-ride: the auto tour starts once you've landed
 
   // ---- the train you drive: its run (journey.runRoute) and where its front is along it ----
   const drive = { s: 0, v: 0, throttle: 0 };
@@ -502,6 +562,13 @@ async function boot() {
   // on its leg)
   function actorFrame(leg, id, on, dt) {
     const mine = state.mode === 'drive' && run.leg === leg;
+    // riding along its leg: as for a train at the ride's leg-s, going out, with no reactions
+    if (state.mode === 'ride' && state.leg === leg) {
+      return {
+        legS: ridden.legS, dir: 'out', here: true, dt, time: clock.elapsedTime, on, react: null, camera,
+        train: { front: ridden.pos, v: ridden.v, length: runner.train.cars[0].length }, night: look.night, sunDir,
+      };
+    }
     return {
       legS: mine ? evLegS : null, dir: mine ? run.dir : null, here: mine, dt, time: clock.elapsedTime, on,
       react: mine ? evOut?.states.get(id) ?? null : null, camera,
@@ -530,14 +597,15 @@ async function boot() {
     }
   }
   // the current leg's active actors (and once more, with on: null, those whose event just ended); every built leg's
-  // `always` ones
+  // `always` ones (riding a leg, only those: its track has no others)
   function updateActors(dt) {
     for (const leg of legIds) {
       const actors = legActors(leg);
       if (!actors) continue;
       const mine = state.mode === 'drive' && run.leg === leg && evOn;
+      const riding = state.mode === 'ride' && state.leg === leg ? rideLeg.on : null;
       for (const [id, a] of actors) {
-        const on = mine ? evOn.active.get(id) ?? null : null;
+        const on = mine ? evOn.active.get(id) ?? null : riding ? riding.active.get(id) ?? null : null;
         if (on || eventDefs[leg].get(id)?.always || (mine && evOn.ended.includes(id))) act(a, actorFrame(leg, id, on, dt));
       }
     }
@@ -640,12 +708,55 @@ async function boot() {
     views.setDriving(true);
     $('driver').classList.add('on');
   }
+  // ---- a ride: on foot at a place's departure station, E beside where its ride waits takes it ----
+  const RIDE_REACH = 4;
+  // the ride you're beside, on foot: the one leaving from this place, if it's offered (it has a builder and hasn't failed)
+  const rideNear = () => {
+    const leg = departureFor(state.place).leg, id = `ride:${leg}`;
+    if (!builders[id] || streamer.failed(id)) return null;
+    const ride = rideFor(leg);
+    return nearRide(player.state, ride, RIDE_REACH) ? ride : null;
+  };
+  // ready as the train along its leg would be (readyToLeave), and its own kit in
+  const rideReady = (leg) => readyToRide(leg, { has: (id) => streamer.has(id), busy: busy(), settled: (l) => streamer.get(l).settled(), waited: arr.waited });
+  function takeRide(leg) {
+    const kit = streamer.get(`ride:${leg}`).kit;
+    streamer.get(leg).leaveOutExtras();   // (as boarding its train: what isn't in by now is left out)
+    turnPending();
+    state = journey.ride(state, leg);
+    player.exit();
+    keys.ignoreHeld();
+    rideLeg.track = makeEventTrack(eventsFor(leg, 'out').filter((e) => e.always));
+    rideLeg.on = null; rideLeg.placed = false;
+    rideKeep = null;
+    runner.start(rideFor(leg), kit);
+    views.set('cab');   // you start in your seat aboard
+    ridden = runner.update(0, rideEnv);
+  }
+  // the ride is done: you step off on foot by the next place's arrival station, as after getting out of a train, its two
+  // trains at their platforms (put there half way along: frame()); the vehicle stays on its pad till you're away from it
+  function stepOff() {
+    const ride = runner.ride, t = journey.landed(state);
+    runner.stop();
+    state = t.state;
+    for (const w of t.trains) fleet.wait(w.leg, w.dir);
+    pendingTurn = null;
+    rideLeg.track = null; rideLeg.on = null;
+    rideKeep = { id: `ride:${ride.leg}`, x: ride.land.x, z: ride.land.z };
+    const p = ride.step;
+    player.enter(p.x, p.z, p.yaw, walkWorld().heightAt(p.x, p.z));
+    keys.ignoreHeld();
+    ridden = null;
+    if (autoAfterRide) { autoAfterRide = false; startAuto(); }
+  }
 
   // the map: M toggles it, Escape closes it; drawn only while open
   const mapView = makeMap(document.getElementById('map'));
   function drawMap() {
     if (!mapView.open) return;
-    if (state.mode === 'drive') {
+    if (state.mode === 'ride') {
+      mapView.draw({ you: { x: ridden.pos.x, z: ridden.pos.z, yaw: ridden.yaw }, leg: state.leg, place: null, departure: null });
+    } else if (state.mode === 'drive') {
       const f = train.model.cars[0].holder, leg = run.leg;
       mapView.draw({ you: { x: f.position.x, z: f.position.z, yaw: f.rotation.y }, leg, place: null, departure: null });
     } else {
@@ -670,7 +781,7 @@ async function boot() {
   const tpLog = [];   // each teleport: { from, to, beam (s under the beam), swapAt (s of it before the place was in), back }
   // the place you're at: on foot, or stopped at one's platform (null between stations)
   const tpHere = () => (state.mode === 'foot' ? state.place : stopHere());
-  const tpCan = () => !controls && canTeleport({ mode: state.mode, v: drive.v, covered: state.mode === 'drive' && !arr.getOut, busy: tp.active });
+  const tpCan = () => !controls && state.mode !== 'ride' && canTeleport({ mode: state.mode, v: drive.v, covered: state.mode === 'drive' && !arr.getOut, busy: tp.active });
   function openTeleportList() {
     $('teleportList').replaceChildren(...teleportChoices(RING.places, tpHere()).map((c) => {
       const li = document.createElement('li'), k = document.createElement('kbd');
@@ -768,17 +879,23 @@ async function boot() {
 
   const keys = makeKeys();
   let throttleSteps = 0;
-  // E: get out at a platform you've stopped at, or board the train you're beside; H: the horn. Auto mode presses them
-  // too
+  // E: get out at a platform you've stopped at, or board the train you're beside, or take the ride you're beside (a
+  // train first; auto mode, pressing E beside the onward train, never takes a ride); H: the horn. Auto mode presses them
+  // too. Riding, E does nothing
   function pressE() {
     if (state.mode === 'drive' && stopHere() && arr.getOut) getOut();
-    else if (state.mode === 'foot') { const w = boardable(); if (w && ready(w.leg)) board(w); }
+    else if (state.mode === 'foot') {
+      const w = boardable();
+      if (w && ready(w.leg)) board(w);
+      else if (!w && !auto.on) { const r = rideNear(); if (r && rideReady(r.leg)) takeRide(r.leg); }
+    }
   }
   function pressH() { horn(train.spec.sound); hornPressed = true; }
   // the keys that take the controls back from auto mode, driving and on foot
   const TAKE_OVER = {
     drive: new Set(['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Space', 'KeyH', 'KeyE']),
     foot: new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE']),
+    ride: new Set(),   // (it's never on during a ride)
   };
   addEventListener('keydown', (e) => {
     if (e.repeat && !/Arrow|Key[WS]/.test(e.code)) return;
@@ -791,15 +908,20 @@ async function boot() {
     if (e.code === 'Escape') { if (mapView.open) return void mapView.close(); closeTeleportList(); tp.cancel(); return; }
     if (e.code === 'KeyT') { if (tpListOpen) closeTeleportList(); else if (tp.active) tp.cancel(); else if (tpCan()) openTeleportList(); return; }
     if (tpListOpen && /^Digit[1-5]$/.test(e.code)) { pickTeleport(+e.code.slice(5)); return; }
+    // (the auto tour takes the trains only: Z mid-ride starts it once you've landed, or Z again thinks better of it)
+    if (e.code === 'KeyZ' && state.mode === 'ride') { autoAfterRide = !autoAfterRide; return; }
     if (e.code === 'KeyZ') { if (auto.on) stopAuto(); else startAuto(); return; }
     if (tp.active) return;   // fizzing out or in: nothing else does anything till you're there
     if (auto.on && TAKE_OVER[state.mode].has(e.code)) stopAuto();   // you have the controls (and this key does its job)
     if (keys.ignored(e.code)) return;   // still held from before you boarded
     if (e.code === 'KeyE') { pressE(); return; }
-    if (state.mode !== 'drive') return;
-    if (e.code === 'KeyW' || e.code === 'ArrowUp') throttleSteps++;
-    if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
-    if (e.code === 'KeyH') pressH();
+    if (state.mode !== 'drive' && state.mode !== 'ride') return;
+    // riding, only the views answer: no throttle, brake or horn
+    if (state.mode === 'drive') {
+      if (e.code === 'KeyW' || e.code === 'ArrowUp') throttleSteps++;
+      if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
+      if (e.code === 'KeyH') pressH();
+    }
     if (e.code === 'KeyV') views.cycle();
     if (e.code === 'Digit1') views.set('cab');
     if (e.code === 'Digit2') views.set('drone');
@@ -890,6 +1012,7 @@ async function boot() {
   // platform's hold), as your keys do
   function autoStep(dt) {
     auto.t += dt;
+    if (state.mode === 'ride') return;   // (never on: it takes the trains only)
     if (state.mode === 'drive') {
       const stopped = Math.abs(drive.v) < 0.05;
       // stopped at the destination platform (on its mark, or wherever it came to a stand in it), free to get out
@@ -940,7 +1063,11 @@ async function boot() {
   const lookDir = new THREE.Vector3();
   function hud(dt) {
     let prompt = '', message = '';
-    if (state.mode === 'drive') {
+    if (state.mode === 'ride') {
+      // the ride and where it's going; no throttle or speed panel, nothing to do
+      const r = runner.ride;
+      $('mode').textContent = `${r.name[0].toUpperCase()}${r.name.slice(1)} to ${PLACES[r.to].name}`;
+    } else if (state.mode === 'drive') {
       const to = PLACES[run.to].name, here = stopHere();
       $('spd').textContent = Math.round(Math.abs(drive.v) * 3.6);
       $('thr').textContent = `throttle ${Math.round(drive.throttle * 100)}%${drive.v < -0.05 ? ' · reversing' : ''}`;
@@ -962,6 +1089,10 @@ async function boot() {
         prompt = ready(w.leg) ? `Board the ${fleet.trains[w.leg].spec.name} to ${PLACES[w.to].name} (E)`
           : needs(w.leg).some((id) => streamer.failed(id)) ? `The way to ${PLACES[w.to].name} couldn't be loaded`
           : `Getting ${PLACES[w.to].name} ready…`;
+      } else {
+        // by a ride: the same wait as the train's, and its own kit
+        const r = rideNear();
+        if (r) prompt = rideReady(r.leg) ? `Take the ${r.name} to ${PLACES[r.to].name} (E)` : `Getting the ${r.name} ready…`;
       }
       // which way the departures are from you, relative to the way the camera looks (the way you see the town)
       camera.getWorldDirection(lookDir);
@@ -974,7 +1105,8 @@ async function boot() {
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
     auto.messageLeft = Math.max(0, auto.messageLeft - dt);
-    const autoLine = auto.on ? 'Auto tour · Z to take over' : auto.messageLeft > 0 ? auto.message : '';
+    const autoLine = auto.on ? 'Auto tour · Z to take over' : autoAfterRide ? 'Auto tour once you land · Z to cancel'
+      : auto.messageLeft > 0 ? auto.message : '';
     if (autoLine !== autoShown) { autoShown = autoLine; $('auto').textContent = autoLine; $('auto').classList.toggle('on', !!autoLine); }
     if (message !== eventLine) { eventLine = message; $('event').textContent = message; $('event').classList.toggle('on', !!message); }
     toastLeft = Math.max(0, toastLeft - dt);
@@ -990,9 +1122,10 @@ async function boot() {
     controls.update();
   }
 
-  // where you are: the drone's target in free view, you on foot, or your train's front
+  // where you are: the drone's target in free view, you on foot, the ride's vehicle, or your train's front
   const here = () => (controls ? controls.target
-    : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z) : train.model.cars[0].holder.position);
+    : state.mode === 'foot' ? new THREE.Vector3(player.state.x, player.state.y, player.state.z)
+    : state.mode === 'ride' ? ridden.pos : train.model.cars[0].holder.position);
   const landBoot = {};
   window.__tour = { scene, camera, renderer, look, terrain, routes, controls, PLACES, THREE };
   Object.assign(window.__tour, { builders, slow, slicer, drive, player, views, places, termini, skyDome, skyAt, streamer, journey, fleet, frame, seamCheck: (id) => seamCheck(places[id], terrain), snap, land, landBoot, landTimes, landFrames, buildLeg, legRoute });
@@ -1022,6 +1155,12 @@ async function boot() {
     walkWorld: { get: () => (state.mode === 'foot' ? walkWorld() : null) },
     // the events active on the run you're driving, and the reactions' states
     events: { get: () => ({ active: evOn ? [...evOn.active.keys()] : [], react: evOut ? Object.fromEntries(evOut.states) : {} }) },
+    // the ride you're on: where along its path and its leg, how fast, how long since it set off; whether the auto tour
+    // waits for its landing; the vehicle kept on its pad after one (and the runner, its kit and vehicle)
+    ride: { get: () => ({
+      on: state.mode === 'ride' && ridden ? { leg: state.leg, s: ridden.s, t: ridden.t, v: ridden.v, legS: ridden.legS, placed: rideLeg.placed } : null,
+      autoAfterRide, keep: rideKeep, near: state.mode === 'foot' ? rideNear()?.leg ?? null : null, runner,
+    }) },
   });
   // developer aid: put your train, stopped, at leg-s `legS` on the run you're driving (within its limits), its events
   // and reactions afresh; -> the leg-s it's at
@@ -1117,6 +1256,17 @@ async function boot() {
     if (tp.active) teleportStep(dt);   // (auto mode waits meanwhile)
     else if (auto.on) autoStep(dt);
     if (tpListOpen && !tpCan()) closeTeleportList();   // (the train moved off)
+    if (state.mode === 'ride') {
+      rideEnv.time = clock.elapsedTime; rideEnv.night = look.night; rideEnv.sunDir = sunDir;
+      ridden = runner.update(dt, rideEnv);
+      rideLeg.on = rideLeg.track.step({ legS: ridden.legS, dt });
+      // the far place's two trains put at their platforms half way along, well out of sight of either end
+      if (!rideLeg.placed && ridden.legS > routes[state.leg].length / 2) {
+        rideLeg.placed = true;
+        for (const w of journey.landed(state).trains) fleet.wait(w.leg, w.dir);
+      }
+      if (ridden.done) stepOff();
+    }
     if (state.mode === 'drive') {
       if (auto.on) throttleSteps += auto.out.throttleSteps;   // its key presses, with any of yours
       const before = drive.s;
@@ -1141,9 +1291,12 @@ async function boot() {
     if (controls) controls.update();
     else if (state.mode === 'foot' && tp.active) player.update(dt, STILL_KEYS, walkWorld());   // standing still while you fizz
     else if (state.mode === 'foot') player.update(dt, auto.on ? auto.keys : footInput(), walkWorld());
+    else if (state.mode === 'ride') views.update(dt, runner.train, runner.viewContext(dt));
     else views.update(dt, train.model, viewContext(dt));
-    // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
-    const where = journey.where(state, run, drive.s);
+    // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day). Riding,
+    // where you are is the leg-s the ride's progress maps to, and its own kit stays wanted
+    const where = state.mode === 'ride' ? journey.where(state, null, ridden.legS) : journey.where(state, run, drive.s);
+    if (state.mode === 'ride') where.ride = true;
     // (teleporting from a cab you're getting out, standing still: as on foot)
     const driving = state.mode === 'drive' && !tp.active, stopped = Math.abs(drive.v) < 0.05;
     // arriving at a platform, what failed is tried again (a few times at most), before the cover is decided so it's
@@ -1156,13 +1309,19 @@ async function boot() {
     if (driving) where.at = arr.at;
     let set = wanted(where);
     if (tp.active && !tp.swapped) for (const id of tpKeep) set.add(id);   // where you stood, and where you're going, too
-    if (!arr.build) set = new Set([...set].filter((id) => !streamer.toBuild(id)));   // nothing new while moving
+    // nothing new while moving (riding too)
+    if (!arr.build || state.mode === 'ride') set = new Set([...set].filter((id) => !streamer.toBuild(id)));
+    // the vehicle you've stepped off stays on its pad (its kit wanted) till you're away from it
+    if (rideKeep) {
+      const h = here();
+      if (Math.hypot(h.x - rideKeep.x, h.z - rideKeep.z) > RIDE_KEEP) rideKeep = null; else set.add(rideKeep.id);
+    }
     streamer.want(set);
     // what's built may land (a kit built in one go, an upload) only on foot, or at a standstill where arrival lets it
     // be built (behind the cover, once it's up): never on a moving frame. A build waiting for that isn't stalled, nor
     // is one whose upload waits for it
-    // (teleporting, only under the beam: the fizz out and in never wait on a kit built in one go)
-    mayLand = tp.active ? tp.phase === 'beam' : !driving || (stopped && arr.build);
+    // (teleporting, only under the beam: the fizz out and in never wait on a kit built in one go; riding, never)
+    mayLand = state.mode === 'ride' ? false : tp.active ? tp.phase === 'beam' : !driving || (stopped && arr.build);
     streamer.landing = mayLand;
     const waitDt = toDraw.length && !mayLand ? 0 : dt;
     streamer.tick(waitDt);
@@ -1174,8 +1333,8 @@ async function boot() {
       $('arrive').classList.toggle('on', !!label);
     }
     // what was let go is freed at a standstill (the scene walked once), never on a moving frame
-    // (teleporting, only under the beam)
-    if ((state.mode === 'foot' || Math.abs(drive.v) < 0.05) && (!tp.active || tp.phase === 'beam')) unload.flush(scene);
+    // (teleporting, only under the beam; riding, never)
+    if ((state.mode === 'foot' || (state.mode === 'drive' && Math.abs(drive.v) < 0.05)) && (!tp.active || tp.phase === 'beam')) unload.flush(scene);
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : towards(skyPos, want, Math.min(1, dt * 1.5));   // the short way round the ring
     const sky = skyAt(skyPos);
@@ -1191,6 +1350,11 @@ async function boot() {
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
     for (const p of Object.values(places)) p.tick(clock.elapsedTime);
     updateActors(dt);
+    rideIdle.dt = dt; rideIdle.time = clock.elapsedTime; rideIdle.night = look.night; rideIdle.sunDir = sunDir;
+    for (let k = 0; k < RIDE_IDS.length; k++) {
+      const kit = streamer.get(RIDE_IDS[k])?.kit;
+      if (kit && kit !== runner.kit) act(kit, rideIdle);
+    }
     anchor.position.copy(here());
     look.update();
     redoDirty();

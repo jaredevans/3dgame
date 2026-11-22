@@ -103,3 +103,52 @@ test('main.js: T teleports, and the frame holds everything else still meanwhile'
 test('main.js turns on local clipping where it makes the renderer', () => {
   assert.match(src, /const renderer = new THREE\.WebGLRenderer\([^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*renderer\.localClippingEnabled = true;/);
 });
+
+// a ride (Phase 4): E on foot takes it only from beside where it waits (nearRide) once it's ready (readyToRide), and
+// never ahead of a train you're beside (auto's E, beside the onward train, boards that); riding, E and the driving keys
+// do nothing but the views still answer; the runner's done sets you down (journey.landed)
+test('main.js: E takes a ride only near it and ready; riding ignores the driving keys; done lands you', () => {
+  assert.match(src, /import \{[^}]*\breadyToRide\b[^}]*\} from '\.\/streaming\.js'/);
+  assert.match(src, /import \{[^}]*\bnearRide\b[^}]*\bmakeRideRunner\b[^}]*\} from '\.\/ride-run\.js'/);
+  const near = src.match(/const rideNear = \(\) => \{[\s\S]*?\n {2}\};/);
+  assert.ok(near, 'no rideNear()');
+  assert.match(near[0], /nearRide\(player\.state, \w+, RIDE_REACH\)/);
+  assert.match(src, /const RIDE_REACH = 4;/);
+  const press = src.match(/function pressE\(\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(press, 'no pressE()');
+  assert.match(press[0], /const w = boardable\(\);/);
+  assert.match(press[0], /else if \(!w && !auto\.on\) \{ const r = rideNear\(\); if \(r && rideReady\(r\.leg\)\) takeRide\(r\.leg\); \}/);
+  assert.match(src, /const rideReady = \(leg\) => readyToRide\(leg, /);
+  const take = src.match(/function takeRide\(leg\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(take, 'no takeRide()');
+  assert.match(take[0], /state = journey\.ride\(state, leg\)/);
+  assert.match(take[0], /\.leaveOutExtras\(\)/);
+  assert.match(take[0], /turnPending\(\)/);
+  assert.match(take[0], /player\.exit\(\)/);
+  assert.match(take[0], /runner\.start\(/);
+  // riding: only the views; no throttle, horn or E
+  assert.match(src, /if \(state\.mode !== 'drive' && state\.mode !== 'ride'\) return;/);
+  assert.match(src, /if \(state\.mode === 'drive'\) \{\n\s*if \(e\.code === 'KeyW' \|\| e\.code === 'ArrowUp'\) throttleSteps\+\+;/);
+  assert.match(src, /ride: new Set\(\),/);
+  // Z mid-ride waits for the landing; T doesn't work mid-ride
+  assert.match(src, /if \(e\.code === 'KeyZ' && state\.mode === 'ride'\) \{ autoAfterRide = !autoAfterRide; return; \}/);
+  assert.match(src, /const tpCan = \(\) => !controls && state\.mode !== 'ride' && canTeleport\(/);
+  // the frame: the runner, then landing when it's done
+  assert.match(src, /ridden = runner\.update\(dt, rideEnv\);/);
+  assert.match(src, /if \(ridden\.done\) stepOff\(\);/);
+  const land = src.match(/function stepOff\(\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(land, 'no stepOff()');
+  assert.match(land[0], /journey\.landed\(state\)/);
+  assert.match(land[0], /fleet\.wait\(w\.leg, w\.dir\)/);
+  assert.match(land[0], /player\.enter\(/);
+  assert.match(land[0], /runner\.stop\(\)/);
+  assert.match(land[0], /if \(autoAfterRide\) \{ autoAfterRide = false; startAuto\(\); \}/);
+  // nothing lands, nor is freed, on a ride's moving frames; the ride's kit stays wanted while riding (where.ride)
+  assert.match(src, /mayLand = state\.mode === 'ride' \? false : /);
+  assert.match(src, /if \(\(state\.mode === 'foot' \|\| \(state\.mode === 'drive' && Math\.abs\(drive\.v\) < 0\.05\)\)/);
+  assert.match(src, /where\.ride = true/);
+  assert.match(src, /views\.update\(dt, runner\.train, runner\.viewContext\(dt\)\)/);
+  // every ride's path worked out behind the loading screen, before the first places are asked for
+  const warmAt = src.indexOf('for (const leg of RIDE_LEGS) rideFor(leg)'), firstWant = src.indexOf('await streamer.want(wanted({ place: state.place }))');
+  assert.ok(warmAt > 0 && warmAt < firstWant, 'the rides are worked out before the first want');
+});
