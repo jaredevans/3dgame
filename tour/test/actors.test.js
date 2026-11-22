@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clipFor } from '../actors/clips.js';
-import { rainbowArc, arcAboveHorizon, workTrainStep, herdPath, paceStep, PACE } from '../actors/paths.js';
+import { rainbowArc, arcAboveHorizon, workTrainStep, workTrainRuns, herdPath, paceStep, PACE } from '../actors/paths.js';
 import { legRoute, laneOf } from '../world-data.js';
 
 const COW = ['Walk', 'Idle', 'Run'];
@@ -87,6 +87,17 @@ test('it never runs into the Mountain\'s platform, and hides rather than let you
   assert.equal(step(983, 930, 'green', 0, 983).shown, false);   // 53 m ahead
   assert.equal(step(800, 900, 'green', 0).shown, false);        // behind you (a jump past it)
   assert.equal(step(800, 735, 'green', 0).shown, true);
+});
+
+// the work train runs only for a train you drive out along its leg: never during a ride (Ruling R10: the ride's frame
+// is told apart by its `ride` flag; the leg's train events don't play while you ride), back, or with no train here
+test('the work train runs for your train going out, and stands hidden during a ride along its leg', () => {
+  const train = { here: true, dir: 'out', legS: 300 };
+  assert.equal(workTrainRuns(train), true);
+  assert.equal(workTrainRuns({ ...train, ride: false }), true);
+  assert.equal(workTrainRuns({ ...train, ride: true }), false);
+  assert.equal(workTrainRuns({ ...train, dir: 'back' }), false);
+  assert.equal(workTrainRuns({ here: false, dir: null, legS: null }), false);
 });
 
 // beside the line (actors/paths.js herdPath): a point `lateral` metres out on a side (+1 left of the leg's out direction)

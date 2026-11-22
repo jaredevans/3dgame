@@ -1,3 +1,5 @@
+import { burnAt } from './rides.js';
+
 // Horns and whistles, made with WebAudio (the basement's whistle, unchanged in sound).
 // steam: a three-note whistle; diesel: a two-tone horn; bullet: the Silver Arrow's bright, airy two-note horn, rising
 // a little as it sounds; future: the Metro Glide's soft three-note chime, each note ringing out.
@@ -126,10 +128,18 @@ export function shimmer(rising = true, dur = 1.5) {
 // ride's speed against its cruise, raising its pitch and its loudness a little. 'car': the flying car's soft hum, two
 // low tones a little apart and a breath of air over them; it stays under 0.05 gain. 'boat': the outboard's roar, two
 // rasping saws a little out of tune with each other (they beat), its throb, and the hiss of spray over it, rising
-// with its speed; under 0.07. A kind with no sound of its own yet is silent
+// with its speed; under 0.07. 'balloon': the jets' whine, two high tones a little apart over a low turbine hum and the
+// rush of their exhaust, rising with their thrust; and the burners' whoosh in bursts, a deep roar of noise, as and when
+// rides.js burnAt fires them (in the ride's seconds, counted from start()); under 0.07. A kind with no sound of its own
+// yet is silent
 const ENGINES = {
   car: { tones: [[92, 'sine', 1], [185, 'triangle', 0.35]], cut: 700, air: { freq: 900, q: 0.8, gain: 0.25 }, gain: 0.045, pitch: [0.85, 1.15], idle: 0.45 },
   boat: { tones: [[58, 'sawtooth', 1], [61, 'sawtooth', 0.8], [117, 'square', 0.18]], cut: 650, air: { freq: 2600, q: 0.5, gain: 0.55 }, gain: 0.065, pitch: [0.7, 1.35], idle: 0.3 },
+  balloon: {
+    tones: [[1480, 'sine', 0.22], [1497, 'sine', 0.18], [2960, 'triangle', 0.05], [96, 'sawtooth', 0.35]], cut: 4200,
+    air: { freq: 1400, q: 0.6, gain: 0.5 }, gain: 0.04, pitch: [0.8, 1.12], idle: 0.25,
+    burner: { freq: 260, to: 520, q: 0.7, gain: 0.07 },
+  },
 };
 const QUIET = { start() {}, stop() {}, set() {} };
 export function engine(kind) {
@@ -155,21 +165,37 @@ export function engine(kind) {
       air.buffer = noiseBuffer(); air.loop = true;
       bp.type = 'bandpass'; bp.frequency.value = k.air.freq; bp.Q.value = k.air.q; ag.gain.value = k.air.gain;
       air.connect(bp).connect(ag).connect(out); air.start(t0);
-      nodes = { out, oscs, air };
+      // the burners: a roar of low noise, straight out (not through the engine's level), silent until they fire
+      let burn = null;
+      if (k.burner) {
+        const src = audio.createBufferSource(), lp = audio.createBiquadFilter(), g = audio.createGain();
+        src.buffer = noiseBuffer(); src.loop = true;
+        lp.type = 'lowpass'; lp.frequency.value = k.burner.freq; lp.Q.value = k.burner.q; g.gain.value = 0;
+        src.connect(lp).connect(g).connect(audio.destination); src.start(t0);
+        burn = { src, lp, g };
+      }
+      nodes = { out, oscs, air, burn, t0 };
     },
     set(level) {
       if (!nodes) return;
       const t = audio.currentTime, u = Math.min(1, Math.max(0, level));
       nodes.out.gain.setTargetAtTime(k.gain * (k.idle + (1 - k.idle) * u), t, 0.3);
       for (const { o, f } of nodes.oscs) o.frequency.setTargetAtTime(f * (k.pitch[0] + (k.pitch[1] - k.pitch[0]) * u), t, 0.3);
+      if (nodes.burn) {
+        // as hard as the burners burn now, the roar opening up as it swells
+        const b = burnAt(t - nodes.t0), B = k.burner;
+        nodes.burn.g.gain.setTargetAtTime(B.gain * b, t, 0.06);
+        nodes.burn.lp.frequency.setTargetAtTime(B.freq + (B.to - B.freq) * b, t, 0.1);
+      }
     },
     stop() {
       if (!nodes) return;
-      const t = audio.currentTime, { out, oscs, air } = nodes;
+      const t = audio.currentTime, { out, oscs, air, burn } = nodes;
       nodes = null;
       out.gain.cancelScheduledValues(t); out.gain.setTargetAtTime(0, t, 0.25);
       for (const { o } of oscs) o.stop(t + 1.5);
       air.stop(t + 1.5);
+      if (burn) { burn.g.gain.cancelScheduledValues(t); burn.g.gain.setTargetAtTime(0, t, 0.2); burn.src.stop(t + 1.5); }
     },
   };
 }

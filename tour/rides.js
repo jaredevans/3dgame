@@ -122,7 +122,7 @@ function boat() {
 // the buffer end, and over the last 86 m to the open end the walk is the platform alone, so this is the nearest the
 // walk comes off the platform to the open end. 30 m out, just past the station building's far end, on level ground.
 function balloon() {
-  const REST = 1.2, at = stationSpot('ocean', 'departure'), to = stationSpot('mountain', 'arrival');
+  const REST = BALLOON.rest, at = stationSpot('ocean', 'departure'), to = stationSpot('mountain', 'arrival');
   const r = legRoute('ocean-mountain'), town = Math.sign(laneOf('ocean-mountain'));
   const sec = (kind) => legSections('ocean-mountain').find((x) => x.kind === kind);
   const tunnel = sec('tunnel'), viaduct = sec('viaduct');
@@ -139,8 +139,20 @@ function balloon() {
   const land = onGround(to(50, 30), REST);
   const settle = { ...to(32, 36), y: land.y + 40 };
   const step = onGround(to(50, 22));
-  return { pts: [board, lift, forest, hill, falls, down, settle, land], step: { ...step, yaw: townward('mountain', 'arrival')(step.yaw) },
-    ease: [16, 18], rest: REST };
+  // the crows over its cruise; the director's two: the crows wheeling round the canopy from out past their ring (a heli
+  // abreast, a little above the basket, over the forest and the hill), and the balloon going out over the valley, filmed
+  // from behind it over the hill (22 m over its path: cameras.js puts a wide shot there), looking on over it down to
+  // the waterfall at the valley's head on one side and the viaduct and the Mountain on the other (abreast of it, the
+  // camera looked across at the mountain's flank, or out to the desert, the valley under the frame)
+  return {
+    pts: [board, lift, forest, hill, falls, down, settle, land], step: { ...step, yaw: townward('mountain', 'arrival')(step.yaw) },
+    ease: [16, 18], rest: REST,
+    events: [{ id: 'crows', s0: CROWS.s0, s1: CROWS.s1, actor: 'crows' }],
+    showpieces: [
+      { id: 'canopy', s0: 430, s1: 700, shot: { kind: 'heli', lateral: 55, height: 10, fov: 58 } },
+      { id: 'falls', s0: 690, s1: 860, shot: { kind: 'wide', at: 560, lateral: 0, fov: 62 } },
+    ],
+  };
 }
 
 // the col the stagecoach's road crosses west of the canyon's mouth, where it may climb steeper than its 12%: the land
@@ -449,6 +461,147 @@ export function placeOctopus(ride, s, pose, out = {}) {
   const p = ride.path.offsetAt(Math.min(ride.path.length, s + pose.along), pose.side, OP), b = ride.path.at(s, OB);
   out.x = p.x; out.z = p.z; out.y = SEA_LEVEL + pose.rise;
   out.yaw = Math.atan2(b.x - p.x, b.z - p.z);
+  return out;
+}
+
+// ---- the balloon and its crows ----
+// The balloon in its holder's frame (metres, y up from the path, which rides BALLOON.rest over its pad): the basket's
+// floor on the pad, its rim at waist height; over it the burners, and the envelope's throat over them, the envelope a
+// teardrop 20 m tall and 17 m across (as a real one carrying a basket for a few), widest high up. Its basket hangs
+// level (no pitch or bank) and turns only about its upright, so the envelope is round its holder's vertical axis.
+export const BALLOON = {
+  rest: 1.2, floor: -1.2, rim: -0.1,   // (the basket's walls 1.1 m high)
+  envelope: { throat: 3.2, throatR: 1.4, belly: 15, crown: 23.2, radius: 8.5 },
+};
+// the envelope's radius at height y (0 above its crown or below its throat): from the throat out along a quarter sine
+// to its widest at the belly (some 43 degrees out at the throat, as an envelope's skirt flares), and a dome over it
+export function envelopeRadius(y) {
+  const E = BALLOON.envelope;
+  if (y < E.throat || y > E.crown) return 0;
+  if (y <= E.belly) return E.throatR + (E.radius - E.throatR) * Math.sin((y - E.throat) / (E.belly - E.throat) * Math.PI / 2);
+  const u = (y - E.belly) / (E.crown - E.belly);
+  return E.radius * Math.sqrt(Math.max(0, 1 - u * u));
+}
+// the burners, in seconds since it set off: long burns lifting it off its pad, short bursts every eight seconds or so
+// cruising (holding its height, the jets pushing it on), little coming down, and a flare just before it sets down to
+// land softly. burnAt(t): 0..1, how hard they're burning (the flame and its roar), eased in and out over a fraction of
+// a second
+export const BURNS = [
+  [0.4, 4], [5, 8.6], [9.6, 13], [14.2, 16.4],
+  [22, 24.2], [30.5, 32.8], [38.6, 40.6], [46.5, 48.8], [54.4, 56.6], [62.5, 64.6],
+  [74, 75.2], [83, 85.4],
+];
+const BURN_IN = 0.15, BURN_OUT = 0.3;
+export function burnAt(t) {
+  for (let i = 0; i < BURNS.length; i++) {
+    const a = BURNS[i][0], b = BURNS[i][1];   // (indexed, not destructured: it's called every frame)
+    if (t > a && t < b + BURN_OUT) return Math.min(smooth((t - a) / BURN_IN), 1 - smooth((t - b) / BURN_OUT));
+  }
+  return 0;
+}
+
+// The crows: Polyfork's crow-base at 4x (the owner's call, 3-4x: 2.2 m long, 3.7 m across its wings), six of them wheeling
+// round the canopy over the balloon's cruise, now and then one swooping down past the basket, ahead of the seat. Each
+// circles the balloon's upright axis at a radius and height of its own, all at one rate (so the flock keeps its spacing,
+// a sixth of the way round apart), in the path's frame: `along` ahead, `side` out to its left, `up` from the holder.
+// They come in from far out and a little above, straight in at first, the circling taking hold as they near (over the
+// second half of their coming in), and leave the same way, ceasing to circle over the first half of their going; their
+// heading is their way through the air (the world's), which the rates keep forward: they circle at 6-8 m/s against
+// the balloon's 17. All keyed to the crows' own seconds (their event's t), the same picture for the same t.
+export const CROWS = {
+  count: 6, scale: 4,
+  model: { reach: 0.68 },      // the furthest any vertex of its Fly clip comes from its origin (model metres, measured)
+  get reach() { return this.model.reach * this.scale; },
+  s0: 150, s1: 1070,           // their window in ride-s, inside the cruise (135-1080 m)
+  rate: 0.38,                  // radians a second round the balloon
+  join: 14, leave: 12,         // seconds coming in and going off
+  from: { out: 60, up: 25 },   // how far out (and up) they come in from and go off to
+  // the furthest out any circles (its radius as it breathes out; m from the balloon's axis)
+  get ring() { return Math.max(...CIRCLES.map((c) => c[0] + c[2])); },
+  swoop: { secs: 6, out: 9, up: 1.2, bearing: 0.1, gap: 9 },    // its low point 9 m out, 1.2 m up, dead ahead (clear of the basket's uprights)
+};
+// each crow's circle: radius, height (the canopy's 3.2-23.2 m), how its radius and height breathe (m) and how fast (1/s)
+const CIRCLES = [
+  [15.5, 7, 1.2, 1.4, 0.21], [18.5, 14, 1.4, 1.2, 0.17], [21, 20, 0.8, 1.5, 0.23],
+  [16.5, 10, 1.0, 1.3, 0.19], [19.5, 17, 1.2, 1.0, 0.15], [14.5, 23, 0.6, 1.2, 0.25],
+];
+// how far round its circle a crow has come by t: the rate eased in as it joins and out as it leaves (the integral of
+// smoothstep, so its angle runs on smoothly)
+const ramped = (x) => (x <= 0 ? 0 : x >= 1 ? x - 0.5 : x ** 3 - x ** 4 / 2);
+// the ride's seconds at ride-s s (sAt the other way, by halving)
+function tAt(p, s) {
+  let lo = 0, hi = p.duration;
+  for (let k = 0; k < 50; k++) { const m = (lo + hi) / 2; if (sAt(p, m) < s) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
+// worked out once a ride: when the crows start to leave (their seconds), and their swoops ({ crow, mid: its low point's
+// seconds }), one at a time, each crow once at most, as each comes round to the swoop's bearing between their joining
+// and their leaving
+const PLANS = new WeakMap();
+function crowPlan(ride) {
+  let plan = PLANS.get(ride);
+  if (plan) return plan;
+  const C = CROWS, W = C.swoop, end = tAt(ride.profile, C.s1) - tAt(ride.profile, C.s0);
+  const leaveAt = end - C.leave - 0.5, swoops = [], used = new Set();
+  // (while circling, crow i's angle is phase(i) + rate * (t - 3 join / 4): its circling eased in over join / 2 from join / 2)
+  for (let t = C.join + W.secs / 2 + 1; t <= leaveAt - W.secs / 2 - 1;) {
+    let best = null;
+    for (let i = 0; i < C.count; i++) {
+      if (used.has(i)) continue;
+      const turns = (W.bearing - (2 * Math.PI * i) / C.count) / (2 * Math.PI);
+      const period = (2 * Math.PI) / C.rate;
+      let mid = 0.75 * C.join + turns * period;
+      mid += Math.ceil((t - mid) / period) * period;
+      if (!best || mid < best.mid) best = { crow: i, mid };
+    }
+    if (!best || best.mid > leaveAt - W.secs / 2 - 1) break;
+    swoops.push(best);
+    used.add(best.crow);
+    t = best.mid + W.secs + W.gap - W.secs / 2;
+  }
+  plan = { end, leaveAt, swoops };
+  PLANS.set(ride, plan);
+  return plan;
+}
+// crow i, t seconds into the crows' window: into out { along, side, up (m from the balloon's holder, in the path's
+// frame), scale (0..1: 0 out of sight, far off at either end) }
+export function crowOffset(ride, t, i, out) {
+  const C = CROWS, W = C.swoop, plan = crowPlan(ride), c = CIRCLES[i];
+  const radius = c[0], height = c[1], breathe = c[2], bob = c[3], w = c[4];   // (indexed: it's called every frame)
+  const ph = (2 * Math.PI * i) / C.count;
+  const joined = smooth(t / C.join), gone = smooth((t - plan.leaveAt) / C.leave);
+  const theta = ph + C.rate * (C.join / 2 * ramped((t - C.join / 2) / (C.join / 2)) - C.leave / 2 * ramped((t - plan.leaveAt) / (C.leave / 2)));
+  let rho = radius + breathe * Math.sin(w * t + ph), up = height + bob * Math.sin(0.8 * w * t + 2 * ph);
+  // its swoop: down past the basket and up again, drawing in to it only once it's below the envelope's belly
+  for (let k = 0; k < plan.swoops.length; k++) {
+    const sw = plan.swoops[k];
+    if (sw.crow !== i) continue;
+    const u = (t - sw.mid) / W.secs + 0.5;
+    if (u <= 0 || u >= 1) continue;
+    const dip = u < 0.5 ? smooth(u / 0.5) : smooth((1 - u) / 0.5), near = dip * dip * dip;
+    up += (W.up - up) * dip;
+    rho += (W.out - rho) * near;
+  }
+  const far = (1 - joined) + gone;
+  rho += C.from.out * far;
+  up += C.from.up * far;
+  out.along = rho * Math.cos(theta);
+  out.side = rho * Math.sin(theta);
+  out.up = up;
+  out.scale = smooth(t / 1.5) * (1 - smooth((t - (plan.end - 1.5)) / 1.5));
+  return out;
+}
+// crow i in the world, the balloon at ride-s s and the crows t seconds in: into out { x, y, z (its model's origin),
+// scale, visible }
+const CO = {}, CP = {};
+export function placeCrow(ride, s, t, i, out) {
+  crowOffset(ride, t, i, CO);
+  const p = ride.path.at(s, CP), sn = Math.sin(p.yaw), cs = Math.cos(p.yaw);
+  out.x = p.x + sn * CO.along + cs * CO.side;
+  out.z = p.z + cs * CO.along - sn * CO.side;
+  out.y = p.y + CO.up;
+  out.scale = CO.scale;
+  out.visible = CO.scale > 0;
   return out;
 }
 

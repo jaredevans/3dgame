@@ -14,8 +14,10 @@
 // with warn(), the ride going on without it.
 import { buildCar } from './car.js';
 import { buildBoat } from './boat.js';
+import { buildBalloon } from './balloon.js';
 
 export const RIDE_BUILDERS = {
   boat: buildBoat,
+  balloon: buildBalloon,
   car: buildCar,
 };

@@ -31,6 +31,11 @@ export function workTrainStep({ s, legS, aspect, dt, end }) {
   return { s, shown: gap >= WORK.near && (s <= WORK.clear || gap <= WORK.far) };
 }
 
+// whether the work train runs this frame (f an actor's frame): only for a train you drive out along its leg. Riding the
+// leg (f.ride: the ride's frame is a train's at the ride's leg-s, going out) it stands hidden, as the leg's train events
+// don't play during a ride (Ruling R10), and back or with no train here it waits for the next run out
+export const workTrainRuns = (f) => f.here && f.dir === 'out' && !f.ride;
+
 // a point `lateral` metres out from the line on `side` (+1 left of the leg's out direction, -1 right) at leg-s `s`, the
 // line's own height and heading there (the actor puts it on the land): -> out, filled ({ x, y, z, yaw })
 export function herdPath(route, s, side, lateral, out = {}) {

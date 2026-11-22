@@ -566,10 +566,11 @@ async function boot() {
   // on its leg)
   function actorFrame(leg, id, on, dt) {
     const mine = state.mode === 'drive' && run.leg === leg;
-    // riding along its leg: as for a train at the ride's leg-s, going out, with no reactions
+    // riding along its leg: as for a train at the ride's leg-s, going out, with no reactions, told it's a ride (the leg's
+    // train events, as the signal's work train, don't run for it)
     if (state.mode === 'ride' && state.leg === leg) {
       return {
-        legS: ridden.legS, dir: 'out', here: true, dt, time: clock.elapsedTime, on, react: null, camera,
+        legS: ridden.legS, dir: 'out', here: true, ride: true, dt, time: clock.elapsedTime, on, react: null, camera,
         train: { front: ridden.pos, v: ridden.v, length: runner.train.cars[0].length }, night: look.night, sunDir,
       };
     }

@@ -156,3 +156,17 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   const warmAt = src.indexOf('for (const leg of RIDE_LEGS) rideFor(leg)'), firstWant = src.indexOf('await streamer.want(wanted({ place: state.place }))');
   assert.ok(warmAt > 0 && warmAt < firstWant, 'the rides are worked out before the first want');
 });
+
+// Ruling R10: riding a leg, its `always` actors are told it's a ride (their frame's `ride` flag), so the signal's work
+// train, a train event, doesn't run for the ride as it would for a train at the ride's leg-s
+test('main.js tells the leg\'s actors a ride\'s frame from a train\'s; the signal keeps its work train for trains', () => {
+  const frame = src.match(/function actorFrame\(leg, id, on, dt\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(frame, 'no actorFrame()');
+  const [rideBranch, trainBranch] = frame[0].split(/\n {4}return \{\n {6}legS: mine/);
+  assert.match(rideBranch, /state\.mode === 'ride' && state\.leg === leg/);
+  assert.match(rideBranch, /\bride: true\b/);
+  assert.doesNotMatch(trainBranch, /\bride: true\b/);
+  const climb = readFileSync(new URL('../actors/climb.js', import.meta.url), 'utf8');
+  assert.match(climb, /import \{[^}]*\bworkTrainRuns\b[^}]*\} from '\.\/paths\.js'/);
+  assert.match(climb, /if \(!workTrainRuns\(f\)\) \{ workS = WORK\.at; work\.group\.visible = false; return; \}/);
+});

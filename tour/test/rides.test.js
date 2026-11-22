@@ -4,7 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
-  OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus } from '../rides.js';
+  OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
+  BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow } from '../rides.js';
+import { makeRideTrack } from '../ride-run.js';
+import { legSections, FEATURES } from '../world-data.js';
 import { onWalkway } from '../walk-world.js';
 import { LEGS, PLACES, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
@@ -54,8 +57,9 @@ test('five rides, one per leg, onward', () => {
     assert.equal(r.from, LEGS[r.leg].from);
     assert.equal(r.to, LEGS[r.leg].to);
     assert.equal(rideFor(r.leg), r, 'memoised');
-    // (each ride's set pieces are its own tasks': so far the car's escort and its two shots, the boat's octopus and its)
-    if (r.id !== 'car' && r.id !== 'boat') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
+    // (each ride's set pieces are its own tasks': so far the car's escort and its two shots, the boat's octopus and its,
+    // the balloon's crows and its two)
+    if (r.id !== 'car' && r.id !== 'boat' && r.id !== 'balloon') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
   }
   assert.throws(() => rideFor('nowhere'));
 });
@@ -520,4 +524,174 @@ test('the boat\'s set pieces: the octopus (with its shot, low over the water) ab
   const [cliffs] = r.showpieces;
   assert.equal(cliffs.id, 'cliffs');
   assert.ok(cliffs.s0 >= 0 && cliffs.s1 < ev.s0 && cliffs.shot.kind);
+});
+
+// ---- the balloon and its crows ----
+
+// the gap from (rho out from the balloon's axis, y up in its holder's frame) to its envelope's fabric (negative inside
+// it): the nearest point of its profile, a surface of revolution, is in the same half-plane
+function envelopeGap(rho, y) {
+  const E = BALLOON.envelope;
+  let best = Infinity;
+  for (let h = E.throat; h <= E.crown + 1e-9; h += 0.05) best = Math.min(best, Math.hypot(rho - envelopeRadius(h), y - h));
+  const inside = y > E.throat && y < E.crown && rho < envelopeRadius(y);
+  return inside ? -best : best;
+}
+
+test('the balloon\'s envelope: about 20 m tall and 15-18 m across, a smooth teardrop on its throat over the burners', () => {
+  const E = BALLOON.envelope;
+  assert.ok(E.crown - E.throat >= 19 && E.crown - E.throat <= 22, `${(E.crown - E.throat).toFixed(1)} m tall`);
+  let widest = 0, prev = envelopeRadius(E.throat);
+  for (let y = E.throat; y <= E.crown; y += 0.05) {
+    const r = envelopeRadius(y);
+    widest = Math.max(widest, r);
+    assert.ok(Math.abs(r - prev) < 0.4, `a step in the envelope at ${y.toFixed(2)}`);
+    prev = r;
+  }
+  assert.ok(2 * widest >= 15 && 2 * widest <= 18, `${(2 * widest).toFixed(1)} m across`);
+  assert.equal(envelopeRadius(E.throat - 0.5), 0);
+  assert.equal(envelopeRadius(E.crown + 0.5), 0);
+  assert.ok(envelopeRadius(E.throat) >= 1 && envelopeRadius(E.throat) <= 2, 'its throat is over the burners');
+  // the basket hangs under it, its rim below the throat, its floor on the path's rest
+  assert.ok(BALLOON.rim < E.throat - 2 && Math.abs(BALLOON.floor + BALLOON.rest) < 1e-9);
+});
+
+test('the burners: long burns lifting off, short bursts cruising, a flare before it sets down; 0..1, eased, never stuck on', () => {
+  for (let i = 0; i < BURNS.length; i++) {
+    const [a, b] = BURNS[i];
+    assert.ok(b - a >= 1 && b - a <= 4.5, `burn ${i} is ${(b - a).toFixed(1)} s`);
+    if (i) assert.ok(a - BURNS[i - 1][1] >= 0.8, `burns ${i - 1} and ${i} run together`);
+  }
+  let on = 0, prev = burnAt(0);
+  for (let t = 0; t <= 90; t += 0.01) {
+    const k = burnAt(t);
+    assert.ok(k >= 0 && k <= 1);
+    assert.ok(Math.abs(k - prev) <= 0.1, `the flame jumps at ${t.toFixed(2)}`);
+    prev = k;
+    if (t < 16 && k > 0.5) on += 0.01;
+  }
+  assert.ok(on >= 10, `only ${on.toFixed(1)} s of burning lifting off`);
+  const cruise = BURNS.filter(([a]) => a > 18 && a < 70);
+  assert.ok(cruise.length >= 4, 'it bursts now and then cruising');
+  assert.ok(BURNS.some(([a, b]) => a > 80 && b <= 90), 'no flare before it sets down');
+  assert.equal(burnAt(-1), 0); assert.equal(burnAt(200), 0);
+  assert.equal(burnAt((BURNS[2][0] + BURNS[2][1]) / 2), 1);
+});
+
+// the crows' window walked as the ride runs it (rideStep at 1/60, the ride's own track): at each frame the balloon's
+// place on its path (its holder: the runner poses it there, turned only about its upright axis) and each crow's offset
+// from it and place in the world
+function walkCrows(fn) {
+  const r = ride('balloon'), track = makeRideTrack(r.events), o = {}, w = {}, p = {};
+  let st = { s: 0, t: 0, v: 0 };
+  while (!st.done) {
+    st = rideStep(st, 1 / 60, r);
+    const on = track.step({ s: st.s, dt: 1 / 60 }).active.get('crows');
+    if (!on) continue;
+    r.path.at(st.s, p);
+    for (let i = 0; i < CROWS.count; i++) fn(i, crowOffset(r, on.t, i, o), placeCrow(r, st.s, on.t, i, w), p, st, on);
+  }
+}
+
+test('the crows: five to seven crow-base, 3-4x, circling the canopy 3 m clear of the envelope (wingtip to fabric) and above the basket\'s rim, every frame', () => {
+  assert.ok(CROWS.count >= 5 && CROWS.count <= 7);
+  assert.ok(CROWS.scale >= 3 && CROWS.scale <= 4);
+  assert.ok(Math.abs(CROWS.reach - CROWS.model.reach * CROWS.scale) < 1e-9);
+  let nearest = Infinity, lowest = Infinity, frames = 0;
+  walkCrows((i, o) => {
+    if (!o.scale) return;
+    frames++;
+    const gap = envelopeGap(Math.hypot(o.along, o.side), o.up) - CROWS.reach;
+    nearest = Math.min(nearest, gap);
+    lowest = Math.min(lowest, o.up - BALLOON.rim);
+    assert.ok(gap >= 3, `crow ${i} ${gap.toFixed(2)} m from the envelope`);
+    assert.ok(o.up >= BALLOON.rim + 1, `crow ${i} ${(o.up - BALLOON.rim).toFixed(2)} m over the rim`);
+  });
+  assert.ok(frames > 1000);
+  assert.ok(nearest < 6, `the crows never come nearer than ${nearest.toFixed(1)} m: they're not round the canopy`);
+  assert.ok(lowest < 3.5, 'none swoops down past the basket');
+});
+
+test('the crows keep apart, fly on smoothly at a crow\'s pace (never hovering or backwards), and circle all round the balloon', () => {
+  const at = Array.from({ length: CROWS.count }, () => ({}));
+  const last = Array.from({ length: CROWS.count }, () => null), bearings = Array.from({ length: CROWS.count }, () => new Set());
+  let prevS = null;
+  walkCrows((i, o, w, p, st) => {
+    Object.assign(at[i], o);
+    if (i === CROWS.count - 1) {
+      for (let a = 0; a < CROWS.count; a++) for (let b = a + 1; b < CROWS.count; b++) {
+        const A = at[a], B = at[b];
+        if (!A.scale || !B.scale) continue;
+        const d = Math.hypot(A.along - B.along, A.side - B.side, A.up - B.up);
+        assert.ok(d >= 2 * CROWS.reach + 1, `crows ${a} and ${b} ${d.toFixed(1)} m apart at ${st.s.toFixed(0)}`);
+      }
+    }
+    if (w.visible && last[i]) {
+      const v = Math.hypot(w.x - last[i].x, w.y - last[i].y, w.z - last[i].z) * 60;
+      // at cruise (the window is within it): flying on, as a crow does, however it circles
+      assert.ok(v >= 5 && v <= 32, `crow ${i} at ${v.toFixed(1)} m/s at ${st.s.toFixed(0)}`);
+      // along the balloon's way at least a little (its heading is its way through the air: never flipping round)
+      const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+      assert.ok(((w.x - last[i].x) * fx + (w.z - last[i].z) * fz) * 60 >= 2, `crow ${i} goes back at ${st.s.toFixed(0)}`);
+    }
+    last[i] = w.visible ? { x: w.x, y: w.y, z: w.z } : null;
+    if (o.scale === 1) bearings[i].add(Math.floor((Math.atan2(o.side, o.along) + Math.PI) / (Math.PI / 6)));
+    prevS = st.s;
+  });
+  assert.ok(prevS > 0);
+  for (let i = 0; i < CROWS.count; i++) assert.ok(bearings[i].size >= 12, `crow ${i} only goes ${bearings[i].size} of 12 ways round`);
+});
+
+test('the crows come in from far off and leave far off, within the balloon\'s cruise; two or more swoop past the basket ahead of the seat', () => {
+  const r = ride('balloon'), [ev] = r.events, v = r.profile.v;
+  assert.equal(ev.id, 'crows'); assert.equal(ev.actor, 'crows');
+  assert.ok(ev.s0 >= v * r.profile.ease[0] / 2 && ev.s1 <= r.path.length - v * r.profile.ease[1] / 2, 'the crows are out of its cruise');
+  let first = null, lastSeen = null;
+  const swoops = new Set();
+  walkCrows((i, o, w, p, st, on) => {
+    const rho = Math.hypot(o.along, o.side);
+    if (w.visible && first === null) first = rho;
+    if (w.visible) lastSeen = rho;
+    // past the basket: low, near and ahead of the seat (its right, front corner), each crow once at most
+    if (o.up < 3 && rho < 12 && o.along > 0) swoops.add(i);
+    if (on.t < 0.2) assert.ok(o.scale < 0.2, 'a crow pops in');
+  });
+  assert.ok(first > 60 && lastSeen > 60, `they come in from ${first?.toFixed(0)} m and leave at ${lastSeen?.toFixed(0)} m`);
+  assert.ok(swoops.size >= 2, `only ${swoops.size} swoop past the basket`);
+  // (the out-params filled in place)
+  const o = {}, w = {};
+  assert.equal(crowOffset(r, 20, 0, o), o);
+  assert.equal(placeCrow(r, 500, 20, 0, w), w);
+});
+
+test('the balloon\'s showpieces: the crows round the canopy (heli) once they\'ve joined, and the balloon over the valley with the viaduct and the waterfall beyond (wide)', () => {
+  const r = ride('balloon'), [ev] = r.events, by = Object.fromEntries(r.showpieces.map((p) => [p.id, p]));
+  assert.deepEqual(Object.keys(by).sort(), ['canopy', 'falls']);
+  const heli = by.canopy, wide = by.falls;
+  assert.equal(heli.shot.kind, 'heli');
+  // after the crows have joined (CROWS.join s at cruise), before they leave
+  assert.ok(heli.s0 >= ev.s0 + CROWS.join * r.profile.v && heli.s1 <= ev.s1 - CROWS.leave * r.profile.v);
+  // out past the crows' ring, so the whole canopy and the crows round it are in frame
+  assert.ok(Math.abs(heli.shot.lateral) > 2 * CROWS.ring, `the heli ${heli.shot.lateral} m out, the crows ${CROWS.ring.toFixed(1)} m`);
+  assert.equal(wide.shot.kind, 'wide');
+  // its window over the valley: it covers the ride-s where the balloon's leg-s is at the viaduct's start
+  const via = legSections('ocean-mountain').find((x) => x.kind === 'viaduct');
+  let sVia = 0;
+  for (let s = 0; s <= r.path.length; s += 1) if (rideLegS(r, s) <= via.s0) sVia = s;
+  assert.ok(wide.s0 < sVia && wide.s1 > sVia, `the wide shot's window ${wide.s0}-${wide.s1} isn't over the viaduct (${sVia})`);
+  // the camera stands behind it over the hill (cameras.js: 22 m over the path there), looking on over the balloon down
+  // into the valley: the waterfall's head and the viaduct's middle both in frame (within the shot's half-width at 4:3)
+  // wherever the balloon is in the window, and beyond it as the shot opens
+  assert.ok(wide.shot.at < wide.s0);
+  const valley = FEATURES.find((f) => f.kind === 'valley' && f.leg === 'ocean-mountain');
+  const cam = r.path.offsetAt(wide.shot.at, wide.shot.lateral), vm = legRoute('ocean-mountain').at((via.s0 + via.s1) / 2);
+  const half = Math.atan(Math.tan(wide.shot.fov / 2 * Math.PI / 180) * 4 / 3);
+  const off = (p, b) => { const a = Math.atan2(p.x - cam.x, p.z - cam.z) - Math.atan2(b.x - cam.x, b.z - cam.z); return Math.abs(Math.atan2(Math.sin(a), Math.cos(a))); };
+  const far = (p) => Math.hypot(p.x - cam.x, p.z - cam.z);
+  for (let s = wide.s0; s <= wide.s1; s += 10) {
+    const b = r.path.at(s), falls = { x: valley.x0, z: valley.z0 };
+    assert.ok(off(falls, b) < half - 0.05 && off(vm, b) < half - 0.05, `the falls or the viaduct out of frame at ${s}`);
+    if (s === wide.s0) assert.ok(far(falls) > far(b) + 100 && far(vm) > far(b) + 100, 'they are not beyond the balloon');
+  }
+  for (const sp of r.showpieces) assert.ok(sp.s0 >= 0 && sp.s1 <= r.path.length && !sp.actor);
 });

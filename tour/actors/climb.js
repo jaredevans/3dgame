@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { laneOf } from '../world-data.js';
 import { buildTrain, poseTrain } from '../vehicles.js';
 import { loadAnimal, clipFor } from './animals.js';
-import { rainbowArc, arcAboveHorizon, workTrainStep, WORK } from './paths.js';
+import { rainbowArc, arcAboveHorizon, workTrainStep, workTrainRuns, WORK } from './paths.js';
 
 // 1 over u 0..a, falling to 0 over b..1 (a and b the ends of the fades in and out)
 const fade = (u, a, b) => Math.max(0, Math.min(1, u / a, (1 - u) / (1 - b)));
@@ -69,8 +69,9 @@ async function buildSignal({ leg, route, def, terrain, slicer, kit }) {
       aspects.red.visible = aspect === 'red';
       aspects.green.visible = aspect === 'green';
       if (!work) return;
-      // only on your out run: it stands on the viaduct while it's red, then runs on towards the Mountain
-      if (!f.here || f.dir !== 'out') { workS = WORK.at; work.group.visible = false; return; }
+      // only on your out run in a train: it stands on the viaduct while it's red, then runs on towards the Mountain (not
+      // for a ride along the leg: the post stands as with no train near, the work train out of sight)
+      if (!workTrainRuns(f)) { workS = WORK.at; work.group.visible = false; return; }
       if (f.legS === null) return;   // (your run's first frame: no word yet where you are)
       const before = workS, next = workTrainStep({ s: workS, legS: f.legS, aspect, dt: f.dt, end: workEnd });
       workS = next.s;
