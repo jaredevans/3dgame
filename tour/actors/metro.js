@@ -17,7 +17,7 @@ import { TRAIN_SPECS } from '../trains/specs.js';
 import { sound } from '../audio.js';
 import { lightZones, partJson } from './coast.js';
 import {
-  LANES, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, planeAt, planeStep,
+  LANES, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, PLANE, planeAt, planeStep,
 } from './paths.js';
 
 const warnOut = (what, def, leg, err) =>
@@ -72,7 +72,13 @@ function litShapes(obj, night) {
   });
   for (const m of mats) if (!lit.includes(m)) m.dispose();
   obj.updateMatrixWorld(true);
-  return { shapes: shapes(obj), lit };
+  // (a mesh carved all into lit twins leaves an empty shape: not drawn)
+  const made = [];
+  for (const sh of shapes(obj)) {
+    if (sh.geometry.attributes.position.count > 0) made.push(sh);
+    else sh.geometry.dispose();
+  }
+  return { shapes: made, lit };
 }
 
 // ---- the fliers ----
@@ -190,7 +196,12 @@ async function buildTraffic({ leg, route, def, terrain, slicer, kit }) {
       }
     }
   }
-  if (!lanes.length) console.warn(`The ${def.id} along ${leg} has no street to drive on`);
+  // no street (no suburbs set out along this leg, or none of their street on clear ground): nothing to drive, and no cars
+  // made for it
+  if (!lanes.length) {
+    if (LEGS[leg].suburbs?.length) console.warn(`The ${def.id} along ${leg} has no street to drive on`);
+    return { group, update() {} };
+  }
 
   // the kinds of car (optional: one that can't be made is left out, the others take its place)
   const kinds = [];
@@ -204,7 +215,7 @@ async function buildTraffic({ leg, route, def, terrain, slicer, kit }) {
       obj.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });   // (its shapes were copied)
     } catch (err) { warnOut(key, def, leg, err); }
   }
-  if (lanes.length && !kinds.length) throw new Error('none of its cars could be made');
+  if (!kinds.length) throw new Error('none of its cars could be made');
 
   // each car a kind (by how often each comes), and its slot among that kind's instances
   const all = kinds.reduce((n, k) => n + k.often, 0), cars = [];
@@ -264,7 +275,7 @@ async function buildTraffic({ leg, route, def, terrain, slicer, kit }) {
   return {
     group,
     update(f) {
-      if (!f.on || !lanes.length || !built(f.time)) { hide(); return; }
+      if (!f.on || !built(f.time)) { hide(); return; }
       group.visible = true;
       for (const c of cars) {
         const L = c.lane, u = carAlong(c.at0, L.period, L.speed, f.time, L.path.length);
@@ -290,10 +301,11 @@ async function buildTraffic({ leg, route, def, terrain, slicer, kit }) {
   };
 }
 // ---- the plane ----
-// the narrow-body airliner (36 m) coming in to land, gear down and flaps out, on its approach towards the north-east:
-// 120 m over the line at the event's middle and coming down at 3 degrees (paths.js planeAt), timed to be over the line
-// as your front is (planeStep). It roars as it comes over. After dark its navigation lights and beacons show, as its
-// -params.json `night` says (coast.js lightZones; unlit if that can't be read). Once a run
+// the narrow-body airliner (36 m) coming in to land, gear down and flaps out, on its approach steeply across the line:
+// 120 m over it at the event's middle and coming down at 3 degrees (paths.js planeAt), timed to be over the line as your
+// front is (planeStep). Its event is `always`, so it comes in from 3 km out before the window and flies on past it until
+// it's gone, off to the train's side behind the cab's view. It roars as it comes over. After dark its navigation lights
+// and beacons show, as its -params.json `night` says (coast.js lightZones; unlit if that can't be read). Once a run
 const AIRLINER = 'narrow-body-airliner-619183';
 
 async function buildPlane({ leg, route, def, slicer }) {
@@ -315,7 +327,7 @@ async function buildPlane({ leg, route, def, slicer }) {
   } catch (err) {
     console.warn(`The airliner along ${leg} flies unlit: could not read its night map${err?.url ? ` (${err.url})` : `: ${err?.message ?? err}`}`);
   }
-  const meet = (def.s0 + def.s1) / 2, line = route.at(meet), over = { x: line.x, y: line.y, z: line.z };
+  const meet = (def.s0 + def.s1) / 2, line = route.at(meet), over = { x: line.x, y: line.y, z: line.z, heading: line.yaw + PLANE.cross };
   const spec = TRAIN_SPECS[LEGS[leg].train];
   const P = {};
   let st = null, night = -1;

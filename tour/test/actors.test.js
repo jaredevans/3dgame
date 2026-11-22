@@ -753,23 +753,41 @@ test('laneCars: 40-80 m apart round a loop at least the street\'s length, and ea
   assert.ok(Math.abs(carAlong(990, 1050, 12, 6, 1000) - 12) < 1e-9, 'and back at its start');
 });
 
-const OVER = FC.at(1300);
-test('the plane: 120 m over the line at the window\'s middle, coming down at 3 degrees towards the north-east', () => {
+const LINE = FC.at(1300), OVER = { x: LINE.x, y: LINE.y, z: LINE.z, heading: LINE.yaw + PLANE.cross };
+test('the plane: 120 m over the line at the window\'s middle, coming down at 3 degrees along its heading', () => {
   const o = {};
   assert.deepEqual(planeAt(OVER, 0, o), o);
   close(o.x, OVER.x); close(o.z, OVER.z); close(o.y, OVER.y + 120);
-  close(PLANE.yaw, 3 * Math.PI / 4);   // north-east: +x east, -z north
+  close(o.yaw, OVER.heading);
   planeAt(OVER, 1000, o);
   close(o.y, OVER.y + 120 + 1000 * Math.tan(3 * Math.PI / 180), 1e-6);
-  assert.ok(o.x < OVER.x && o.z > OVER.z, 'south-west of the line before it gets there');
   close(Math.hypot(o.x - OVER.x, o.z - OVER.z), 1000, 1e-6);
+  close(Math.atan2(OVER.x - o.x, OVER.z - o.z), Math.atan2(Math.sin(OVER.heading), Math.cos(OVER.heading)), 1e-9);   // coming on its heading
   planeAt(OVER, -500, o);
-  assert.ok(o.x > OVER.x && o.z < OVER.z && o.y < OVER.y + 120, 'and on down to the north-east past it');
+  assert.ok(o.y < OVER.y + 120, 'and on down past it');
   assert.ok(PLANE.speed >= 60 && PLANE.speed <= 80, 'an airliner\'s approach speed');
   planeAt(OVER, -PLANE.past, o);
   assert.ok(o.y - OVER.y >= 20, `still only ${(o.y - OVER.y).toFixed(0)} m up when it's gone`);
-  planeAt(OVER, -PLANE.past, o);
-  assert.ok(o.y - OVER.y >= 20, `still ${(o.y - OVER.y).toFixed(0)} m up when it's gone`);
+});
+
+test('its track crosses the line steeply where it passes over (60-90 degrees), not along it', () => {
+  const a = planeAt(OVER, 60), b = planeAt(OVER, -60);
+  const tx = (b.x - a.x) / 120, tz = (b.z - a.z) / 120, P = {};
+  FC.at(1300, P);
+  const across = Math.acos(Math.abs(tx * Math.sin(P.yaw) + tz * Math.cos(P.yaw))) * 180 / Math.PI;
+  assert.ok(across >= 60 && across <= 90, `crosses at ${across.toFixed(1)} degrees`);
+  // and only the once: its whole track, from far off to gone, keeps to one side of the line before and the other after
+  let near = Infinity;
+  for (let d = PLANE.far; d >= -PLANE.past; d -= 20) {
+    if (Math.abs(d) < 200) continue;
+    planeAt(OVER, d, P);
+    for (let s = 0; s <= FC.length; s += 10) { const q = FC.at(s); near = Math.min(near, Math.hypot(P.x - q.x, P.z - q.z)); }
+  }
+  assert.ok(near > 150, `back over the line ${near.toFixed(0)} m off it`);
+});
+
+test('the plane\'s event is updated wherever you are on the leg, so it comes in from far out and leaves far out of view', () => {
+  assert.equal(EVENTS['future-city'].find((e) => e.id === 'plane').always, true);
 });
 
 // a run at a steady speed through the window: when the plane is over the line, and where the front is then

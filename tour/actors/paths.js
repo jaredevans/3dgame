@@ -515,22 +515,24 @@ export function carAlong(at0, period, speed, t, length) {
 }
 
 // the airliner coming in to land: `up` metres over the line at its window's middle (its event's), coming down at
-// `glide` towards the north-east (yaw: +x is east, -z north), its nose `nose` up. It comes in at `speed` m/s, made
-// `slow`..`fast` as it goes so it's over the line as your front is (planeStep); it sets off `far` metres short of it (out of
-// sight in the haze), and is gone `past` metres beyond, still well up (its runway is out to sea, past the City). It roars
-// as it comes within `roar` of the line
+// `glide` on a heading `cross` off the line's there (+ left of the leg's out direction: 62 degrees takes it across from
+// the south-south-east towards the north-north-west, so it's overhead only a moment and comes in and goes away off to
+// the train's sides; a back run sees it coming at the left edge of the cab's view), its nose `nose` up. It comes in at `speed` m/s, made
+// `slow`..`fast` as it goes so it's over the line as your front is (planeStep); it sets off `far` metres short of it
+// (in the haze), and is gone `past` metres beyond, still well up (out over the sea). It roars as it comes within `roar`
+// of the line
 export const PLANE = {
-  up: 120, glide: 3 * Math.PI / 180, yaw: 3 * Math.PI / 4, nose: 2 * Math.PI / 180,
+  up: 120, glide: 3 * Math.PI / 180, cross: 62 * Math.PI / 180, nose: 2 * Math.PI / 180,
   speed: 70, slow: 50, fast: 90, far: 3000, past: 1800, roar: 250,
 };
 
-// over: the line at the window's middle ({ x, y, z }); d: metres short of being over it along its way (negative past it)
-// -> out, filled ({ x, y, z, yaw, pitch: nose up })
+// over: where it's over the line ({ x, y, z: the line at the window's middle, heading: its way, as a yaw }); d: metres
+// short of being over it along its way (negative past it) -> out, filled ({ x, y, z, yaw, pitch: nose up })
 export function planeAt(over, d, out = {}) {
-  out.x = over.x - Math.sin(PLANE.yaw) * d;
-  out.z = over.z - Math.cos(PLANE.yaw) * d;
+  out.x = over.x - Math.sin(over.heading) * d;
+  out.z = over.z - Math.cos(over.heading) * d;
   out.y = over.y + PLANE.up + d * Math.tan(PLANE.glide);
-  out.yaw = PLANE.yaw;
+  out.yaw = over.heading;
   out.pitch = PLANE.nose;
   return out;
 }

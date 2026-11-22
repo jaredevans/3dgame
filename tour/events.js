@@ -71,7 +71,8 @@ export const EVENTS = {
     ev('fliers', 0, 2083, { always: true }),
     showpiece('bridge', 495, 705, { kind: 'below', at: 600 }),
     ev('traffic', 780, 1800, { shot: { kind: 'high-wide', at: 1290, lateral: 100 } }),
-    ev('plane', 1100, 1500, { shot: { kind: 'trackside', at: 1300, lateral: -8, height: 1.2, fov: 60 } }),
+    // (always: the airliner comes in from far out before its window and flies on past it, out of view: actors/metro.js)
+    ev('plane', 1100, 1500, { always: true, shot: { kind: 'trackside', at: 1300, lateral: -8, height: 1.2, fov: 60 } }),
     // (at: the only stretch of the leg where both lines lie within 1.5 m of the natural ground for 15 m either side;
     // the line runs 3-6 m up on its bank further on. The suburbs keep off its road: suburbs.js ROAD)
     ev('crossing', 715, 1515, {
