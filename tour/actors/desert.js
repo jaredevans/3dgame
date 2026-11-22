@@ -14,7 +14,8 @@ import { COUPLING_GAP } from '../consist.js';
 import { buildTrain, poseTrain } from '../vehicles.js';
 import { sound } from '../audio.js';
 import {
-  herdPath, BULLET, bulletStep, clearOfMesas, turbineSpots, solarGrid, nearestFit, formationAt, ROCKET, rocketAt, rocketPad,
+  herdPath, BULLET, bulletStep, clearOfMesas, turbineSpots, solarGrid, nearestFit, formationAt, formationReach, ROCKET, rocketAt,
+  rocketPad, rocketStep,
 } from './paths.js';
 
 // 1 over u 0..a, falling to 0 over b..1 (a and b the ends of the fades in and out)
@@ -49,7 +50,7 @@ const FARM = {
   hub: 80, blade: 40, nose: 5, wind: -Math.PI / 4, spin: [0.75, 1.0],
 };
 const SOLAR = { id: 'solar-array-rack-789c93', s: 1500, rows: 13, perRow: 23, pitch: 4.2, out: [250, 400], side: 1, clear: 20, step: 10, reach: 400 };
-const turbineMat = new THREE.MeshStandardMaterial({ color: '#f1f3f4', roughness: 0.55, metalness: 0.05, flatShading: true });
+const turbineMat = new THREE.MeshStandardMaterial({ color: '#f1f3f4', roughness: 0.7, metalness: 0.05, flatShading: true });
 
 // a turbine's tower and nacelle (its foot at y 0, buried 2 m; the rotor's nose towards its +z), and its rotor about
 // its hub (its axis +z)
@@ -149,6 +150,7 @@ async function buildFarm({ leg, route, def, terrain, slicer }) {
   await slicer.frame();
   try {
     const rack = await cdnPart(SOLAR.id, { colorway: 'astro-cyan' });
+    await slicer.frame();   // its placement (the mesas checked round each spot tried), then its copying, a frame each
     const grid = (s) => solarGrid({ s, rows: SOLAR.rows, perRow: SOLAR.perRow, pitch: SOLAR.pitch, out: SOLAR.out });
     const clear = (s) => grid(s).every((g) => { herdPath(route, g.s, SOLAR.side, g.out, P); return clearOfMesas(P.x, P.z, FEATURES, SOLAR.clear); });
     const at = nearestFit(SOLAR.s, clear, SOLAR.step, SOLAR.reach);
@@ -160,6 +162,7 @@ async function buildFarm({ leg, route, def, terrain, slicer }) {
       q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, P.yaw + SOLAR.side * Math.PI / 2);
       return new THREE.Matrix4().compose(pos, q, one);
     });
+    await slicer.frame();
     for (const im of instanceRacks(rack, matrices)) group.add(im);
   } catch (err) { warnOut('solar farm', def, leg, err); }
 
@@ -195,10 +198,10 @@ function buildSpeed({ leg, route, def, terrain }) {
   const lane = laneOf(leg), out = lane + Math.sign(lane) * BOARD.out;
   const face = (text, bg, fg) => {
     const map = boardTexture(text, bg, fg);
-    return new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: '#ffffff', emissiveIntensity: 0, roughness: 0.6 });
+    return new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: '#ffffff', emissiveIntensity: 0, roughness: 0.7, flatShading: true });
   };
   const high = face('HIGH SPEED', '#f6f6f2', '#c8202a'), end = face('END', '#c8202a', '#f6f6f2');
-  const mastMat = new THREE.MeshStandardMaterial({ color: '#8d949c', roughness: 0.6, metalness: 0.3, flatShading: true });
+  const mastMat = new THREE.MeshStandardMaterial({ color: '#8d949c', roughness: 0.7, metalness: 0.3, flatShading: true });
   const plane = new THREE.PlaneGeometry(BOARD.w, BOARD.h);
   // at s0 an out run comes in (HIGH SPEED facing it) and a back run goes out (END on the back); at s1 the other way round
   for (const [s, front, back] of [[def.react.s0, high, end], [def.react.s1, end, high]]) {
@@ -266,12 +269,14 @@ async function buildBullet({ leg, route, def, slicer }) {
 }
 
 // ---- the rocket ----
-// built here: white, 40 m tall with a nose cone and four fins, on a pad 6 km south-west of the line at s 2400. When the
-// event starts it lifts off (a roar, quiet at that distance) and climbs, pitching over east, for 60 s (paths.js
-// rocketAt), its plume an additive cone and a glow, leaving a fading trail. Nothing of it takes the fog: it is seen from
-// the cab against the sky, well past the fog's end. Flown once, it's gone from the pad until the event starts again
+// built here: white, 40 m tall with a nose cone and four fins, on a pad 5.5 km out, ahead and a little left of an out
+// run entering its window (paths.js rocketPad). As you enter the window (either way) it lifts off (a roar, quiet at that
+// distance) and climbs, pitching over east, for its whole 60 s whatever the window (paths.js rocketStep, rocketAt; its
+// event is `always`, so it's updated past the window), its plume an additive cone and a glow, leaving a fading trail.
+// Nothing of it takes the fog: it is seen from the cab against the sky, past the fog's end. Once you leave the leg it's
+// back on its pad for the next run
 const RK = { radius: 1.85, body: 29, nose: 9, plume: 30, glow: 110, every: 0.1, fade: 40, trailAlpha: 0.85 };
-const white = new THREE.MeshStandardMaterial({ color: '#f5f6f7', roughness: 0.5, flatShading: true, fog: false });
+const white = new THREE.MeshStandardMaterial({ color: '#f5f6f7', roughness: 0.7, flatShading: true, fog: false });
 const dark = new THREE.MeshStandardMaterial({ color: '#2b3038', roughness: 0.7, flatShading: true, fog: false });
 const concrete = new THREE.MeshStandardMaterial({ color: '#9b9690', roughness: 0.95, flatShading: true, fog: false });
 const gantry = new THREE.MeshStandardMaterial({ color: '#8a3b2a', roughness: 0.8, flatShading: true, fog: false });
@@ -332,12 +337,12 @@ function buildRocket({ leg, route, terrain }) {
   const smoke = new THREE.Color('#efeae2');
   for (let i = 0; i < N; i++) tCol.set([smoke.r, smoke.g, smoke.b, 0], i * 4);
 
-  let t = null, flown = false, laid = 0, drawn = 0;   // laid: points fixed so far; drawn: those and the head
-  const R = {};
+  let st = null, laid = 0, drawn = 0;   // laid: points fixed so far; drawn: those and the head
+  const R = {}, done = ROCKET.secs + RK.fade;   // (by then its trail has faded away)
   const reset = () => {
-    t = null; laid = 0; drawn = 0;
+    st = null; laid = 0; drawn = 0;
     rig.position.set(0, base, 0); rig.rotation.set(0, 0, 0);
-    rig.visible = !flown;
+    rig.visible = true;
     plume.visible = glow.visible = false;
     trail.visible = false;
     tGeo.setDrawRange(0, 0);
@@ -346,8 +351,12 @@ function buildRocket({ leg, route, terrain }) {
   return {
     group,
     update(f) {
-      if (!f.on) { reset(); return; }
-      if (t === null) { t = 0; flown = true; rig.visible = true; trail.visible = true; sound('roar'); } else t += f.dt;
+      const before = st?.t ?? null;
+      st = rocketStep(st, { here: f.here, on: !!f.on, dt: f.dt });
+      if (st.reset) { reset(); return; }
+      const t = st.t;
+      if (t === null || (before !== null && before > done)) return;   // on its pad, or flown and its trail gone
+      if (st.launch) { trail.visible = true; sound('roar'); }
       rocketAt(t, R);
       rig.position.set(R.east, base + R.up, 0);
       rig.rotation.z = -R.pitch;   // over towards +x, the east
@@ -405,7 +414,8 @@ async function buildDrones({ leg, route, def, slicer, kit }) {
   lights.userData.own = true;
   group.add(lights);
 
-  const L = route.length, lo = PLATFORM + 40, hi = L - PLATFORM - 40, P = {}, Q = {};
+  // the formation's middle kept far enough from the line's ends that no drone of it comes into a platform window
+  const L = route.length, room = PLATFORM + formationReach(DRONES.count) + 5, lo = room, hi = L - room, P = {}, Q = {};
   let t = null;
   const hide = () => { t = null; lights.visible = false; for (const d of drones) d.visible = false; };
   return {

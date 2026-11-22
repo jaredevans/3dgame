@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clipFor } from '../actors/clips.js';
 import { rainbowArc, arcAboveHorizon, workTrainStep, herdPath, paceStep, PACE } from '../actors/paths.js';
-import { legRoute } from '../world-data.js';
+import { legRoute, laneOf } from '../world-data.js';
 
 const COW = ['Walk', 'Idle', 'Run'];
 const DOLPHIN = ['Swim', 'Idle', 'Swim fast'];
@@ -184,9 +184,10 @@ test('it never leaves its stretch (kept out of the platform windows): at its end
 // ---- the Silver Arrow's leg (actors/desert.js) ----
 import {
   BULLET, bulletStart, bulletStep, clearOfMesas, turbineSpots, solarGrid, nearestFit,
-  FORMATION, formationSpot, formationAt, ROCKET, rocketAt, rocketPad,
+  FORMATION, formationSpot, formationAt, formationReach, ROCKET, rocketAt, rocketPad, rocketStep,
 } from '../actors/paths.js';
 import { FEATURES } from '../world-data.js';
+import { EVENTS } from '../events.js';
 
 const WF = legRoute('west-future');
 const KMH = 3.6;
@@ -343,21 +344,66 @@ test('the rocket climbs straight up, then pitches east as it goes, for 60 s', ()
   }
   assert.equal(rocketAt(4).pitch, 0, 'upright off the pad');
   assert.ok(rocketAt(60).pitch > 0.6, 'well over by the end');
-  assert.ok(rocketAt(10).up >= 150, `only ${rocketAt(10).up} m up after 10 s`);
+  assert.ok(rocketAt(10).up >= 100, `only ${rocketAt(10).up} m up after 10 s`);
   assert.deepEqual(rocketAt(90), rocketAt(60), 'held at its last point past 60 s');
 });
 
-test('the pad is 6 km south-west of the line at s 2400, and the whole flight stays inside the camera\'s 8 km', () => {
+test('the pad is about 5 km out, within 25 degrees left of the nose as an out run enters the window (s 1900)', () => {
+  const pad = rocketPad(WF), P = WF.offsetAt(ROCKET.at, laneOf('west-future'));
+  assert.equal(ROCKET.at, EVENTS['west-future'].find((e) => e.id === 'rocket').s0);
+  const dx = pad.x - P.x, dz = pad.z - P.z, d = Math.hypot(dx, dz);
+  assert.ok(d >= 4500 && d <= 6000, `${d.toFixed(0)} m out`);
+  const ahead = dx * Math.sin(P.yaw) + dz * Math.cos(P.yaw), left = dx * Math.cos(P.yaw) - dz * Math.sin(P.yaw);
+  const bearing = Math.atan2(left, ahead) * 180 / Math.PI;
+  assert.ok(bearing > 0 && bearing <= 25, `${bearing.toFixed(1)} degrees off the nose (+ left)`);
+});
+
+test('the whole flight stays inside the camera\'s 8 km from anywhere on the line past the window\'s start', () => {
   const pad = rocketPad(WF), P = {};
-  WF.at(ROCKET.at, P);
-  assert.ok(Math.abs(Math.hypot(pad.x - P.x, pad.z - P.z) - 6000) < 1e-6);
-  assert.ok(pad.x < P.x && pad.z > P.z, 'south-west: -x, +z');
-  for (let s = 1900; s <= 2900; s += 50) for (const lat of [-2, 2]) {
+  for (let s = ROCKET.at; s <= WF.length; s += 50) for (const lat of [-2, 2]) {
     WF.offsetAt(s, lat, P);
     for (let t = 0; t <= ROCKET.secs; t += 1) {
       const r = rocketAt(t);
-      const d = Math.hypot(pad.x + r.east - P.x, 25 + r.up - P.y, pad.z - P.z);   // (the land at the pad is some 22 m up)
+      const d = Math.hypot(pad.x + r.east - P.x, 20 + r.up - P.y, pad.z - P.z);
       assert.ok(d < 7500, `${d.toFixed(0)} m from s ${s} at ${t} s`);
     }
   }
+});
+
+test('the rocket launches as you enter its window, either way, and flies its whole minute after the window ends', () => {
+  let st = null, launches = 0;
+  const go = (frames, f) => { for (let k = 0; k < frames; k++) { st = rocketStep(st, { dt: 0.1, ...f }); if (st.launch) launches++; } };
+  go(50, { here: true, on: false });
+  assert.equal(st.t, null, 'not before its window');
+  go(1, { here: true, on: true });
+  assert.equal(launches, 1);
+  assert.equal(st.t, 0);
+  go(120, { here: true, on: true });   // 12 s in its window at full speed
+  go(600, { here: true, on: false });  // and on past it
+  assert.ok(Math.abs(st.t - 72) < 1e-6, `t ${st.t}`);
+  go(10, { here: true, on: true });    // back in the window (a jump): no second launch on the same run
+  assert.equal(launches, 1);
+});
+
+test('it resets only once you have left the leg, so the next run launches again', () => {
+  let st = rocketStep(null, { here: true, on: true, dt: 0.1 });
+  st = rocketStep(st, { here: true, on: false, dt: 0.1 });
+  assert.equal(st.t, 0.1);
+  st = rocketStep(st, { here: false, on: false, dt: 0.1 });
+  assert.equal(st.t, null);
+  assert.equal(st.reset, true, 'says so the frame it resets');
+  st = rocketStep(st, { here: false, on: false, dt: 0.1 });
+  assert.equal(st.reset, false, 'once');
+  st = rocketStep(st, { here: true, on: true, dt: 0.1 });
+  assert.equal(st.launch, true);
+});
+
+test('the rocket\'s event is updated wherever you are on the leg, so its flight outlives its window', () => {
+  assert.equal(EVENTS['west-future'].find((e) => e.id === 'rocket').always, true);
+});
+
+test('formationReach covers every drone of every shape and morph along the line', () => {
+  const reach = formationReach(24);
+  assert.ok(reach >= 46, `reach ${reach}`);
+  for (let t = 0; t < 40; t += 0.25) for (let i = 0; i < 24; i++) assert.ok(Math.abs(formationAt(t, i, 24).along) <= reach + 1e-9);
 });

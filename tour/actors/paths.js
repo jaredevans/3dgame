@@ -185,6 +185,14 @@ export function formationSpot(shape, i, n, out = {}) {
   return out;
 }
 
+// how far along the line (either way) any drone of n gets from the formation's middle, in any shape or morph between
+export function formationReach(n) {
+  const o = {};
+  let reach = 0;
+  for (const shape of FORMATION.shapes) for (let i = 0; i < n; i++) reach = Math.max(reach, Math.abs(formationSpot(shape, i, n, o).along));
+  return reach;
+}
+
 const was = {};
 // drone i of n's place t seconds into the flight: -> out, filled ({ along, up })
 export function formationAt(t, i, n, out = {}) {
@@ -198,14 +206,29 @@ export function formationAt(t, i, n, out = {}) {
   return out;
 }
 
-// the rocket: its pad `dist` metres south-west of the line at leg-s `at`; off the pad it climbs straight up for
-// `upright` seconds, then pitches over east, `tilt` from upright by the end of its `secs`, gathering speed at `accel`
-export const ROCKET = { at: 2400, dist: 6000, secs: 60, upright: 6, accel: 3.2, tilt: 50 * Math.PI / 180 };
+// the rocket: its pad `dist` metres off, `bearing` left of the nose of an out run entering its window (leg-s `at`, the
+// rocket event's s0), so it's seen from the cab ahead; off the pad it climbs straight up for `upright` seconds, then
+// pitches over east (behind an out run), `tilt` from upright by the end of its `secs`, gathering speed at `accel`. Its
+// climb is kept low enough to stay ahead in the cab's view for most of its minute
+export const ROCKET = { at: 1900, dist: 5500, bearing: 10 * Math.PI / 180, secs: 60, upright: 6, accel: 2.2, tilt: 72 * Math.PI / 180 };
 
-// -> { x, z } of the pad (the land there is the actor's): south-west is -x, +z
+// -> { x, z } of the pad (the land there is the actor's)
 export function rocketPad(route) {
-  const P = route.at(ROCKET.at), d = ROCKET.dist / Math.SQRT2;
-  return { x: P.x - d, z: P.z + d };
+  const P = route.at(ROCKET.at), a = ROCKET.bearing;
+  const ahead = ROCKET.dist * Math.cos(a), left = ROCKET.dist * Math.sin(a);
+  return { x: P.x + Math.sin(P.yaw) * ahead + Math.cos(P.yaw) * left, z: P.z + Math.cos(P.yaw) * ahead - Math.sin(P.yaw) * left };
+}
+
+// st: null at first, then what it returned (moved on in place); { here: you're driving a run on the leg, on: its event
+// is active, dt } -> { t: seconds since lift-off or null, launch: true the frame it lifts off, reset: true the frame
+// it's put back on its pad }. It lifts off as you enter its window (either way) and flies on whatever the window, until
+// you leave the leg; once per run
+export function rocketStep(st, { here, on, dt }) {
+  st ??= { t: null, launch: false, reset: false };
+  st.launch = false; st.reset = false;
+  if (!here) { if (st.t !== null) { st.t = null; st.reset = true; } return st; }
+  if (st.t === null) { if (on) { st.t = 0; st.launch = true; } } else st.t += dt;
+  return st;
 }
 
 const pitchAt = (t) => {
