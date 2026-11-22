@@ -2,6 +2,7 @@
 // place, walk, and board one of the two trains waiting there.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { quietToNonIndexed } from './three-guards.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
 import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
@@ -66,10 +67,15 @@ const CABS = {
 
 const fail = (err) => { console.error(err); showLoadError(err?.url ? loadError(err.url, err) : `Something went wrong: ${err?.message ?? err}`); };
 addEventListener('unhandledrejection', (e) => fail(e.reason));
+// the kits' modules ask three for a non-indexed copy of what's already non-indexed, hundreds of times a build: handed
+// back the same, without three's warning each time (three-guards.js)
+quietToNonIndexed(THREE.BufferGeometry.prototype);
 const params = new URLSearchParams(location.search);
 
 async function boot() {
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: params.has('debug') });
+  // local clipping on from the start: the cabs' shells (cameras.js fitCab) and the figure's teleport cut (player.js)
+  renderer.localClippingEnabled = true;
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   document.body.prepend(renderer.domElement);
@@ -780,8 +786,9 @@ async function boot() {
     if (e.code === 'Space') e.preventDefault();
     if (e.code === 'KeyM') { mapView.toggle(); drawMap(); return; }
     // T: the teleport list (on foot, or in the cab standing still), T again to close it; a number picks a place. Esc
-    // or T, till you've been moved, takes you back where you stood
-    if (e.code === 'Escape') { mapView.close(); closeTeleportList(); tp.cancel(); return; }
+    // or T, till you've been moved, takes you back where you stood. (Esc with the map open only closes the map: a second
+    // Esc cancels)
+    if (e.code === 'Escape') { if (mapView.open) return void mapView.close(); closeTeleportList(); tp.cancel(); return; }
     if (e.code === 'KeyT') { if (tpListOpen) closeTeleportList(); else if (tp.active) tp.cancel(); else if (tpCan()) openTeleportList(); return; }
     if (tpListOpen && /^Digit[1-5]$/.test(e.code)) { pickTeleport(+e.code.slice(5)); return; }
     if (e.code === 'KeyZ') { if (auto.on) stopAuto(); else startAuto(); return; }

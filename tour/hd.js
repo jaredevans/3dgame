@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { PART_BASES } from './config.js';
 import { firstOf, partBases } from './parts.js';
-import { hdOn, hdCarUrl, envLevel, animalDress, isAccountCdn, withTimeout, maskAccount, HD_ANIMALS } from './hd-switch.js';
+import { hdOn, hdCarUrl, envLevel, animalDress, isAccountCdn, withTimeout, jsonWithin, maskAccount, HD_ANIMALS } from './hd-switch.js';
 
 export const HD = hdOn(globalThis.location?.search ?? '', PART_BASES);
 // the environment's strength by day, where the HD models sit with the flat models and the towns beside them. It lights a
@@ -120,12 +120,8 @@ export function materialsEngine() {
   return engine;
 }
 
-// each base given PARAMS_WAIT s (a host that never answers is given up on, and the next base tried)
-const fetchJson = async (url) => {
-  const r = await fetch(url, { signal: AbortSignal.timeout(PARAMS_WAIT * 1000) });
-  if (!r.ok) throw new Error(`${r.status}`);
-  return r.json();
-};
+// each base given PARAMS_WAIT s (a host that never answers is given up on, skipped from then on, and the next base tried)
+const fetchJson = (url) => jsonWithin(url, PARAMS_WAIT * 1000);
 const hows = new Map();   // animal id -> promise of { engine, zones, materials } or null
 // how the animal `id` is dressed in HD (hd-switch.js animalDress), from its -params.json on the parts' bases; null if HD
 // is off or it can't be (said once: that animal stays flat)

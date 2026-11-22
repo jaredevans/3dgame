@@ -129,3 +129,27 @@ test("the account CDN's link is masked in messages", async () => {
   assert.equal(maskAccount('failed: http://10.255.255.1/c/x/a-hd.mjs and https://polyfork.dev/c/y/b.mjs'), 'failed: <account CDN>/a-hd.mjs and <account CDN>/b.mjs');
   assert.equal(maskAccount('./kits/parts/deer-base.glb from https://polyfork.dev/cdn/deer-base.glb'), './kits/parts/deer-base.glb from https://polyfork.dev/cdn/deer-base.glb');
 });
+
+// a part's JSON (an animal's or the lighthouse's -params.json) from a host that never answers: given up on, marked as a
+// timeout, so firstOf skips that base from then on (a fetch's own abort is no timeout to it); the fetch is aborted
+test('jsonWithin: a JSON fetch that hangs is a timeout (and aborted), so firstOf skips its base after', async () => {
+  const { jsonWithin } = await import('../hd-switch.js');
+  const { firstOf } = await import('../parts.js');
+  const signals = [];
+  const hung = (url, { signal }) => { signals.push(signal); return new Promise(() => {}); };
+  await assert.rejects(jsonWithin('https://slow.example/c/tok/deer-base-params.json', 20, hung),
+    (err) => err.timeout === true && !/slow\.example|tok/.test(err.message) && /deer-base-params\.json/.test(err.message));
+  assert.equal(signals[0].aborted, true);
+  // an answer that isn't ok is a failure naming its status, not a timeout; an ok one is its JSON
+  const notFound = async () => ({ ok: false, status: 404, json: async () => ({}) });
+  await assert.rejects(jsonWithin('https://x/p.json', 50, notFound), (err) => !err.timeout && /404/.test(err.message));
+  assert.deepEqual(await jsonWithin('https://x/p.json', 50, async () => ({ ok: true, json: async () => ({ a: 1 }) })), { a: 1 });
+  // through firstOf: the hung base is skipped from then on
+  const skip = new Set(), tried = [];
+  const fetcher = (url, opts) => { tried.push(url); return url.startsWith('https://hung/') ? hung(url, opts) : Promise.resolve({ ok: true, json: async () => ({ from: url }) }); };
+  const load = (url) => jsonWithin(url, 20, fetcher);
+  assert.deepEqual(await firstOf(['https://hung/', 'https://ok/'], 'a.json', load, () => {}, { wait: 5, skip }), { from: 'https://ok/a.json' });
+  assert.ok(skip.has('https://hung/'));
+  await firstOf(['https://hung/', 'https://ok/'], 'b.json', load, () => {}, { wait: 5, skip });
+  assert.deepEqual(tried, ['https://hung/a.json', 'https://ok/a.json', 'https://ok/b.json']);
+});

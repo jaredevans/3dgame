@@ -79,6 +79,8 @@ test('main.js: T teleports, and the frame holds everything else still meanwhile'
   assert.match(src, /import \{[^}]*\bmakeTeleport\b[^}]*\bcanTeleport\b[^}]*\} from '\.\/teleport\.js'/);
   assert.match(src, /e\.code === 'KeyT'\) \{ if \(tpListOpen\) closeTeleportList\(\); else if \(tp\.active\) tp\.cancel\(\); else if \(tpCan\(\)\) openTeleportList\(\);/);
   assert.match(src, /e\.code === 'Escape'\) \{[^}]*tp\.cancel\(\);/);
+  // Esc with the map open closes only the map (a second Esc cancels the teleport)
+  assert.match(src, /e\.code === 'Escape'\) \{ if \(mapView\.open\) return void mapView\.close\(\); closeTeleportList\(\); tp\.cancel\(\);/);
   const digits = src.indexOf("pickTeleport(+e.code.slice(5))"), views = src.indexOf("'Digit1') views.set('cab')");
   assert.ok(digits > 0 && views > digits, 'the list\'s numbers come before the views\'');
   assert.match(src, /if \(tp\.active\) return;/);
@@ -94,4 +96,10 @@ test('main.js: T teleports, and the frame holds everything else still meanwhile'
   assert.match(swap[0], /journey\.teleport\(state, tp\.to\)/);
   assert.match(swap[0], /fleet\.wait\(w\.leg, w\.dir\)/);
   assert.match(swap[0], /turnPending\(\)/);
+});
+
+// the figure's teleport cut (player.js) and the cabs' shells are clipped planes: local clipping is on from the renderer's
+// making, not left to the cabs' fitting having run first
+test('main.js turns on local clipping where it makes the renderer', () => {
+  assert.match(src, /const renderer = new THREE\.WebGLRenderer\([^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*renderer\.localClippingEnabled = true;/);
 });

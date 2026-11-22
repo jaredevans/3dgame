@@ -20,8 +20,8 @@ export async function makePlayer(scene, camera, dom, look) {
   look?.shadows(figure);
   // teleporting (T), the figure dissolves from its feet up: everything of it below a level plane is cut away. Its own
   // materials (the kit's may be shared with other parts), each with the plane from the start, so its programs are the
-  // ones compiled at boot; the plane sits far below until it's wanted. (Local clipping must be on, as it is: the cabs'
-  // fitting, cameras.js fitCab, turns on renderer.localClippingEnabled before you're made)
+  // ones compiled at boot; the plane sits far below until it's wanted. (Local clipping must be on: main.js turns on
+  // renderer.localClippingEnabled where it makes the renderer)
   const cut = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e6);
   const meshes = [], casts = [];
   figure.traverse((o) => {

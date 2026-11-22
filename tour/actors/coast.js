@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { cdnPart, firstOf, fellBack, partBases } from '../parts.js';
+import { jsonWithin } from '../hd-switch.js';
 import { laneOf, SEA_LEVEL } from '../world-data.js';
 import { reverseRoute } from '../route.js';
 import { COUPLING_GAP } from '../consist.js';
@@ -41,15 +42,12 @@ function glowTexture() {
   return t;
 }
 
-// a part's JSON beside its module (its -params.json), from the same bases as cdnPart, each given `wait` seconds (fetch
-// doesn't throw on a 404: an answer that isn't ok counts as a failure, and the next base is tried)
+// a part's JSON beside its module (its -params.json), from the same bases as cdnPart, each given JSON_WAIT s (one that
+// hasn't answered by then is skipped from then on, as firstOf skips a slow base; fetch doesn't throw on a 404: an answer
+// that isn't ok counts as a failure, and the next base is tried)
 const JSON_WAIT = 8;
 export function partJson(id, suffix = '-params.json') {
-  return firstOf(partBases(), `${id}${suffix}`, async (url) => {
-    const r = await fetch(url, { signal: AbortSignal.timeout(JSON_WAIT * 1000) });
-    if (!r.ok) { const e = new Error(`${r.status} from ${url}`); e.url = url; throw e; }
-    return r.json();
-  }, fellBack);
+  return firstOf(partBases(), `${id}${suffix}`, (url) => jsonWithin(url, JSON_WAIT * 1000), fellBack);
 }
 
 // ---- the lighthouse ----

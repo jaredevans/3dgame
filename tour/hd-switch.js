@@ -62,3 +62,16 @@ export function withTimeout(promise, ms, what = 'it') {
 
 // a message with the owner's account CDN link (https://host/c/<token>/) masked: it is never printed
 export const maskAccount = (text) => String(text).replace(/https?:\/\/[^\s/]+\/c\/[^\s/]+\//g, '<account CDN>/');
+
+// a JSON file at `url`, given `ms` (withTimeout: a host that never answers rejects marked as a timeout, so firstOf skips
+// that base from then on, and the fetch is aborted). An answer that isn't ok is a failure naming its status (fetch
+// doesn't throw on a 404). The timeout's message names the file, not the URL (it may be the account CDN's)
+export function jsonWithin(url, ms, fetcher = globalThis.fetch) {
+  const ctl = new AbortController(), file = String(url).slice(String(url).lastIndexOf('/') + 1);
+  const got = (async () => {
+    const r = await fetcher(url, { signal: ctl.signal });
+    if (!r.ok) { const e = new Error(`${r.status} from ${maskAccount(url)}`); e.url = url; throw e; }
+    return r.json();
+  })();
+  return withTimeout(got, ms, file).catch((err) => { if (err?.timeout) ctl.abort(); throw err; });
+}
