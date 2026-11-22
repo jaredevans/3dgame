@@ -516,14 +516,14 @@ export function carAlong(at0, period, speed, t, length) {
 
 // the airliner coming in to land: `up` metres over the line at its window's middle (its event's), coming down at
 // `glide` on a heading `cross` off the line's there (+ left of the leg's out direction: 62 degrees takes it across from
-// the south-south-east towards the north-north-west, so it's overhead only a moment and comes in and goes away off to
-// the train's sides; a back run sees it coming at the left edge of the cab's view), its nose `nose` up. It comes in at `speed` m/s, made
-// `slow`..`fast` as it goes so it's over the line as your front is (planeStep); it sets off `far` metres short of it
-// (in the haze), and is gone `past` metres beyond, still well up (out over the sea). It roars as it comes within `roar`
+// the south-south-east towards the north-north-west, steeply), its nose `nose` up. It's timed to cross the line `lead`
+// metres ahead of your front, so it's seen from the cab, low across the view ahead (planeStep): it comes in at `speed`
+// m/s, made `slow`..`fast` as it goes to keep that time; it sets off `far` metres short of the line (in the haze, off to
+// the side), and is gone `past` metres beyond it, still well up (out over the sea). It roars as it comes within `roar`
 // of the line
 export const PLANE = {
-  up: 120, glide: 3 * Math.PI / 180, cross: 62 * Math.PI / 180, nose: 2 * Math.PI / 180,
-  speed: 70, slow: 50, fast: 90, far: 3000, past: 1800, roar: 250,
+  up: 90, glide: 3 * Math.PI / 180, cross: 62 * Math.PI / 180, nose: 2 * Math.PI / 180, lead: 350,
+  speed: 70, slow: 50, fast: 90, far: 3000, past: 1300, roar: 250,
 };
 
 // over: where it's over the line ({ x, y, z: the line at the window's middle, heading: its way, as a yaw }); d: metres
@@ -549,18 +549,20 @@ export function soonest(gap, v, top, accel) {
 }
 
 // st: null at first, then what it returned (moved on in place); { here: you're driving a run on the leg, legS, v: the
-// train's speed (+ forwards), top, accel: its top speed and how fast it gathers speed, dir, dt, meet: the leg-s it's
-// over the line at, s0, s1: its window } -> { mode: 'wait'|'fly'|'gone', d (as planeAt's), speed, shown, roar: true the
-// frame it comes within `roar` }. While you're coming it waits until it would be no more than `far` off at its speed,
-// reckoning that while you gather speed you'll be at `meet` as soon as the train can get there (so a train leaving a
-// platform close by doesn't beat it), and at the speed you hold once you hold one; it keeps its time to what you do; standing (or past `meet`) it comes from `far` off once you're inside its
-// window. Once a run: it's put back only once you've left the leg
+// train's speed (+ forwards), top, accel: its top speed and how fast it gathers speed, dir, dt, meet: the leg-s it
+// crosses the line at, s0, s1: its window } -> { mode: 'wait'|'fly'|'gone', d (as planeAt's), speed, shown, roar: true
+// the frame it comes within `roar` }. While you're coming (at PACE.follow or more) it waits until it would be no more
+// than `far` off at its speed, timed to cross as your front is `lead` short of `meet`: reckoning that while you gather
+// speed you'll get there as soon as the train can (so a train leaving a platform close by doesn't beat it), and at the
+// speed you hold once you hold one; it keeps that time to what you do. Standing or creeping (or nearer than `lead`) it
+// comes from `far` off once you're inside its window. Once a run: it's put back only once you've left the leg
 export function planeStep(st, { here, legS, v, top = v, accel = 0, dir, dt, meet, s0, s1 }) {
   st ??= { mode: 'wait', d: PLANE.far, speed: PLANE.speed, shown: false, roar: false };
   st.roar = false;
   if (!here) { Object.assign(st, { mode: 'wait', d: PLANE.far, speed: PLANE.speed, shown: false }); return st; }
   // (below PACE.follow it's not timed to you: it comes as it would for a train standing)
-  const sgn = dir === 'back' ? -1 : 1, gap = (meet - legS) * sgn, coming = v >= PACE.follow && gap > 0;
+  // (gap: how far your front has to go to be `lead` short of `meet`, where it's to be as the plane crosses)
+  const sgn = dir === 'back' ? -1 : 1, gap = (meet - legS) * sgn - PLANE.lead, coming = v >= PACE.follow && gap > 0;
   // gathering speed, you'll be there as soon as the train can be; holding it, at the speed you're going
   const gaining = st.v !== undefined && v > st.v + 0.02 * dt;
   st.v = v;

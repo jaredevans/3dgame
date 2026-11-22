@@ -302,10 +302,11 @@ async function buildTraffic({ leg, route, def, terrain, slicer, kit }) {
 }
 // ---- the plane ----
 // the narrow-body airliner (36 m) coming in to land, gear down and flaps out, on its approach steeply across the line:
-// 120 m over it at the event's middle and coming down at 3 degrees (paths.js planeAt), timed to be over the line as your
-// front is (planeStep). Its event is `always`, so it comes in from 3 km out before the window and flies on past it until
-// it's gone, off to the train's side behind the cab's view. It roars as it comes over. After dark its navigation lights
-// and beacons show, as its -params.json `night` says (coast.js lightZones; unlit if that can't be read). Once a run
+// about 90 m over it at the event's middle and coming down at 3 degrees (paths.js planeAt), timed to cross as your front
+// is 350 m short of it, so the cab sees it go low across the view ahead (planeStep). Its event is `always`, so it comes
+// in from far out before the window and flies on past it until it's gone, out of the cab's view. It roars as it comes
+// over. After dark its navigation lights and beacons show, as its -params.json `night` says (coast.js lightZones; unlit
+// if that can't be read). Once a run
 const AIRLINER = 'narrow-body-airliner-619183';
 
 async function buildPlane({ leg, route, def, slicer }) {

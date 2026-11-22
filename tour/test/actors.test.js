@@ -754,17 +754,18 @@ test('laneCars: 40-80 m apart round a loop at least the street\'s length, and ea
 });
 
 const LINE = FC.at(1300), OVER = { x: LINE.x, y: LINE.y, z: LINE.z, heading: LINE.yaw + PLANE.cross };
-test('the plane: 120 m over the line at the window\'s middle, coming down at 3 degrees along its heading', () => {
+test('the plane: about 90 m over the line at the window\'s middle, coming down at 3 degrees along its heading', () => {
+  assert.equal(PLANE.up, 90);
   const o = {};
   assert.deepEqual(planeAt(OVER, 0, o), o);
-  close(o.x, OVER.x); close(o.z, OVER.z); close(o.y, OVER.y + 120);
+  close(o.x, OVER.x); close(o.z, OVER.z); close(o.y, OVER.y + 90);
   close(o.yaw, OVER.heading);
   planeAt(OVER, 1000, o);
-  close(o.y, OVER.y + 120 + 1000 * Math.tan(3 * Math.PI / 180), 1e-6);
+  close(o.y, OVER.y + 90 + 1000 * Math.tan(3 * Math.PI / 180), 1e-6);
   close(Math.hypot(o.x - OVER.x, o.z - OVER.z), 1000, 1e-6);
   close(Math.atan2(OVER.x - o.x, OVER.z - o.z), Math.atan2(Math.sin(OVER.heading), Math.cos(OVER.heading)), 1e-9);   // coming on its heading
   planeAt(OVER, -500, o);
-  assert.ok(o.y < OVER.y + 120, 'and on down past it');
+  assert.ok(o.y < OVER.y + 90, 'and on down past it');
   assert.ok(PLANE.speed >= 60 && PLANE.speed <= 80, 'an airliner\'s approach speed');
   planeAt(OVER, -PLANE.past, o);
   assert.ok(o.y - OVER.y >= 20, `still only ${(o.y - OVER.y).toFixed(0)} m up when it's gone`);
@@ -807,11 +808,15 @@ function planeRun({ dir, v, legS, secs = 200, dt = 1 / 30, meet = 1300, s0 = 110
   return { st, overAt, roars, first };
 }
 
-test('it comes in from far off and is over the line as your front is, either way, at a good speed', () => {
+// where your front is when it crosses the line: `lead` short of the crossing, the way you're going (so it's seen from the cab)
+const leadOf = (dir) => 1300 - (dir === 'back' ? -1 : 1) * PLANE.lead;
+test('it comes in from far off and crosses the line about 350 m ahead of your front, either way, at a good speed', () => {
+  assert.equal(PLANE.lead, 350);
   for (const v of [120 / 3.6, 100 / 3.6, 80 / 3.6]) for (const [dir, legS] of [['out', 0], ['back', FC.length]]) {
     const r = planeRun({ dir, v, legS });
-    assert.ok(r.overAt !== null && Math.abs(r.overAt - 1300) < 20, `${dir} at ${v.toFixed(1)}: over the line as the front is at ${r.overAt}`);
-    assert.ok(r.first.d >= 2500, `${dir} at ${v.toFixed(1)}: first seen only ${r.first.d.toFixed(0)} m off`);
+    assert.ok(r.overAt !== null && Math.abs(r.overAt - leadOf(dir)) < 20, `${dir} at ${v.toFixed(1)}: crossed with the front at ${r.overAt}`);
+    // (a back run sets off only 430 m short of where it's to be: the plane comes from as far as it can be in time)
+    assert.ok(r.first.d >= (dir === 'out' ? 2500 : 1800), `${dir} at ${v.toFixed(1)}: first seen only ${r.first.d.toFixed(0)} m off`);
     assert.equal(r.roars, 1);
     assert.equal(r.st.mode, 'gone', 'and away');
   }
@@ -820,8 +825,8 @@ test('it comes in from far off and is over the line as your front is, either way
 test('crawling along it can\'t wait for you (an airliner can\'t slow enough), but it still comes over the line ahead of you', () => {
   for (const v of [16, 12, 8]) for (const [dir, legS] of [['out', 0], ['back', FC.length]]) {
     const r = planeRun({ dir, v, legS, secs: 400 });
-    assert.ok(r.overAt !== null && Math.abs(r.overAt - 1300) < 400, `${dir} at ${v}: over the line as the front is at ${r.overAt}`);
-    assert.ok((1300 - r.overAt) * (dir === 'back' ? -1 : 1) >= -20, `${dir} at ${v}: not behind you`);
+    const ahead = (1300 - r.overAt) * (dir === 'back' ? -1 : 1);
+    assert.ok(r.overAt !== null && ahead >= 20 && ahead <= 900, `${dir} at ${v}: crossed ${ahead.toFixed(0)} m ahead of the front`);
   }
 });
 
@@ -836,7 +841,7 @@ test('soonest: how long the train takes to go so far at full throttle from its s
 test('re-timed as you slow or speed up, so it still comes over you', () => {
   for (const [a, b] of [[30, 24], [24, 30]]) {
     const r = planeRun({ dir: 'out', legS: 0, v: 0, vAt: (t) => Math.min(t, t < 30 ? a : b) });
-    assert.ok(Math.abs(r.overAt - 1300) < 15, `${a} then ${b}: over at ${r.overAt}`);
+    assert.ok(Math.abs(r.overAt - leadOf('out')) < 15, `${a} then ${b}: crossed with the front at ${r.overAt}`);
   }
 });
 
