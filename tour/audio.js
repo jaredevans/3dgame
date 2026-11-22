@@ -110,6 +110,13 @@ const SOUNDS = {
     }
     noiseBurst({ type: 'highpass', freq: 4000, to: 1500, q: 0.6, peak: 0.025 * level, attack: 0.003, dur: 0.18 });
   },
+  // the UFO blowing up: a deep boom (a low roar of noise falling away), a sharp crack on top of it, and a crackle of
+  // burning bits after it
+  boom() {
+    noiseBurst({ type: 'lowpass', freq: 220, to: 50, q: 0.8, peak: 0.12, attack: 0.02, dur: 3.2 });
+    noiseBurst({ type: 'bandpass', freq: 1800, to: 400, q: 0.6, peak: 0.08, attack: 0.004, dur: 0.5 });
+    for (let k = 0; k < 7; k++) noiseBurst({ type: 'highpass', freq: 2500 + 900 * Math.random(), q: 0.7, peak: 0.03, attack: 0.002, dur: 0.06, at: 0.35 + k * 0.17 + Math.random() * 0.1 });
+  },
   ping(level = 1) {
     const t0 = audio.currentTime + 0.12, o = audio.createOscillator(), g = audio.createGain();
     const f0 = 2300 + Math.random() * 600;

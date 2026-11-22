@@ -312,15 +312,15 @@ export function stationPads() {
   return pads;
 }
 
-// the jet's two pads (rides.js jet), held level in the land as a station's are, so its wheels roll on them and its
-// wings clear the ground beside them: the hardstanding beside the Wild West's departure platform, 17 m out on the town
-// side where it waits and rolls to take off (the land there rises 2-3 m within its wingspan towards the town, so the
-// pad is cut into it), level with the station's own pad; and the apron on the far side of the Futuristic place's
-// arrival platform, 45 m out (clear of its embankment's foot), where it lands and rolls to a stop, on the low land
-// there (1.0-1.2 m). Each { inn, out } in its platform's frame (stationSpot), metres
+// the starfighter's two pads (rides.js jet), held level in the land as a station's are, so it stands on them and its
+// foils clear the ground beside them: its pad beside the Wild West's departure platform, 17 m out on the town side,
+// where it waits and hovers up (the land there rises towards the town, so the pad is cut into it), level with the
+// station's own pad; and its apron on the far side of the Futuristic place's arrival platform, 45 m out (clear of its
+// embankment's foot), where it hovers down, on the low land there (1.0-1.2 m). Each { inn, out } in its platform's
+// frame (stationSpot), metres
 export const JET_PADS = {
-  stand: { place: 'west', role: 'departure', inn: [48, -62], out: [10, 25], blend: 8 },
-  apron: { place: 'future', role: 'arrival', inn: [20, 170], out: [-36, -54], y: 1.05, blend: 8 },
+  stand: { place: 'west', role: 'departure', inn: [52, 18], out: [10, 24], blend: 8 },
+  apron: { place: 'future', role: 'arrival', inn: [22, 58], out: [-36, -54], y: 1.05, blend: 8 },
 };
 export function ridePads() {
   return Object.entries(JET_PADS).map(([name, p]) => {

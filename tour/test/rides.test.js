@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
   OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
-  BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand } from '../rides.js';
+  BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand, LOW_FLIGHT, lowFlight } from '../rides.js';
 import { makeRideTrack } from '../ride-run.js';
 import { legSections, FEATURES } from '../world-data.js';
 import { onWalkway } from '../walk-world.js';
@@ -14,7 +14,8 @@ import { stationWalk } from '../station-walk.js';
 import { rocketPad, rocketStep, rocketAt } from '../actors/paths.js';
 import { eventsFor, makeEventTrack } from '../events.js';
 import { JET_PADS, ridePads, stationSpot } from '../world-data.js';
-import { JET_HULL, ROCKET_CUE, GEAR, FLAPS, FLARE, noseUp, gearAt, flapsAt, gearClocks, GEAR_RIG, UFO, ufoOffset, BOLT, BOLTS, boltAt, placeOnPath, fromHull } from '../rides/jet-plan.js';
+import { ROCKET_CUE, BUZZ, FOIL_RIG, foilsAt, noseUp, aimAt, STRIKE, UFO, ufoOffset, BOLT, bolts, boltAt, missileAt, BLAST, DEBRIS, blastOrigin, blastTime, debrisAt, fireballAt, ringAt, placeOnPath, fromHull, fromCraft, craftDistance } from '../rides/jet-plan.js';
+import { scatter, VARIANTS } from '../scenery.js';
 import { TOWERS, footprint } from './fixtures.js';
 import { BENCH, ROAD, coachRoad, roadSurface } from '../world-data.js';
 import { BED_HALF } from '../terrain.js';
@@ -59,14 +60,17 @@ function walkAt(placeId, role) {
 test('five rides, one per leg, onward', () => {
   assert.deepEqual(RIDE_LEGS, ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future', 'future-city']);
   assert.deepEqual(rides.map((r) => r.id), ['boat', 'balloon', 'coach', 'jet', 'car']);
-  assert.deepEqual(rides.map((r) => r.name), ['speedboat', 'hot-air balloon', 'stagecoach', 'jet', 'flying car']);
+  assert.deepEqual(rides.map((r) => r.name), ['speedboat', 'hot-air balloon', 'stagecoach', 'starfighter', 'flying car']);
   for (const r of rides) {
     assert.equal(r.from, LEGS[r.leg].from);
     assert.equal(r.to, LEGS[r.leg].to);
     assert.equal(rideFor(r.leg), r, 'memoised');
-    // each its set piece: the boat's octopus, the balloon's crows, the coach's gang, the jet's UFO, the car's escort
-    assert.equal(r.events.length, 1);
-    assert.equal(r.events[0].actor, { boat: 'octopus', balloon: 'crows', coach: 'gang', jet: 'ufo', car: 'escort' }[r.id]);
+    // each its set piece: the boat's octopus, the balloon's crows, the coach's gang, the starfighter's UFO, the car's
+    // escort (the starfighter's other events are the director's shots of its buzz and its strike, with no actor)
+    const acted = r.events.filter((e) => e.actor);
+    assert.equal(acted.length, 1);
+    assert.equal(acted[0].actor, { boat: 'octopus', balloon: 'crows', coach: 'gang', jet: 'ufo', car: 'escort' }[r.id]);
+    for (const e of r.events) if (!e.actor) assert.ok(e.shot, `${e.id}: neither an actor nor a shot`);
     assert.ok(r.showpieces.length >= 1);
   }
   assert.throws(() => rideFor('nowhere'));
@@ -172,7 +176,7 @@ test('the coach keeps out of the canyon slot and its grade stays <= 12% (17% on 
   assert.ok(r.path.minRadius(10) >= 15, `a turn of ${r.path.minRadius(10).toFixed(0)} m`);
 });
 
-test('the jet flies round the rocket pad: its path comes within 2.2 km of the pad and passes all round it (bearing spans >= 300 degrees)', () => {
+test('the starfighter flies round the rocket pad: its path comes within 2.2 km of the pad and passes all round it (bearing spans >= 300 degrees); fast and low, up to the rocket for its buzz', () => {
   const r = ride('jet'), pad = rocketPad(legRoute('west-future'));
   assert.ok(JET.radius >= 1200 && JET.radius <= 2000);
   let closest = Infinity, bearing = null, lo = 0, hi = 0;
@@ -184,31 +188,15 @@ test('the jet flies round the rocket pad: its path comes within 2.2 km of the pa
   });
   assert.ok(closest <= 2200, `${closest.toFixed(0)} m from the pad at closest`);
   assert.ok((hi - lo) * 180 / Math.PI >= 300, `its bearing spans ${((hi - lo) * 180 / Math.PI).toFixed(0)} degrees`);
-  // its take-off and landing rolls are on the ground (on level ground, as its hardstanding and apron will be): at most
-  // 2 m over it, never under 1, the take-off from the start and the landing to the stop, and quick enough to fly
-  assert.equal(r.rolls.length, 2);
-  assert.equal(r.rolls[0][0], 0);
-  assert.equal(r.rolls[1][1], r.path.length);
-  for (const [a, b] of r.rolls) {
-    assert.ok(b - a >= 50 && b - a <= 250, `a roll of ${(b - a).toFixed(0)} m`);
-    for (let s = a, p = {}; s <= b; s += 1) {
-      r.path.at(s, p);
-      const up = p.y - ground(p.x, p.z);
-      assert.ok(up >= 1 && up <= 2, `the jet ${up.toFixed(2)} m over the ground on its roll at ${s}`);
-    }
-  }
-  let st = { s: 0, t: 0 };
-  while (st.s < r.rolls[0][1]) st = rideStep(st, 1 / 60, r);
-  assert.ok(st.v * 3.6 >= 150, `lifting off at ${(st.v * 3.6).toFixed(0)} km/h`);
-  while (st.s < r.rolls[1][0]) st = rideStep(st, 1 / 60, r);
-  assert.ok(st.v * 3.6 >= 150 && st.v * 3.6 <= 260, `touching down at ${(st.v * 3.6).toFixed(0)} km/h`);
-  for (const other of rides) if (other !== r) assert.deepEqual(other.rolls, []);
-  // fast: cruising at 750-800 km/h, low over the desert (60-150 m up) once it's climbed out and till it comes down
+  // no ride rolls on wheels (the starfighter hovers up and down: its own test)
+  for (const any of rides) assert.deepEqual(any.rolls, []);
+  // fast: cruising at 750-800 km/h, low over the land (60-150 m up) once it's climbed out and till it comes down, but
+  // for its climb to the rocket and back (up to 260 m)
   assert.ok(r.profile.v * 3.6 >= 750 && r.profile.v * 3.6 <= 800, `${(r.profile.v * 3.6).toFixed(0)} km/h`);
   along(r.path, 10, (p, s) => {
     if (s < 2500 || s > r.path.length - 2500) return;
-    const up = p.y - ground(p.x, p.z);
-    assert.ok(up >= 60 && up <= 150, `the jet ${up.toFixed(0)} m up at ${s}`);
+    const up = p.y - ground(p.x, p.z), buzz = s > BUZZ.s - 2500 && s < BUZZ.s + 2000;
+    assert.ok(up >= 60 && up <= (buzz ? 260 : 150), `the starfighter ${up.toFixed(0)} m up at ${s}`);
   });
 });
 
@@ -909,71 +897,72 @@ test('the coach\'s showpieces: the chase from low ahead beside the road, and a h
   for (const p of r.showpieces) assert.ok(p.s0 >= 200 && p.s1 <= 650 && !p.actor);
 });
 
-// ---- the jet: its pads, its gear, the rocket and the UFO ----
+// ---- the starfighter: its pads and hover, its foils, the rocket buzz, the UFO and its end ----
 
-test('the jet waits, rolls and lands on its pads: level in the land, its tyres on them (within 0.08 m) and the ground under all of its span no higher than them', () => {
-  const r = ride('jet'), pads = ridePads();
+test('the starfighter stands on its pads (within 0.15 m), the land under all of it no higher, and hovers up off its pad and down onto its apron (a few metres straight up and down, its nose a little up as it does)', () => {
+  const r = ride('jet'), pads = ridePads(), L = r.path.length;
   assert.deepEqual(pads.map((p) => p.kind), ['jet stand', 'jet apron']);
-  // the hardstanding level with the Wild West's station pad; the apron on the low land by the Futuristic place
   assert.equal(pads[0].y, PLACES.west.ground - 0.05);
   assert.ok(pads[1].y >= 1 && pads[1].y <= 1.2);
-  for (const [a, b] of r.rolls) {
-    for (let s = a, p = {}; s <= b; s += 1) {
-      r.path.at(s, p);
-      const c = Math.cos(p.yaw), sn = Math.sin(p.yaw), fx = Math.sin(p.yaw), fz = Math.cos(p.yaw), tyre = p.y - JET.rest;
-      const at = (x, z) => ground(p.x + c * x + fx * z, p.z - sn * x + fz * z);
-      // its main wheels (1.7 m either side) and its nose wheel (7 m ahead, held up a little as it touches down: the
-      // model's turned about the holder, over the main wheels, by noseUp), the nose wheel never under the pad
-      for (const [x, z] of [[1.7, 0], [-1.7, 0]]) assert.ok(Math.abs(at(x, z) - tyre) <= 0.08, `a wheel ${(tyre - at(x, z)).toFixed(2)} m off the pad at ${s}`);
-      const nose = tyre + 7 * Math.sin(noseUp(s)) - at(0, 7);
-      assert.ok(nose >= -0.08 && (noseUp(s) > 0 || nose <= 0.08), `the nose wheel ${nose.toFixed(2)} m off the pad at ${s}`);
-      // nothing of the land within its footprint (wingtip to wingtip, tail to nose) over its tyres: its wings (1.56 m up
-      // at their lowest) clear of it
-      for (let x = -8.3; x <= 8.31; x += 0.83) for (let z = JET_HULL.back; z <= JET_HULL.front; z += 0.85) {
-        assert.ok(at(x, z) - tyre <= 0.1, `the land ${(at(x, z) - tyre).toFixed(2)} m over its tyres under it at ${s} (${x.toFixed(1)}, ${z.toFixed(1)})`);
-      }
+  // standing: its holder JET.rest over the pad (its model's foot on it), level, the land under its 7 m x 6.4 m no higher
+  for (const s of [0, L]) {
+    const p = r.path.at(s), c = Math.cos(p.yaw), sn = Math.sin(p.yaw), fx = Math.sin(p.yaw), fz = Math.cos(p.yaw), foot = p.y - JET.rest;
+    assert.ok(Math.abs(foot - ground(p.x, p.z)) <= 0.15, `standing ${(foot - ground(p.x, p.z)).toFixed(2)} m off its pad at ${s}`);
+    assert.equal(noseUp(s, L), 0);
+    for (let x = -3.3; x <= 3.31; x += 0.55) for (let z = -3.5; z <= 3.51; z += 0.5) {
+      const g = ground(p.x + c * x + fx * z, p.z - sn * x + fz * z);
+      assert.ok(Math.abs(g - foot) <= 0.15, `the land ${(g - foot).toFixed(2)} m off its foot under it at ${s} (${x.toFixed(1)}, ${z.toFixed(1)})`);
     }
   }
-  // the pads in their platforms' frames: the hardstanding 17 m out beside the Wild West's departure platform, the apron
-  // 45 m out on the far side of the Futuristic place's arrival platform
+  // its hover: 3 m up within 8 m of its pad's spot, going up, and coming down to its apron the same way
+  const B = r.path.at(0), E = r.path.at(L);
+  for (const [from, sgn] of [[B, 1], [E, -1]]) {
+    let risen = false;
+    for (let d = 0; d <= 60; d += 0.5) {
+      const p = r.path.at(sgn > 0 ? d : L - d), h = Math.hypot(p.x - from.x, p.z - from.z);
+      if (p.y - from.y >= 3) { risen = true; assert.ok(h <= 8, `${h.toFixed(1)} m across by 3 m up`); break; }
+    }
+    assert.ok(risen, 'no hover');
+  }
+  for (const s of [8, 20, L - 20, L - 8]) assert.ok(noseUp(s, L) >= 2 * Math.PI / 180 && noseUp(s, L) <= 5 * Math.PI / 180);
+  assert.equal(noseUp(400, L), 0);
+  // the pads in their platforms' frames: by the Wild West's departure platform 17 m out; the apron 45 m out on the far
+  // side of the Futuristic place's arrival platform, where it sets down 40 m in
   const P = JET_PADS;
-  assert.ok(P.stand.out[0] <= 17 - 6 && P.stand.out[1] >= 17 + 6 && P.stand.inn[0] >= 35 + 8 && P.stand.inn[1] <= -50 - 8);
-  assert.ok(Math.max(...P.apron.out) >= -45 + 8 && Math.min(...P.apron.out) <= -45 - 8 && P.apron.inn[0] <= 40 - 8 && P.apron.inn[1] >= 150 + 8);
+  assert.ok(P.stand.out[0] <= 17 - 6 && P.stand.out[1] >= 17 + 6 && P.stand.inn[0] >= 35 + 8 && P.stand.inn[1] <= 35 - 8);
+  assert.ok(Math.max(...P.apron.out) >= -45 + 8 && Math.min(...P.apron.out) <= -45 - 8 && P.apron.inn[0] <= 40 - 8 && P.apron.inn[1] >= 40 + 8);
   const to = stationSpot('future', 'arrival')(40, -45);
-  assert.ok(Math.hypot(r.land.x - to.x, r.land.z - to.z) < 1, 'it stops 40 m in, 45 m out');
+  assert.ok(Math.hypot(r.land.x - to.x, r.land.z - to.z) < 1, 'it sets down 40 m in, 45 m out');
 });
 
-test('the jet\'s gear is down on its rolls and whenever it is within 15 m of the ground, up once it has climbed away; its flaps out for take-off and landing', () => {
-  const r = ride('jet');
-  for (const [a, b] of r.rolls) for (let s = a; s <= b; s += 1) {
-    assert.equal(gearAt(s), 0, `the gear not down on its roll at ${s}`);
-    assert.ok(flapsAt(s) >= FLAPS.takeoff - 1e-9, `the flaps in on its roll at ${s}`);
-  }
-  assert.equal(flapsAt(r.path.length), 1);
-  along(r.path, 2, (p, s) => {
-    const up = p.y - ground(p.x, p.z);
-    if (up < 15) assert.equal(gearAt(s), 0, `the gear coming up ${up.toFixed(0)} m over the ground at ${s}`);
-    if (s > GEAR.up[1] && s < GEAR.down[0]) {
-      assert.equal(gearAt(s), 1, `the gear down at cruise at ${s}`);
-      if (s > FLAPS.retract[1] && s < FLAPS.land[0]) assert.equal(flapsAt(s), 0, `the flaps out at cruise at ${s}`);
+test('nothing of the scenery stands under the starfighter where it flies low: no part reaching within its half-span and a metre of its path wherever it is under 30 m up (the oak on short final)', () => {
+  const r = ride('jet'), low = lowFlight(r);
+  assert.ok(low.length > 20);
+  const chunks = new Set(low.map((q) => `${Math.floor(q.x / 256)},${Math.floor(q.z / 256)}`));
+  let seen = 0;
+  for (const key of chunks) {
+    const [i, j] = key.split(',').map(Number);
+    for (const q of scatter(i, j, 256, terrain)) {
+      seen++;
+      const reach = VARIANTS[q.v].r;
+      for (const p of low) assert.ok(Math.hypot(q.x - p.x, q.z - p.z) >= LOW_FLIGHT.reach + 1 + reach, `a ${q.key} under its low flight at (${q.x.toFixed(0)}, ${q.z.toFixed(0)})`);
     }
-  });
-  // the nose: level on the take-off roll, held up over the approach and as it touches down, lowered onto its nose wheel
-  // early in its roll
-  for (let s = 0; s <= r.rolls[0][1]; s += 1) assert.equal(noseUp(s), 0);
-  for (let s = r.rolls[1][0] - 1000; s <= r.rolls[1][0] + 5; s += 1) assert.ok(noseUp(s) >= 2 * Math.PI / 180 && noseUp(s) <= 5 * Math.PI / 180, `nose up ${(noseUp(s) * 180 / Math.PI).toFixed(1)} degrees at ${s}`);
-  for (let s = r.rolls[1][0] + 50; s <= r.path.length; s += 1) assert.equal(noseUp(s), 0);
-  // up after the take-off roll, down well before the landing's
-  assert.ok(GEAR.up[0] > r.rolls[0][1] && GEAR.down[1] < r.rolls[1][0] - 500);
-  // the model's three clocks: down, its nose and bay-end doors standing open behind the legs; up, every door shut
-  assert.deepEqual(gearClocks(0), { leg: 0, door: 0, bay: 1 });
-  assert.deepEqual(gearClocks(1), { leg: 1, door: 0, bay: 0 });
-  assert.equal(gearClocks(0.5).door, 1);
-  assert.equal(GEAR_RIG.length, 13);
+  }
+  assert.ok(seen > 0, 'no scenery about its low flight at all');
 });
 
-test('the rocket lifts off as the jet runs in, the pad ahead in its cockpit\'s view; the jet flies round it as it climbs (its bearing from the pad sweeping >= 270 degrees over the rocket\'s 5-45 s), within 2.2 km of it', () => {
-  const r = ride('jet'), pad = rocketPad(legRoute('west-future'));
+test('its X-foils open for the fight and close again, closed on its pads; its swing onto the saucer comes and goes within the strike', () => {
+  const r = ride('jet'), L = r.path.length, a = {};
+  assert.equal(foilsAt(0), 0); assert.equal(foilsAt(L), 0);
+  for (const b of bolts()) assert.equal(foilsAt(b.s), 1, `foils not open when the UFO fires at ${b.s}`);
+  assert.equal(foilsAt(STRIKE.launch), 1);
+  assert.equal(FOIL_RIG.length, 4);
+  aimAt(STRIKE.turn[0] - 1, a); assert.ok(a.yaw === 0);
+  aimAt(STRIKE.back[1] + 1, a); assert.ok(a.yaw === 0);
+});
+
+test('the rocket lifts off as the starfighter runs in, straight ahead of it; it buzzes the rocket 12-15 s into its flight (120-300 m up), passing 60-120 m from its body and never near its plume, then wheels round it as it climbs (its bearing from the pad sweeping >= 270 degrees over the rocket\'s 5-45 s), within 2.2 km of it', () => {
+  const r = ride('jet'), pad = rocketPad(legRoute('west-future')), g = ground(pad.x, pad.z), R = {};
   const legDefs = eventsFor('west-future', 'out').filter((e) => e.always);
   const defs = rideLegEvents(r, legDefs), rocket = defs.find((e) => e.id === 'rocket');
   // (a train's rocket is untouched: it lifts off as the train enters its window)
@@ -981,86 +970,143 @@ test('the rocket lifts off as the jet runs in, the pad ahead in its cockpit\'s v
   assert.equal(r.cues.rocket, ROCKET_CUE);
   assert.ok(Math.abs(rocket.s0 - rideLegS(r, ROCKET_CUE)) < 1e-9);
   const track = makeEventTrack(defs), dt = 1 / 60;
-  let st = { s: 0, t: 0 }, rk = null, sum = 0, last = null, near = 0, launched = null;
+  let st = { s: 0, t: 0 }, rk = null, sum = 0, last = null, near = 0, launched = null, pass = { d: Infinity }, plume = Infinity;
   while (!st.done) {
     st = rideStep(st, dt, r);
     const on = track.step({ legS: rideLegS(r, st.s), dt }).active.get('rocket') ?? null;
     rk = rocketStep(rk, { here: true, on: !!on, dt });
+    const p = r.path.at(st.s);
     if (rk.launch) {
       launched = st;
-      const p = r.path.at(st.s), off = Math.atan2(Math.sin(Math.atan2(pad.x - p.x, pad.z - p.z) - p.yaw), Math.cos(Math.atan2(pad.x - p.x, pad.z - p.z) - p.yaw));
-      assert.ok(Math.abs(off) <= Math.PI / 4, `the pad ${(off * 180 / Math.PI).toFixed(0)} degrees off the nose at lift-off`);
+      const off = Math.atan2(Math.sin(Math.atan2(pad.x - p.x, pad.z - p.z) - p.yaw), Math.cos(Math.atan2(pad.x - p.x, pad.z - p.z) - p.yaw));
+      assert.ok(Math.abs(off) <= 10 * Math.PI / 180, `the pad ${(off * 180 / Math.PI).toFixed(0)} degrees off the nose at lift-off`);
       assert.ok(Math.abs(st.s - ROCKET_CUE) < 10, `lifting off at ride-s ${st.s.toFixed(0)}`);
     }
+    if (rk.t !== null && rk.t <= 60) {
+      // the rocket: its body from its engine (1.5 m over its pad's top, the pad on the ground) 40 m up its axis, pitched
+      // over east; its plume 30 m down from its engine, and its glow round that
+      rocketAt(rk.t, R);
+      const ex = pad.x + R.east, ey = g + 1.5 + R.up, ax = Math.sin(R.pitch), ay = Math.cos(R.pitch);
+      const toSeg = (x0, y0, x1, y1) => { const dx = x1 - x0, dy = y1 - y0, u = Math.max(0, Math.min(1, ((p.x - x0) * dx + (p.y - y0) * dy) / (dx * dx + dy * dy))); return Math.hypot(p.x - x0 - u * dx, p.y - y0 - u * dy, p.z - pad.z); };
+      const body = toSeg(ex, ey, ex + ax * 40, ey + ay * 40) - 1.85, fire = toSeg(ex, ey, ex - ax * 30, ey - ay * 30) - 3;
+      if (body < pass.d) pass = { d: body, t: rk.t, up: R.up, s: st.s };
+      plume = Math.min(plume, fire);
+    }
     if (rk.t !== null && rk.t >= 5 && rk.t <= 45) {
-      const p = r.path.at(st.s), b = Math.atan2(p.z - pad.z, p.x - pad.x);
+      const b = Math.atan2(p.z - pad.z, p.x - pad.x);
       if (last !== null) sum += Math.atan2(Math.sin(b - last), Math.cos(b - last));
       last = b;
       if (Math.hypot(p.x - pad.x, p.z - pad.z) <= 2200) near += dt;
     }
   }
   assert.ok(launched, 'the rocket never lifted off');
+  assert.ok(pass.t >= 12 && pass.t <= 15, `buzzing it ${pass.t.toFixed(1)} s into its flight`);
+  assert.ok(pass.up >= 120 && pass.up <= 300, `the rocket ${pass.up.toFixed(0)} m up as it's buzzed`);
+  assert.ok(pass.d >= 60 && pass.d <= 120, `passing ${pass.d.toFixed(0)} m from its body`);
+  assert.ok(Math.abs(pass.s - BUZZ.s) < 60, `the buzz at ride-s ${pass.s.toFixed(0)}, not BUZZ.s`);
+  assert.ok(plume >= 60, `${plume.toFixed(0)} m from its plume`);
   assert.ok(Math.abs(sum) * 180 / Math.PI >= 270, `its bearing swept ${(Math.abs(sum) * 180 / Math.PI).toFixed(0)} degrees`);
   assert.ok(near >= 25, `only ${near.toFixed(0)} s within 2.2 km of the pad as it climbed`);
-  // the rocket up and climbing over it: some hundreds of metres up by the time the jet's round the far side
-  assert.ok(rocketAt(20).up >= 300);
 });
 
-test('the UFO paces the jet after the rocket pass, never within 20 m of it (rim to hull), well over the land, and shoots away up into the sky', () => {
+test('the UFO paces the starfighter after it has wheeled round the rocket, never within 20 m of it (rim to hull), well over the land', () => {
   const r = ride('jet'), pad = rocketPad(legRoute('west-future')), o = {}, w = {};
   const ev = r.events.find((e) => e.id === 'ufo');
   assert.ok(ev && ev.actor === 'ufo' && ev.s0 === UFO.s0 && ev.s1 === UFO.s1);
   assert.equal(ev.shot.kind, 'heli');
-  assert.ok(ev.shot.lateral > 0, 'the heli on the jet\'s left, the saucer beyond it on its right');
-  // after the jet has passed round the far side of the pad (bearing 180 degrees, west of it)
+  assert.ok(ev.shot.lateral > 0, 'the heli on the starfighter\'s left, the saucer beyond it on its right');
   const at0 = r.path.at(UFO.s0), b0 = (Math.atan2(at0.z - pad.z, at0.x - pad.x) * 180 / Math.PI + 360) % 360;
-  assert.ok(b0 > 180, `the UFO comes at bearing ${b0.toFixed(0)}`);
+  assert.ok(UFO.s0 > BUZZ.s + 1500 && b0 > 180, `the UFO comes at bearing ${b0.toFixed(0)}`);
   let st = { s: 0, t: 0 };
-  while (st.s < UFO.s1 - UFO.arrive) { st = rideStep(st, 1 / 60, r); if (st.s >= UFO.s0) assert.ok(Math.abs(st.v - r.profile.v) < 1e-6, 'the UFO comes while the jet cruises'); }
-  for (let s = UFO.s0 - 50; s <= UFO.s1 + 50; s += 1) {
+  while (st.s < STRIKE.hit) { st = rideStep(st, 1 / 60, r); if (st.s >= UFO.s0) assert.ok(Math.abs(st.v - r.profile.v) < 1e-6, 'the UFO comes while it cruises'); }
+  for (let s = UFO.s0 - 50; s <= STRIKE.hit + 50; s += 1) {
     ufoOffset(s, o);
-    assert.equal(o.visible, s >= UFO.s0 && s <= UFO.s1);
+    assert.equal(o.visible, s >= UFO.s0 && s < STRIKE.hit);
     if (!o.visible) continue;
     placeOnPath(r, s, o, w);
     const jet = r.path.at(s);
-    assert.ok(fromHull(jet, w.x, w.y, w.z) - UFO.radius >= 20, `the UFO ${(fromHull(jet, w.x, w.y, w.z) - UFO.radius).toFixed(1)} m from the jet at ${s}`);
+    assert.ok(fromHull(jet, w.x, w.y, w.z) - UFO.radius >= 20, `the UFO ${(fromHull(jet, w.x, w.y, w.z) - UFO.radius).toFixed(1)} m from it at ${s}`);
     assert.ok(w.y - ground(w.x, w.z) >= 40, `the UFO ${(w.y - ground(w.x, w.z)).toFixed(0)} m over the land at ${s}`);
-    // pacing it from alongside its wing to some 100 m ahead, on its right (between it and the rocket), level with it or
-    // a little over
-    if (s >= UFO.s0 + UFO.arrive && s <= UFO.leave[0]) assert.ok(o.along >= 0 && o.along <= 115 && o.side <= -40 && o.side >= -65 && o.up >= 8 && o.up <= 25);
+    if (s >= UFO.s0 + UFO.arrive && s <= STRIKE.pull[0]) assert.ok(o.along >= 0 && o.along <= 115 && o.side <= -40 && o.side >= -65 && o.up >= 8 && o.up <= 25);
   }
-  // gone up into the sky ahead, far off, as it leaves
-  ufoOffset(UFO.s1, o);
-  assert.ok(o.up >= 1000 && o.along >= 1500, 'it does not shoot away into the sky');
 });
 
-test('the UFO\'s laser bolts always miss: each one, all along its streak and all its flight, 15 m and more from the jet (but within 40 m: near misses), and well over the land', () => {
-  const r = ride('jet'), b = boltAt(BOLTS[0], 0, 1), w = {}, q = {}, v = r.profile.v;
-  assert.ok(BOLTS.length >= 8);
-  for (const bolt of BOLTS) {
-    assert.ok(bolt.s >= UFO.s0 + UFO.arrive && bolt.s + (BOLT.reach / BOLT.speed) * v <= UFO.leave[0], 'a bolt fired before the UFO is alongside, or after it has gone');
+test('the UFO\'s laser bolts always miss, close: each one, all along its streak and all its flight, 3-6 m from the starfighter itself (its body and foils), never touching it, and well over the land', () => {
+  const r = ride('jet'), B = bolts(), b = boltAt(B[0], 0, 1), w = {}, q = {}, v = r.profile.v;
+  assert.ok(B.length >= 8);
+  for (const bolt of B) {
+    assert.ok(bolt.s >= UFO.s0 + UFO.arrive && bolt.s + (BOLT.reach / BOLT.speed) * v <= STRIKE.pull[0], 'a bolt fired before the UFO is alongside, or after it pulls out');
     let nearest = Infinity;
-    for (let s = bolt.s; s <= bolt.s + (BOLT.reach / BOLT.speed) * v + 1; s += 0.5) {
+    for (let s = bolt.s; s <= bolt.s + (BOLT.reach / BOLT.speed) * v + 1; s += 0.25) {
       boltAt(bolt, s, v, b);
       if (!b.alive) continue;
       const jet = r.path.at(s);
-      // along its streak, every metre from its tail to its head
-      const n = Math.ceil(Math.hypot(b.head.along - b.tail.along, b.head.side - b.tail.side, b.head.up - b.tail.up));
+      const n = Math.ceil(Math.hypot(b.head.along - b.tail.along, b.head.side - b.tail.side, b.head.up - b.tail.up) / 0.5);
       for (let k = 0; k <= n; k++) {
         const f = n ? k / n : 0;
         q.along = b.tail.along + (b.head.along - b.tail.along) * f; q.side = b.tail.side + (b.head.side - b.tail.side) * f; q.up = b.tail.up + (b.head.up - b.tail.up) * f;
         placeOnPath(r, s, q, w);
-        const d = fromHull(jet, w.x, w.y, w.z);
-        nearest = Math.min(nearest, d);
+        nearest = Math.min(nearest, fromCraft(jet, w.x, w.y, w.z));
         assert.ok(w.y - ground(w.x, w.z) >= 15, `a bolt ${(w.y - ground(w.x, w.z)).toFixed(0)} m over the land`);
       }
     }
-    assert.ok(nearest >= 15, `a bolt (fired at ${bolt.s}) came ${nearest.toFixed(1)} m from the jet`);
-    assert.ok(nearest <= 40, `a bolt (fired at ${bolt.s}) passed ${nearest.toFixed(1)} m off: hardly near`);
+    assert.ok(nearest >= 3 && nearest <= 6, `a bolt (fired at ${bolt.s}) came ${nearest.toFixed(2)} m from the starfighter`);
   }
+  // its shape: about the size of the model (7 m long, 6.4 m across its foils, its body 1.9 m across)
+  assert.equal(craftDistance(0, 0, 0), 0);
+  assert.ok(craftDistance(3.5, 0, -1) < 0.5 && craftDistance(0, 0, 3.6) < 0.5 && craftDistance(0, 0, -3.6) < 0.5);
+  assert.ok(craftDistance(0, 2, 2.5) > 0.5 && craftDistance(5, 0, -1) > 1);
 });
 
-test('the jet\'s showpieces: the lift-off from behind as it runs in, the pad ahead; round the rocket, wide from out past the circle (on the jet\'s left as it turns right round the pad), within the circle', () => {
+test('the strike: the starfighter swings onto the saucer, its heading at the launch on it within 3 degrees; its missile drops clear of it and flies into the saucer (within its radius at the hit); the blast\'s fireball, ring and every piece keep 25 m from it, and are all over before it comes down to land', () => {
+  const r = ride('jet'), a = {}, m = { visible: false }, w = {}, u = {}, v = r.profile.v, o = blastOrigin(r), D = {}, F = {}, RG = {};
+  // its heading at the launch: its path's, turned by aimAt
+  aimAt(STRIKE.launch, a);
+  const p = r.path.at(STRIKE.launch), yaw = p.yaw + a.yaw, pitch = p.pitch + a.pitch;
+  ufoOffset(STRIKE.launch, u); placeOnPath(r, STRIKE.launch, u, w);
+  const dx = w.x - p.x, dy = w.y - p.y, dz = w.z - p.z, n = Math.hypot(dx, dy, dz);
+  const cos = (Math.sin(yaw) * Math.cos(pitch) * dx + Math.sin(pitch) * dy + Math.cos(yaw) * Math.cos(pitch) * dz) / n;
+  assert.ok(Math.acos(Math.min(1, cos)) * 180 / Math.PI <= 3, `pointing ${(Math.acos(cos) * 180 / Math.PI).toFixed(1)} degrees off the saucer`);
+  assert.ok(Math.abs(a.yaw) >= 10 * Math.PI / 180, 'hardly a swing');
+  // the missile: under it at the launch, falling clear, lit, and at the saucer at the hit
+  missileAt(STRIKE.launch - 1, v, m); assert.ok(!m.visible);
+  missileAt(STRIKE.launch, v, m); assert.ok(m.visible && !m.lit && m.up < -1);
+  for (let s = STRIKE.launch; s < STRIKE.hit; s += 1) {
+    missileAt(s, v, m);
+    const c = r.path.at(s); placeOnPath(r, s, m, w);
+    if (s > STRIKE.launch + STRIKE.drop) assert.ok(m.lit);
+    // (never into the craft: clear of its body as it falls away)
+    assert.ok(fromCraft(c, w.x, w.y, w.z) >= 0.3, `the missile ${fromCraft(c, w.x, w.y, w.z).toFixed(2)} m from it at ${s}`);
+  }
+  missileAt(STRIKE.hit - 0.5, v, m); placeOnPath(r, STRIKE.hit - 0.5, m, w);
+  ufoOffset(STRIKE.hit - 0.5, u); const uw = placeOnPath(r, STRIKE.hit - 0.5, u, {});
+  assert.ok(Math.hypot(w.x - uw.x, w.y - uw.y, w.z - uw.z) <= UFO.radius, 'the missile misses');
+  missileAt(STRIKE.hit, v, m); assert.ok(!m.visible);
+  // the blast: from the hit to its end, nothing of it within 25 m of the craft, nothing under the land, and over before
+  // it comes down (from 2.5 km out) to land
+  const end = STRIKE.hit + BLAST.life * v;
+  assert.ok(end <= r.path.length - 1400, 'the blast not over before its landing');
+  for (let s = STRIKE.hit; s <= end; s += 2) {
+    const t = blastTime(r, s), c = r.path.at(s);
+    for (let i = 0; i < DEBRIS.count; i++) {
+      debrisAt(o, v, i, t, D);
+      if (D.scale <= 0) continue;
+      // (a piece reaches 8 m from its middle at most, its rest place in the saucer 8 m from the saucer's middle)
+      assert.ok(fromHull(c, D.x, D.y, D.z) - 16 >= 25, `piece ${i} ${(fromHull(c, D.x, D.y, D.z) - 16).toFixed(0)} m from it at ${s}`);
+      assert.ok(D.y - ground(D.x, D.z) >= 0, `piece ${i} under the land at ${s}`);
+    }
+    fireballAt(o, v, t, F);
+    if (F.a > 0) assert.ok(fromHull(c, F.x, F.y, F.z) - F.r * 1.3 >= 25, `the fireball ${(fromHull(c, F.x, F.y, F.z) - F.r * 1.3).toFixed(0)} m from it at ${s}`);
+    ringAt(t, RG);
+    if (RG.a > 0) assert.ok(fromHull(c, o.x, o.y, o.z) - RG.r >= 25, 'the shock ring sweeps it');
+  }
+  debrisAt(o, v, 0, BLAST.life, D); assert.equal(D.scale, 0);
+  // its chase shot over the strike
+  const ev = r.events.find((e) => e.id === 'strike');
+  assert.ok(ev && ev.shot.kind === 'chase' && !ev.actor && ev.s0 <= STRIKE.turn[0] && ev.s1 >= STRIKE.hit);
+});
+
+test('the starfighter\'s showpieces: the lift-off from behind as it runs in; its buzz from outside (an event\'s wide shot at the pass, from its other side); swinging out to wheel round the rocket, wide from its side away from the pad', () => {
   const r = ride('jet'), pad = rocketPad(legRoute('west-future'));
   assert.deepEqual(r.showpieces, JET_SHOTS);
   const launch = r.showpieces.find((p) => p.id === 'rocket-launch');
@@ -1068,18 +1114,20 @@ test('the jet\'s showpieces: the lift-off from behind as it runs in, the pad ahe
   assert.ok(launch.s0 <= ROCKET_CUE && launch.s1 > ROCKET_CUE + 5 * r.profile.v, 'the chase not over the lift-off');
   for (let s = ROCKET_CUE; s <= launch.s1; s += 50) {
     const p = r.path.at(s), off = Math.atan2(Math.sin(Math.atan2(pad.x - p.x, pad.z - p.z) - p.yaw), Math.cos(Math.atan2(pad.x - p.x, pad.z - p.z) - p.yaw));
-    assert.ok(Math.abs(off) <= 45 * Math.PI / 180, `the pad ${(off * 180 / Math.PI).toFixed(0)} degrees off its nose at ${s}: out of the chase`);
+    assert.ok(Math.abs(off) <= 30 * Math.PI / 180, `the pad ${(off * 180 / Math.PI).toFixed(0)} degrees off its nose at ${s}: out of the chase`);
   }
+  const buzz = r.events.find((e) => e.id === 'rocket-pass');
+  assert.ok(buzz && !buzz.actor && buzz.shot.kind === 'wide' && buzz.shot.at === BUZZ.s && buzz.shot.lateral > 0, 'the buzz from the side away from the rocket');
+  assert.ok(buzz.s0 < BUZZ.s && buzz.s1 > BUZZ.s);
   const wide = r.showpieces.find((p) => p.id === 'rocket-circle');
   assert.equal(wide.shot.kind, 'wide');
-  assert.ok(wide.shot.lateral >= 200, 'out past the jet, the pad beyond it');
+  assert.ok(wide.shot.lateral >= 200, 'out past it, the pad beyond it');
   for (let s = wide.s0; s <= wide.s1; s += 50) {
     const p = r.path.at(s), d = Math.hypot(p.x - pad.x, p.z - pad.z), cam = r.path.offsetAt(s, wide.shot.lateral);
-    assert.ok(d <= 2200, `the jet ${d.toFixed(0)} m from the pad in its window at ${s}`);
-    assert.ok(Math.hypot(cam.x - pad.x, cam.z - pad.z) > d + wide.shot.lateral * 0.8, 'the camera is not out past the jet from the pad');
+    assert.ok(d <= 2200, `${d.toFixed(0)} m from the pad in its window at ${s}`);
+    assert.ok(Math.hypot(cam.x - pad.x, cam.z - pad.z) > d + 40, 'the camera is not on its side away from the pad');
   }
-  // its window long enough for the director to pick at the jet's speed (3 s left of it at the least), and before the UFO's
-  assert.ok(wide.s1 - wide.s0 >= 10 * r.profile.v && wide.s1 <= UFO.s0 && launch.s1 < wide.s0);
+  assert.ok(wide.s1 - wide.s0 >= 5 * r.profile.v && wide.s1 <= UFO.s0 && wide.s0 > BUZZ.s + 500);
 });
 
 test('the land while riding: a slow ride\'s as a train\'s; the jet\'s asked for ahead of it, coarse all round first, mid below it, its landing within the mid some seconds before it gets there', () => {

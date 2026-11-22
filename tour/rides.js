@@ -1,5 +1,6 @@
 // The rides: a second way along each leg, onward, each vehicle riding a path of its own (a speedboat along the coast, a
-// hot-air balloon over the forest, a stagecoach over the hills, a jet round the rocket pad, a flying car into the City).
+// hot-air balloon over the forest, a stagecoach over the hills, a starfighter round the rocket pad, a flying car into
+// the City).
 // Pure data and maths, no three.js. Each ride's path is a makeRoute curve in the world's metres, built from the world's
 // data where it gives the way (the stations, the coast, the leg's line and sections, the rocket's pad); a vehicle rides
 // it on its own, at a speed that eases out of the start, cruises and eases into the landing, in about 90 s. Its progress
@@ -10,7 +11,7 @@ import { makeRoute } from './route.js';
 import { PLACES, LEGS, COAST, SEA_LEVEL, FEATURES, legRoute, laneOf, legSections, worldTerrain, stationSpot, coachRoad, drawnGround } from './world-data.js';
 import { rocketPad } from './actors/paths.js';
 import { GANG, GANG_SHOTS } from './rides/coach-plan.js';
-import { ROCKET_CUE, UFO } from './rides/jet-plan.js';
+import { ROCKET_CUE, BUZZ, UFO, STRIKE } from './rides/jet-plan.js';
 
 export const RIDE_LEGS = ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future', 'future-city'];
 export const RIDE_DT = 0.1;   // the most a ride moves on in one frame (a long frame or a hidden tab)
@@ -166,63 +167,78 @@ function coach() {
   };
 }
 
-export const JET = { radius: 1500, cruise: 80, rest: 1.5 };
-// The jet (west-future): a short take-off from a hardstanding beside the Wild West's departure platform, rolling
-// west-north-west beside the line, then out low across the desert (80 m over the highest land within 300 m), round the
-// far side of the rocket's pad (Task 6's launch, where it stands, 5.5 km off the line) on a circle JET.radius about it,
-// and back east to land on an apron beside the Futuristic place's arrival platform, on its far side: coming from the
-// west, its own side, the town's, would mean flying over the place and turning back (3 km more, too far for 90 s).
-// Its hardstanding is 35 m in from the platform's open end, not by it (owner's ruling, 2026-11-22): the Wild West's
-// town is by the buffer end, and over the last 33 m to the open end the walk is the platform alone, so this is the
-// nearest the walk comes off the platform to the open end. 17 m out, so its wings clear the platform as it rolls.
-// Its hardstanding and apron are level pads in the land (world-data.js JET_PADS), and it rolls on them (JET.rest over
-// them), lifting off 50 m past the platform's end; it lands 45 m out from the Futuristic line, clear of the foot of the
-// station's embankment (nearer, its wing swept over the bank), and rolls to a stop there. (`rolls`: the stretches of its
-// path on its wheels.) The rocket lifts off as it runs in (rides/jet-plan.js ROCKET_CUE: `cues`, the leg's events it
-// triggers), the UFO paces it after it's been round the rocket (UFO), and the director has the jet round the rocket from
-// out past it, the rocket beyond it, and the UFO alongside from its other side
+export const JET = { radius: 1800, cruise: 80, rest: 1.0, pass: 90, pastPad: 500 };
+// The starfighter (west-future; ride id 'jet'): Polyfork's agile starfighter (7 m, its X-foils 6.4 m across), from a
+// pad beside the Wild West's departure platform, out low across the desert (80 m over the highest land within 300 m),
+// buzzing the rocket as it climbs off its pad (Task 6's launch, where it stands, 5.5 km off the line), wheeling round
+// the pad on a circle JET.radius about it as the rocket climbs away, and back east to set down on an apron beside the
+// Futuristic place's arrival platform, on its far side: coming from the west, its own side, the town's, would mean
+// flying over the place and turning back (3 km more, too far for 90 s).
+// Its pad is 35 m in from the platform's open end, not by it (owner's ruling, 2026-11-22): the Wild West's town is by
+// the buffer end, and over the last 33 m to the open end the walk is the platform alone, so this is the nearest the walk
+// comes off the platform to the open end; 17 m out. It has no wheels: it lifts off in a short low hover (straight up a
+// few metres, nose a little up, its nozzles turned down, rides/jet-plan.js) and away, and sets down the same way on its
+// apron, 45 m out from the Futuristic line, clear of the foot of the station's embankment. Its pad and apron are level
+// pads in the land (world-data.js JET_PADS), the path JET.rest over them where it stands.
+// The buzz: the rocket lifts off as it runs in (rides/jet-plan.js ROCKET_CUE: `cues`, the leg's events it triggers),
+// timed so it passes the rocket JET.pass metres to the side (the pad on its right) some 13.5 s into the rocket's
+// flight, as high as the rocket's middle then (rides/jet-plan.js BUZZ), climbing to it from its cruise and back down
+// after; then on JET.pastPad metres and round the far side of the pad as the rocket climbs away. The UFO paces it once
+// it's been round (UFO), and the director has the lift-off from behind, the buzz from outside, the wheel round the pad
+// and the UFO alongside
 function jet() {
   const at = stationSpot('west', 'departure'), to = stationSpot('future', 'arrival');
-  const pad = rocketPad(legRoute('west-future')), R = JET.radius;
-  // the hardstanding and runway, on the pad beside the line (a point every 5 m, so the path lies on it); then rotating
-  // and climbing away over the wash
-  const runway = [];
-  for (let inn = 35; inn >= -50; inn -= 5) runway.push(onGround(at(inn, 17), JET.rest));
-  const liftoff = runway[runway.length - 1];
-  const climb = { ...at(-130, 19), y: liftoff.y + 6 };
-  // out to the circle's near side and round the far side of the pad (bearings 90 to 270 degrees, through 180: west)
+  const pad = rocketPad(legRoute('west-future')), R = JET.radius, REST = JET.rest;
+  // on its pad; a short hover straight up, nose to its way; away low over the wash, and climbing out
+  const board = onGround(at(35, 17), REST);
+  const lift = [[34.6, 2.5], [33.5, 5], [30, 8], [20, 12], [0, 18]].map(([inn, up]) => ({ ...at(inn, 17), y: board.y + up }));
+  const climb = { ...at(-160, 19), y: board.y + 40 };
+  // the buzz: along a line JET.pass to the side of the pad, at the height of the rocket's middle as it passes
+  const buzzY = ground(pad.x, pad.z) + BUZZ.at;
+  const line = (dx, y) => ({ x: pad.x + dx, z: pad.z + JET.pass, y });
+  const runIn = [], E = line(3200, 0);
+  for (const f of [0.15, 0.35, 0.55, 0.75, 0.92]) {
+    const x = climb.x + (E.x - climb.x) * f, z = climb.z + (E.z - climb.z) * f;
+    runIn.push({ x, z, y: over(x, z, 300, JET.cruise) });
+  }
+  const cruiseY = over(E.x, E.z, 300, JET.cruise), up = (k) => cruiseY + (buzzY - cruiseY) * k;
+  const buzz = [line(3200, cruiseY), line(2100, up(0.45)), line(1100, up(0.85)), line(450, buzzY), line(0, buzzY),
+    line(-JET.pastPad, buzzY - 25)];
+  // round the far side of the pad (bearings 185 to 285 degrees, through 270: north) back down to its cruise
   const circle = [];
-  for (let deg = 90; deg <= 270; deg += 30) {
+  for (let deg = 185; deg <= 285; deg += 20) {
     const a = deg * Math.PI / 180, x = pad.x + R * Math.cos(a), z = pad.z + R * Math.sin(a);
-    circle.push({ x, z, y: over(x, z, 300, JET.cruise) });
+    circle.push({ x, z, y: Math.max(over(x, z, 300, JET.cruise), deg < 215 ? buzzY - 80 : 0) });
   }
-  const last = climb, first = circle[0], out = [];
-  for (const f of [0.15, 0.4, 0.65, 0.85]) {
-    const x = last.x + (first.x - last.x) * f, z = last.z + (first.z - last.z) * f;
-    out.push({ x, z, y: over(x, z, 300, JET.cruise) });
-  }
-  // the landing: down a 3.5-degree glide onto the apron, touching down 110 m short of where it stops, at some 220 km/h
-  const TOUCH = 150, OUT = -45;
-  const level = ground(to(95, OUT).x, to(95, OUT).z) + JET.rest;
-  const glide = (inn) => ({ ...to(inn, OUT), y: level + Math.max(0, inn - TOUCH) * Math.tan(3.5 * Math.PI / 180) });
-  // (close at the touchdown, so no dip; on the apron a point every 10 m, so the roll lies on it)
-  const home = [1700, 900, 450, 260, 200, TOUCH, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50].map(glide), land = glide(40);
+  // the landing: down a 3.5-degree glide to a hover 5 m over the apron 20 m short of where it sets down, then down
+  const OUT = -45, level = ground(to(60, OUT).x, to(60, OUT).z) + REST;
+  const glide = (inn) => ({ ...to(inn, OUT), y: level + 5 + Math.max(0, inn - 60) * Math.tan(3.5 * Math.PI / 180) });
+  const home = [1700, 900, 450, 260, 160, 100, 60].map(glide);
+  const settle = [[48, 4], [42.5, 2], [40.6, 0.7]].map(([inn, h]) => ({ ...to(inn, OUT), y: level + h }));
+  const land = { ...to(40, OUT), y: level };
   const back = circle[circle.length - 1], mid = { x: (back.x + home[0].x) / 2, z: (back.z + home[0].z) / 2 };
   const inbound = { ...mid, y: over(mid.x, mid.z, 300, JET.cruise) };
   const step = onGround(to(40, 20));   // on the town-side approach, across the tracks from the apron
-  return { pts: [...runway, climb, ...out, ...circle, inbound, ...home, land], step: { ...step, yaw: townward('future', 'arrival')(step.yaw) },
-    ease: [16, 16], rest: JET.rest, rolls: [[null, liftoff], [glide(TOUCH), null]],
+  const pts = [board, ...lift, climb, ...runIn, ...buzz, ...circle, inbound, ...home, ...settle, land];
+  return { pts, step: { ...step, yaw: townward('future', 'arrival')(step.yaw) },
+    ease: [16, 16], rest: REST, rolls: [],
     cues: { rocket: ROCKET_CUE },
-    events: [{ id: 'ufo', s0: UFO.s0, s1: UFO.s1, actor: 'ufo', shot: { kind: 'heli', lateral: 45, height: 6, fov: 50 } }],
+    events: [
+      { id: 'rocket-pass', s0: BUZZ.s - 1300, s1: BUZZ.s + 150, shot: { kind: 'wide', at: BUZZ.s, lateral: 160, fov: 50 } },
+      { id: 'ufo', s0: UFO.s0, s1: UFO.s1, actor: 'ufo', shot: { kind: 'heli', lateral: 40, height: 5, fov: 50 } },
+      { id: 'strike', s0: STRIKE.turn[0], s1: STRIKE.hit + 400, shot: { kind: 'chase', height: 6, fov: 55 } },
+    ],
     showpieces: JET_SHOTS };
 }
-// the director's: the lift-off from behind the jet as it runs in (a chase: the pad ahead on its right); round the rocket,
-// a wide shot from out past the circle (on the jet's left: it turns right round the pad), standing where the jet will
-// be half way through it, the jet crossing in front of the pad with the rocket climbing beyond (a wide lens, so the
-// rocket's in it as it climbs); the UFO alongside is its event's heli, from the jet's left, the saucer beyond it
+// the director's: the lift-off from behind as it runs in (a chase: the rocket's pad straight ahead); the buzz, from out
+// past the craft on its other side as it passes the rocket (an event's wide shot, held till it's by: the rocket beyond
+// it); swinging out to wheel round the pad, a wide shot from its side away from the pad (its left: it turns right round
+// the pad), the rocket climbing away beyond it; the UFO alongside, its event's heli from its other side, the saucer beyond it; and the
+// strike, a chase from behind as it swings onto the saucer, fires and blows it up ahead of it (a heli or a wide shot
+// would have the blast behind the camera or the craft long gone by it)
 export const JET_SHOTS = [
-  { id: 'rocket-launch', s0: 4100, s1: 5600, shot: { kind: 'chase' } },
-  { id: 'rocket-circle', s0: 6800, s1: 10200, shot: { kind: 'wide', lateral: 200, fov: 55 } },
+  { id: 'rocket-launch', s0: 4200, s1: 6000, shot: { kind: 'chase' } },
+  { id: 'rocket-circle', s0: 7850, s1: 9000, shot: { kind: 'wide', lateral: 200, fov: 55 } },
 ];
 
 // The flying car (future-city): up from a pad beside the Futuristic place's departure platform, 55 m over the highest
@@ -602,7 +618,7 @@ const BUILD = {
   'city-ocean': { id: 'boat', name: 'speedboat', make: boat },
   'ocean-mountain': { id: 'balloon', name: 'hot-air balloon', make: balloon },
   'mountain-west': { id: 'coach', name: 'stagecoach', make: coach },
-  'west-future': { id: 'jet', name: 'jet', make: jet },
+  'west-future': { id: 'jet', name: 'starfighter', make: jet },
   'future-city': { id: 'car', name: 'flying car', make: car },
 };
 
@@ -680,6 +696,20 @@ export function rideLegEvents(ride, defs) {
 export function rideLegS(ride, s) {
   const T = ride.legS, f = Math.min(T.length - 1, Math.max(0, s)), i = Math.min(T.length - 2, Math.floor(f));
   return T[i] + (T[i + 1] - T[i]) * (f - i);
+}
+
+// ---- low flight ----
+// where the starfighter flies within LOW_FLIGHT.up metres of the land (hovering up off its pad and climbing away, coming
+// down to its apron): its path's points every `step` metres there, { x, z }. Nothing of the scenery may stand within its
+// half-span (`reach`) of these (scenery.js), so its foils never sweep a tree's crown
+export const LOW_FLIGHT = { up: 30, reach: 3.3 };
+export function lowFlight(ride, step = 3) {
+  const out = [], p = {};
+  for (let s = 0; s <= ride.path.length; s += step) {
+    ride.path.at(Math.min(s, ride.path.length), p);
+    if (p.y - ground(p.x, p.z) < LOW_FLIGHT.up) out.push({ x: p.x, z: p.z });
+  }
+  return out;
 }
 
 // ---- the land while riding ----

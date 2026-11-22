@@ -10,6 +10,7 @@ import { EVENTS } from './events.js';
 import { ROAD } from './suburbs.js';
 import { coachRoad, BENCH } from './world-data.js';
 import { GANG } from './rides/coach-plan.js';
+import { rideFor, lowFlight, LOW_FLIGHT } from './rides.js';
 
 export const CLEAR_LINE = 12;     // nothing reaches nearer a line's centre than this: its swept path and its track bed
 export const MAX_SLOPE = 0.8;     // nor stands where the ground rises more than this (per metre) over 4 m on any side
@@ -22,6 +23,7 @@ const RIVER_ABOVE = 1.2;          // nor in a river: below its water (floor + 0.
 const CELL = 16;                  // one candidate spot in each 16 m square of a chunk (256 to a 256 m chunk)
 const NEAR_LINE = 80;             // out to here beside a line, a spot is never left too sparse (no bare stretches)
 const CLEAR_ROAD = BENCH.half + 3; // nor this near the stagecoach's road (its bench, and the foot of its cut and fill)
+const CLEAR_LOW = 2;              // nor this far out past the starfighter's foils where it flies low
 
 // The parts, measured in the page with these knobs (metres): r how far the part reaches from its origin (clear of the
 // line by CLEAR_LINE + r), base how far out its foot touches the ground (it stands at the lowest ground round that),
@@ -132,7 +134,21 @@ function theWorld() {
   }));
   // where a spot is by the stagecoach's road (world-data.js coachRoad), and so by the gang's lanes beside it
   const nearRoad = coachRoad().near;
-  world = { near, toPlace, extras, portals, pads, waters, roads, nearRoad };
+  // where the starfighter flies low (rides.js lowFlight), on a 32 m grid
+  const low = new Map();
+  for (const q of lowFlight(rideFor('west-future'))) {
+    const k = key(Math.floor(q.x / 32), Math.floor(q.z / 32));
+    if (!low.has(k)) low.set(k, []);
+    low.get(k).push(q);
+  }
+  const nearLow = (x, z, reach) => {
+    const r = Math.ceil(reach / 32), ci = Math.floor(x / 32), cj = Math.floor(z / 32);
+    for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
+      for (const q of low.get(key(i, j)) ?? []) if (Math.hypot(x - q.x, z - q.z) < reach) return true;
+    }
+    return false;
+  };
+  world = { near, toPlace, extras, portals, pads, waters, roads, nearRoad, nearLow };
   return world;
 }
 
@@ -160,6 +176,9 @@ function clearOf(w, x, z, r) {
   if (n && n.d < CLEAR_ROAD + r) return false;
   const G = GANG.sweep;
   if (n && n.s > G.a0 && n.s < G.a1 && n.left > -r && n.left < G.out + r) return false;
+  // nor under the starfighter's low flight, out to its half-span and a little more (owner's review: an oak's crown stood
+  // over its wing on short final)
+  if (w.nearLow(x, z, LOW_FLIGHT.reach + CLEAR_LOW + r)) return false;
   for (const q of w.roads) {
     const along = (x - q.x) * q.fx + (z - q.z) * q.fz, across = (x - q.x) * q.fz - (z - q.z) * q.fx;
     if (Math.abs(along) < ROAD.width / 2 + r && Math.abs(across) <= ROAD.length + r) return false;
