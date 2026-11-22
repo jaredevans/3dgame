@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { makeJourney } from '../journey.js';
 import { LEGS, PLACES, BUFFER_GAP, STOP_SHORT, legRoute, laneOf } from '../world-data.js';
 import { ringPosition } from '../sky.js';
+import { rideFor, rideLegS } from '../rides.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 const j = makeJourney({ legs: LEGS, places: PLACES });
@@ -145,4 +146,32 @@ test('the platform window a train is in, whatever its speed', () => {
   assert.equal(j.windowAt(run, run.route.length / 2), null);
   const back = j.runRoute('ocean-mountain', 'back');
   assert.equal(j.windowAt(back, back.stopS), 'ocean');
+});
+
+test('ride: only from on foot at the leg\'s first place, on its departure leg', () => {
+  const foot = j.teleport(j.start('city-ocean', 'out'), 'ocean').state;
+  const r = j.ride(foot, 'ocean-mountain');
+  assert.deepEqual(r, { mode: 'ride', leg: 'ocean-mountain', dir: 'out', place: 'ocean' });
+  assert.throws(() => j.ride(foot, 'city-ocean'));        // the arrival leg: its place is the far end
+  assert.throws(() => j.ride(foot, 'mountain-west'));     // another place's leg
+  assert.throws(() => j.ride(j.start('ocean-mountain', 'out'), 'ocean-mountain'));  // driving
+});
+
+test('landed: on foot at the far place, with its two trains', () => {
+  const foot = j.teleport(j.start('city-ocean', 'out'), 'ocean').state;
+  const { state, trains } = j.landed(j.ride(foot, 'ocean-mountain'));
+  assert.deepEqual(state, { mode: 'foot', leg: 'ocean-mountain', dir: 'out', place: 'mountain' });
+  assert.deepEqual(trains, [
+    { leg: 'mountain-west', dir: 'out', station: 'departure', to: 'west' },
+    { leg: 'ocean-mountain', dir: 'back', station: 'arrival', to: 'ocean' },
+  ]);
+  assert.throws(() => j.landed(foot));
+});
+
+test('where while riding: the mapped leg-s and its fraction', () => {
+  const foot = j.teleport(j.start('city-ocean', 'out'), 'ocean').state;
+  const st = j.ride(foot, 'ocean-mountain'), ride = rideFor('ocean-mountain');
+  const L = legRoute('ocean-mountain').length, legS = rideLegS(ride, 100);
+  const w = j.where(st, null, legS);
+  assert.deepEqual(w, { leg: 'ocean-mountain', s: legS, back: false, fraction: legS / L });
 });

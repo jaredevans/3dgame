@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { wantedSet, neededToDrive } from '../streaming.js';
+import { wantedSet, neededToDrive, readyToRide, readyToLeave, WAIT_MAX } from '../streaming.js';
 
 const ring = {
   places: ['city', 'ocean', 'mountain', 'west', 'future'],
@@ -10,7 +10,7 @@ const ring = {
 const same = (set, list) => assert.deepEqual([...set].sort(), [...list].sort());
 
 test('at a place', () => {
-  same(wantedSet({ place: 'ocean' }, ring), ['ocean', 'city-ocean', 'ocean-mountain', 'city', 'mountain']);
+  same(wantedSet({ place: 'ocean' }, ring), ['ocean', 'city-ocean', 'ocean-mountain', 'city', 'mountain', 'ride:ocean-mountain']);
 });
 
 test('early on a leg', () => {
@@ -26,9 +26,9 @@ test('past halfway, still only the leg and its two places', () => {
 
 test('stopped at a platform, what you can take from that place too', () => {
   same(wantedSet({ leg: 'ocean-mountain', s: 1490, at: 'mountain' }, ring),
-    ['ocean-mountain', 'ocean', 'mountain', 'mountain-west', 'west']);
+    ['ocean-mountain', 'ocean', 'mountain', 'mountain-west', 'west', 'ride:mountain-west']);
   same(wantedSet({ leg: 'ocean-mountain', s: 10, back: true, at: 'ocean' }, ring),
-    ['ocean-mountain', 'ocean', 'mountain', 'city-ocean', 'city']);
+    ['ocean-mountain', 'ocean', 'mountain', 'city-ocean', 'city', 'ride:ocean-mountain']);
 });
 
 test('you can set off along a leg once its two places are in, and none of it is new by then', () => {
@@ -63,7 +63,7 @@ test('wraps round the ring', () => {
 
 test('a ring with only some legs built asks only for what exists', () => {
   const small = { places: ['city', 'ocean'], legs: ['city-ocean'], length: () => 1927 };
-  same(wantedSet({ place: 'city' }, small), ['city', 'city-ocean', 'ocean']);
+  same(wantedSet({ place: 'city' }, small), ['city', 'city-ocean', 'ocean', 'ride:city-ocean']);
   same(wantedSet({ leg: 'city-ocean', s: 1500 }, small), ['city-ocean', 'city', 'ocean']);
 });
 
@@ -97,4 +97,22 @@ test('a train may leave once what it needs is in, after a few seconds at most of
     'its own suburbs still coming in: waited on a while');
   assert.equal(readyToLeave('ocean-mountain', { has, busy: true, settled: () => false, waited: WAIT_MAX }), true,
     'but no longer than anything else');
+});
+
+test('riding wants the ride with what driving the leg wants', () => {
+  same(wantedSet({ leg: 'ocean-mountain', s: 100, ride: true }, ring), ['ocean-mountain', 'ocean', 'mountain', 'ride:ocean-mountain']);
+});
+
+test('readyToRide waits for the ride to be built', () => {
+  const built = new Set([...neededToDrive('ocean-mountain'), 'train:ocean-mountain']);
+  const opts = (extra = [], o = {}) => ({ has: (id) => built.has(id) || extra.includes(id), busy: false, ...o });
+  assert.equal(readyToLeave('ocean-mountain', opts()), true);
+  assert.equal(readyToRide('ocean-mountain', opts()), false);
+  assert.equal(readyToRide('ocean-mountain', opts(['ride:ocean-mountain'])), true);
+  // busy elsewhere: held until WAIT_MAX, as leaving by train is
+  const busy = opts(['ride:ocean-mountain'], { busy: true });
+  assert.equal(readyToRide('ocean-mountain', busy), false);
+  assert.equal(readyToRide('ocean-mountain', { ...busy, waited: WAIT_MAX }), true);
+  // the wait never lets a ride go without its ride built
+  assert.equal(readyToRide('ocean-mountain', { ...opts([], { busy: true }), waited: WAIT_MAX }), false);
 });

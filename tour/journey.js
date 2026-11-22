@@ -1,7 +1,8 @@
 // The journey: which leg you're on and which way, getting out at a place, and the two trains that wait there.
 // Pure, no three.js or DOM.
-// state = { mode: 'drive' | 'foot', leg, dir: 'out' | 'back', place }: place is where you are on foot, or the place
-// you're leaving; leg and dir are the run you're on (or last got out of).
+// state = { mode: 'drive' | 'foot' | 'ride', leg, dir: 'out' | 'back', place }: place is where you are on foot, or the
+// place you're leaving; leg and dir are the run you're on (or last got out of). A ride is the trip a leg's departure
+// place offers instead of its train: it always goes 'out', and sets you down on foot at the leg's far place.
 // A run is a train driving forwards along a route: 'out' along the leg from its first place to its second, 'back' on a
 // reversed view of it. Both run on the town-side line (lane laneOf(leg) on the leg, -laneOf(leg) on its reversed view).
 import { legRoute, laneOf, platformWindow, BUFFER_GAP } from './world-data.js';
@@ -85,6 +86,20 @@ export function makeJourney({ legs, places }) {
       if (!trainsAt(state, state.place).some((t) => t.leg === leg && t.dir === dir)) throw new Error(`no ${leg} ${dir} train waits at ${state.place}`);
       return { mode: 'drive', leg, dir, place: state.place };
     },
+    // from on foot at a place, take the ride on its departure leg (there is one ride per leg, leaving from its first place)
+    ride(state, leg) {
+      if (state.mode !== 'foot') throw new Error('not on foot');
+      if (!legs[leg] || legs[leg].from !== state.place || station(state.place, 'departure').leg !== leg) {
+        throw new Error(`no ride on ${leg} leaves from ${state.place}`);
+      }
+      return { mode: 'ride', leg, dir: 'out', place: state.place };
+    },
+    // the ride is over: you're on foot at the leg's far place, with its two trains to put at their stations as after a train
+    landed(state) {
+      if (state.mode !== 'ride') throw new Error('not riding');
+      const to = legs[state.leg].to, next = { mode: 'foot', leg: state.leg, dir: 'out', place: to };
+      return { state: next, trains: trainsAt(next, to) };
+    },
     // the place a stopped train lets you out at: the platform it's heading for, or the one it hasn't left yet
     stopAt(run, train) {
       if (canGetOut(train, run.destination.platform)) return run.to;
@@ -105,9 +120,11 @@ export function makeJourney({ legs, places }) {
     // the buffers at each end of a run, for a train `length` long driving its front along it
     limits: (run, length) => ({ sMin: length + BUFFER_GAP, sMax: run.route.length - BUFFER_GAP }),
     // where you are, for the streamer and the sky: { place } on foot; driving, the leg, s along it from its first
-    // place, whether you're heading back towards it, and the fraction of the leg from that first place
+    // place, whether you're heading back towards it, and the fraction of the leg from that first place.
+    // Riding there is no run: s is the leg's own s already (the caller maps the ride's s with rideLegS and passes run null)
     where(state, run, s) {
       if (state.mode === 'foot') return { place: state.place };
+      if (state.mode === 'ride') return { leg: state.leg, s, back: false, fraction: s / legRoute(state.leg).length };
       const L = run.route.length, legS = run.dir === 'back' ? L - s : s;
       return { leg: run.leg, s: legS, back: run.dir === 'back', fraction: legS / L };
     },
