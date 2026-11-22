@@ -34,7 +34,15 @@ export function makeModules(importer) {
 const modules = makeModules((href) => import(href));
 const absolute = (url) => new URL(url, location.href).href;
 
-export function kitModule(kitId, file) { return modules.load(absolute(kitUrl(kitId, file))); }
+// (a file the kit doesn't have on the CDN is a failed load, like any other)
+export function kitModule(kitId, file) {
+  let url;
+  try { url = absolute(kitUrl(kitId, file)); } catch (err) { return Promise.reject(err); }
+  return modules.load(url);
+}
+// a module at a URL of its own, loaded once (kits built from the CDN: places.js), and the URL to import it by now
+export const urlModule = (url) => modules.load(url);
+export const urlModuleHref = (url) => modules.href(url);
 // the URL a kit's module is to be imported by now (see makeModules)
 export const kitModuleHref = (kitId, file) => modules.href(absolute(kitUrl(kitId, file)));
 // give up on the imports still pending: the next load of each fetches afresh

@@ -1,7 +1,7 @@
 // A place: its kit built with buildKit(), put where world-data says, with walking and ground queries in world space.
 import * as THREE from 'three';
-import { kitModule, kitModuleHref, part } from './parts.js';
-import { kitUrl, KIT_BASE } from './config.js';
+import { kitModule, kitModuleHref, urlModule, urlModuleHref, part } from './parts.js';
+import { kitUrl, KIT_BASE, KIT_CDN } from './config.js';
 import { PLACES, EXTRA_REACH } from './world-data.js';
 import { landSampler, LAND_MIN } from './land.js';
 import { groundIndex } from './kit-ground.js';
@@ -38,6 +38,7 @@ function kitGround(kitPlace) {
 // goes on without a missing part).
 export async function fetchPlace(id, { onProgress = () => {} } = {}) {
   const def = PLACES[id];
+  if (KIT_CDN) return fetchCdnPlace(def, onProgress);
   const get = (file) => kitModule(def.kit, file).then(onProgress, onProgress);
   const helpers = ['kit.mjs', '_internal/merge.mjs', '_internal/stage.mjs', '_internal/clips.mjs', ...(def.build?.city ? ['_internal/city.mjs'] : [])];
   const res = await fetch(new URL(kitUrl(def.kit, 'LAYOUT.json'), location.href).href).catch(() => null);
@@ -48,15 +49,40 @@ export async function fetchPlace(id, { onProgress = () => {} } = {}) {
   await Promise.all([...helpers, ...ground, ...[...parts].map((k) => `${k}.mjs`)].map(get));
 }
 
+// The same, for a kit built from the account CDN (config.js KIT_CDN): its layout there (each part's id and its ground's
+// module with it), kept for its build, and each module by the URL buildKit({ base }) imports it by. A layout that can't be
+// had is thrown (no folder to fall back on), naming the URL as a module's failure does
+const cdnLayouts = new Map();   // kit id -> its CDN layout
+const cdnHref = (file) => urlModuleHref(`${KIT_CDN}${file}`);
+async function fetchCdnPlace(def, onProgress) {
+  const url = kitUrl(def.kit, 'LAYOUT.json');
+  const res = await fetch(url).catch((err) => ({ ok: false, statusText: err.message }));
+  onProgress();
+  if (!res.ok) throw Object.assign(new Error(`the kit's layout: ${res.status ?? ''} ${res.statusText ?? ''}`.trim()), { url });
+  const data = await res.json();
+  cdnLayouts.set(def.kit, data);
+  const get = (load) => load.then(onProgress, onProgress);
+  const ids = new Set(data.layout.filter((r) => r?.part && r.part !== '_terrain').map((r) => data.parts[r.part]?.id).filter(Boolean));
+  const ground = data.terrain && !def.build?.city && data.layout.some((r) => r?.part === '_terrain') ? [data.terrain] : [];
+  await Promise.all([
+    get(kitModule(def.kit, 'kit.mjs')),
+    ...(def.build?.city ? [get(kitModule(def.kit, 'city.mjs'))] : []),
+    ...[...ground, ...[...ids].map((pid) => `${pid}.mjs`)].map((file) => get(urlModule(`${KIT_CDN}${file}`))),
+  ]);
+}
+
 // onProgress(): as each of its kit's parts comes in (most are in already, from fetchPlace), the last just before the kit
 // is built in one go; one that throws stops the build before it begins
 export async function buildPlace(id, { onProgress = null } = {}) {
   const def = PLACES[id];
   const { buildKit } = await kitModule(def.kit, 'kit.mjs');
-  const folder = new URL(kitUrl(def.kit, '', KIT_BASE), location.href).href;
-  // its parts by the URLs fetchPlace loaded them by (a fresh one for any given up on: parts.js makeModules)
-  const moduleUrl = (partId) => kitModuleHref(def.kit, `${partId}.mjs`);
-  const kitPlace = await buildKit({ folder, ...def.build, moduleUrl, onProgress: onProgress && (() => onProgress()) });
+  // where its kit is, and its parts by the URLs fetchPlace loaded them by (a fresh one for any given up on: parts.js
+  // makeModules): its folder, by part key; or the account CDN, by part id, from the layout fetchPlace kept
+  const from = KIT_CDN
+    ? { base: KIT_CDN, kit: def.kit, data: cdnLayouts.get(def.kit), moduleUrl: (partId) => cdnHref(`${partId}.mjs`) }
+    : { folder: new URL(kitUrl(def.kit, '', KIT_BASE), location.href).href, moduleUrl: (partId) => kitModuleHref(def.kit, `${partId}.mjs`) };
+  if (KIT_CDN && !from.data) throw new Error(`${def.kit}: built before its layout was fetched`);
+  const kitPlace = await buildKit({ ...from, ...def.build, onProgress: onProgress && (() => onProgress()) });
   const group = new THREE.Group();
   group.name = `place ${id}`;
   group.add(kitPlace.group);

@@ -117,11 +117,13 @@ Then open <http://127.0.0.1:8765/> in a desktop browser. The first load download
 
 ## Publish on GitHub Pages
 
-1. Push the repo to GitHub.
-2. In the repo, go to **Settings → Pages**, set **Source** to "Deploy from a branch", pick `main` and `/ (root)`, and save.
-3. After a minute the game is live at `https://<your-user>.github.io/<repo-name>/`.
+The site is published by a GitHub Actions job (`.github/workflows/pages.yml`) on every push to `main`. The kits aren't in the repo, so the published tour builds them from your Polyfork account's CDN (Polyfork says that link is safe in a page: it only reads files). The link is kept out of the repo too: the job writes it into `tour/local.js` from a repository secret.
 
-Every push to `main` republishes it. No build step is needed.
+1. In the repo, go to **Settings → Secrets and variables → Actions**, add a repository secret named `POLYFORK_CDN`, and paste your account's `cdn_base` link (`https://polyfork.dev/c/<token>/`) as its value.
+2. Go to **Settings → Pages** and set **Source** to "GitHub Actions".
+3. Push to `main` (or run the job from the **Actions** tab). After a minute the game is live at `https://<your-user>.github.io/<repo-name>/`.
+
+The job stops without publishing if the secret is missing. To try the CDN-built tour locally, add `kits: 'cdn'` to your `tour/local.js`, or open `tour.html?kits=cdn`. If the link is ever misused, make a new one at polyfork.dev/account#cdn and update the secret (and your `tour/local.js`). The part ids it needs are in `tour/kit-ids.js`; run `node scripts/kit-ids.mjs` after adding or updating a kit.
 
 ## Troubleshooting
 

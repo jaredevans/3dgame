@@ -1,0 +1,54 @@
+# Publishes the site to GitHub Pages on every push to main. The tour's Polyfork kits aren't in this repo (Polyfork's
+# licence doesn't allow passing their modules on as files), so the published tour builds them from the owner's Polyfork
+# account CDN: this job writes the gitignored tour/local.js from the repository secret POLYFORK_CDN (the account's
+# cdn_base link), with kits: 'cdn' (config.js KIT_CDN), and fetches Polyfork's materials engine into the published site.
+# Neither goes into the repo. (Settings -> Pages -> Source must be "GitHub Actions".)
+name: Publish to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Point the tour at the account CDN
+        env:
+          POLYFORK_CDN: ${{ secrets.POLYFORK_CDN }}
+        run: |
+          if [ -z "$POLYFORK_CDN" ]; then
+            echo "::error::The repository secret POLYFORK_CDN (the Polyfork account CDN link) isn't set: not publishing a tour without its kits."
+            exit 1
+          fi
+          node -e "require('fs').writeFileSync('tour/local.js', 'export default ' + JSON.stringify({ accountCdn: process.env.POLYFORK_CDN, kits: 'cdn' }) + ';\n')"
+
+      # (polyfork.dev serves it without the CORS headers a page needs to import it, and the account CDN hasn't it; without
+      # it the HD animals stay flat)
+      - name: Fetch Polyfork's materials engine
+        run: |
+          mkdir -p kits/parts
+          curl -fsSL https://polyfork.dev/materials.mjs -o kits/parts/materials.mjs \
+            || echo "::warning::materials.mjs couldn't be fetched: the HD animals will be flat"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4
