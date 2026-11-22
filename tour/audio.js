@@ -1,5 +1,3 @@
-import { burnAt } from './rides.js';
-
 // Horns and whistles, made with WebAudio (the basement's whistle, unchanged in sound).
 // steam: a three-note whistle; diesel: a two-tone horn; bullet: the Silver Arrow's bright, airy two-note horn, rising
 // a little as it sounds; future: the Metro Glide's soft three-note chime, each note ringing out.
@@ -124,14 +122,15 @@ export function shimmer(rising = true, dur = 1.5) {
   noiseBurst({ type: 'bandpass', freq: rising ? 5000 : 9000, to: rising ? 9000 : 5000, q: 2.5, peak: 0.03, attack: 0.3, dur });
 }
 
-// a ride's engine, looping while you ride (ride-run.js): engine(kind) -> { start(), stop(), set(level) }, level 0..1 the
-// ride's speed against its cruise, raising its pitch and its loudness a little. 'car': the flying car's soft hum, two
+// a ride's engine, looping while you ride (ride-run.js): engine(kind) -> { start(), stop(), set(level, burn) }, level 0..1
+// the ride's speed against its cruise, raising its pitch and its loudness a little; burn 0..1 how hard a balloon's
+// burners are burning (0 for the rest). 'car': the flying car's soft hum, two
 // low tones a little apart and a breath of air over them; it stays under 0.05 gain. 'boat': the outboard's roar, two
 // rasping saws a little out of tune with each other (they beat), its throb, and the hiss of spray over it, rising
 // with its speed; under 0.07. 'balloon': the jets' whine, two high tones a little apart over a low turbine hum and the
-// rush of their exhaust, rising with their thrust; and the burners' whoosh in bursts, a deep roar of noise, as and when
-// rides.js burnAt fires them (in the ride's seconds, counted from start()); under 0.07. A kind with no sound of its own
-// yet is silent
+// rush of their exhaust, rising with their thrust; and the burners' whoosh in bursts, a deep roar of noise, as hard as
+// set()'s `burn` says they burn (the runner gives it from the ride's own clock); under 0.07. A kind with no sound of its
+// own yet is silent
 const ENGINES = {
   car: { tones: [[92, 'sine', 1], [185, 'triangle', 0.35]], cut: 700, air: { freq: 900, q: 0.8, gain: 0.25 }, gain: 0.045, pitch: [0.85, 1.15], idle: 0.45 },
   boat: { tones: [[58, 'sawtooth', 1], [61, 'sawtooth', 0.8], [117, 'square', 0.18]], cut: 650, air: { freq: 2600, q: 0.5, gain: 0.55 }, gain: 0.065, pitch: [0.7, 1.35], idle: 0.3 },
@@ -174,16 +173,16 @@ export function engine(kind) {
         src.connect(lp).connect(g).connect(audio.destination); src.start(t0);
         burn = { src, lp, g };
       }
-      nodes = { out, oscs, air, burn, t0 };
+      nodes = { out, oscs, air, burn };
     },
-    set(level) {
+    set(level, burning = 0) {
       if (!nodes) return;
       const t = audio.currentTime, u = Math.min(1, Math.max(0, level));
       nodes.out.gain.setTargetAtTime(k.gain * (k.idle + (1 - k.idle) * u), t, 0.3);
       for (const { o, f } of nodes.oscs) o.frequency.setTargetAtTime(f * (k.pitch[0] + (k.pitch[1] - k.pitch[0]) * u), t, 0.3);
       if (nodes.burn) {
         // as hard as the burners burn now, the roar opening up as it swells
-        const b = burnAt(t - nodes.t0), B = k.burner;
+        const b = Math.min(1, Math.max(0, burning)), B = k.burner;
         nodes.burn.g.gain.setTargetAtTime(B.gain * b, t, 0.06);
         nodes.burn.lp.frequency.setTargetAtTime(B.freq + (B.to - B.freq) * b, t, 0.1);
       }

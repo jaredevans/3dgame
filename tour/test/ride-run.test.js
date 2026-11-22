@@ -3,7 +3,7 @@
 // moves what it's handed (a holder with a position and a rotation).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rideFor, rideLegS, RIDE_DT } from '../rides.js';
+import { rideFor, rideLegS, RIDE_DT, burnAt } from '../rides.js';
 import { vehicleCar, nearRide, makeRideTrack, makeRideRunner, poseVehicle, parkVehicle } from '../ride-run.js';
 
 // a stand-in for a three.js Object3D: just what the runner writes
@@ -153,4 +153,29 @@ test('the drone orbits a small vehicle nearer than a train, in proportion to its
   big.vehicle.box = box([-8, -1, -8.5], [8, 5, 8.5]);
   runner.start(rideFor('future-city'), big);
   assert.equal(runner.train.droneScale, 1);
+});
+
+// the balloon's burners roar as its flame burns: the engine is told how hard they burn on the ride's own clock (its
+// seconds clamped as the ride's are), not the audio clock, which runs on through a stall or a hidden tab
+test('the runner tells the engine the burners\' level on the ride\'s clock, through a stall too; 0 for a ride with none', () => {
+  const run = (leg, steps) => {
+    const sets = [];
+    const sound = { start() {}, stop() {}, set(level, burn) { sets.push([level, burn]); } };
+    const runner = makeRideRunner({ views: { attachCab() {}, setDriving() {}, restart() {} }, audio: { engine: () => sound }, interior: {} });
+    runner.start(rideFor(leg), kitOf());
+    const ts = [];
+    for (const dt of steps) ts.push(runner.update(dt).t);
+    runner.stop();
+    return { sets, ts };
+  };
+  // a stall of 5 s counts as RIDE_DT, as the ride's own clock (and the kit's flame) does
+  const steps = [...Array(30).fill(1 / 30), 5, ...Array(60).fill(1 / 30)];
+  const { sets, ts } = run('ocean-mountain', steps);
+  assert.equal(sets.length, steps.length);
+  for (let i = 0; i < sets.length; i++) assert.ok(Math.abs(sets[i][1] - burnAt(ts[i])) < 1e-12, `burn at ${ts[i]}`);
+  assert.ok(sets.some(([, b]) => b > 0.9), 'the burners never fire');
+  assert.ok(Math.abs(ts[30] - ts[29] - RIDE_DT) < 1e-9);
+  assert.equal(rideFor('ocean-mountain').burn, burnAt);
+  // a ride with no burners: always 0
+  assert.ok(run('future-city', Array(30).fill(1 / 30)).sets.every(([, b]) => b === 0));
 });

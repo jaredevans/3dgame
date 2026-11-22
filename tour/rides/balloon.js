@@ -241,6 +241,7 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
 
   await slicer.frame();
+  await still();   // (the pads draped on the land: some 1,300 heights looked up, only where it may land)
   const ringMat = mat('#e9e3d2', { roughness: 0.7, emissive: new THREE.Color(NIGHT_RING), emissiveIntensity: 0 });
   const boardMarker = pad('balloon pad', ride.board.x, ride.board.z, terrain, ringMat);
   const landPad = pad('balloon landing pad', ride.land.x, ride.land.z, terrain, ringMat);
@@ -272,7 +273,8 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
         burn = c < 1.2 ? Math.min(1, c / 0.15, (1.2 - c) / 0.3) : 0;
         thrust = 0;
       } else {
-        // riding: the ride's own seconds (its frame's dt is clamped as the ride's clock is, so they keep together)
+        // riding: the ride's own seconds (its frame's dt is clamped as the ride's clock is, so they keep together; the
+        // runner gives the engine the burners' roar from that same clock)
         if (!riding) { riding = true; rideT = 0; heading = holder.rotation.y; } else rideT += dt;
         burn = burnAt(rideT);
         thrust = Math.min(1, Math.max(0, f.rideV / ride.profile.v));

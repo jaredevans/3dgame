@@ -166,7 +166,9 @@ export function makeRideRunner({ views, audio = null, interior }) {
       out.done = state.done; out.s = state.s; out.t = state.t; out.v = state.v; out.yaw = p.yaw;
       out.legS = rideLegS(ride, state.s);
       play(env, Math.min(dt, T_STEP_MAX));
-      sound?.set(clamp(state.v / ride.profile.v, 0, 1));
+      // (and the balloon's burners, on the ride's clock: the audio clock runs on through a stall or a hidden tab, and
+      // the roar would drift from the flame, which keeps the ride's time)
+      sound?.set(clamp(state.v / ride.profile.v, 0, 1), ride.burn ? ride.burn(state.t) : 0);
       return out;
     },
     // what the director is told this frame (cameras.js): the ride's own path, in ride-s, always out

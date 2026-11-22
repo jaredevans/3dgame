@@ -146,7 +146,7 @@ function balloon() {
   // camera looked across at the mountain's flank, or out to the desert, the valley under the frame)
   return {
     pts: [board, lift, forest, hill, falls, down, settle, land], step: { ...step, yaw: townward('mountain', 'arrival')(step.yaw) },
-    ease: [16, 18], rest: REST,
+    ease: [16, 18], rest: REST, burn: burnAt,
     events: [{ id: 'crows', s0: CROWS.s0, s1: CROWS.s1, actor: 'crows' }],
     showpieces: [
       { id: 'canopy', s0: 430, s1: 700, shot: { kind: 'heli', lateral: 55, height: 10, fov: 58 } },
@@ -682,7 +682,7 @@ export function rideFor(leg) {
   if (!rides.has(leg)) {
     const b = BUILD[leg];
     if (!b) throw new Error(`no ride along ${leg}`);
-    const { pts, step, ease, rest, rolls = [], events = [], showpieces = [] } = b.make();
+    const { pts, step, ease, rest, rolls = [], events = [], showpieces = [], burn = null } = b.make();
     const path = makeRoute(pts);
     // a roll's ends given as points (null: the path's end) -> ride-s, the path's nearest metre to each
     const sOf = (p, fallback) => {
@@ -698,6 +698,7 @@ export function rideFor(leg) {
       board: end(0), land: end(path.length), step: { x: step.x, z: step.z, y: step.y, yaw: step.yaw },
       path, duration: DURATION, profile: profileFor(path.length, DURATION, ease), legS: legTable(path, leg),
       events, showpieces,   // each ride's own set pieces (Tasks 4-8)
+      burn,   // the balloon's burners: how hard they burn at the ride's t (0..1; its engine roars with them), or null
     });
   }
   return rides.get(leg);
