@@ -3,7 +3,9 @@
 // place's arrival station, its progress mapped onto the leg. Pure, no three.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET } from '../rides.js';
+import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
+  OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus } from '../rides.js';
+import { onWalkway } from '../walk-world.js';
 import { LEGS, PLACES, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { rocketPad } from '../actors/paths.js';
@@ -52,8 +54,8 @@ test('five rides, one per leg, onward', () => {
     assert.equal(r.from, LEGS[r.leg].from);
     assert.equal(r.to, LEGS[r.leg].to);
     assert.equal(rideFor(r.leg), r, 'memoised');
-    // (each ride's set pieces are its own tasks': so far the car's escort and its two shots)
-    if (r.id !== 'car') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
+    // (each ride's set pieces are its own tasks': so far the car's escort and its two shots, the boat's octopus and its)
+    if (r.id !== 'car' && r.id !== 'boat') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
   }
   assert.throws(() => rideFor('nowhere'));
 });
@@ -362,4 +364,152 @@ test('the car has its two showpieces over the river and among the towers, within
   assert.deepEqual(ids, ['formation', 'tower-chase']);
   for (const p of r.showpieces) assert.ok(p.s0 >= 0 && p.s1 <= r.path.length && p.shot.kind);
   assert.equal(ESCORT.count, 7);
+});
+
+// ---- the boat: its jetties and walkways, and the giant octopus ----
+
+// the boat's hull at rest in its own frame (Polyfork's caique, mast none: 2.69 x 2.74 x 7.32 m, its keel 0.45 m under
+// its origin, the wheelhouse's roof 2.29 m over it), grown by MOTION for its pitch, roll, bob and lift off its path
+const HULL = { x: 1.34, y0: -0.45, y1: 2.29, z: 3.66 }, MOTION = 0.6;
+const hullDist = (x, y, z) => Math.hypot(Math.max(0, Math.abs(x) - HULL.x), Math.max(0, HULL.y0 - y, y - HULL.y1), Math.max(0, Math.abs(z) - HULL.z)) - MOTION;
+
+test('the City\'s walkway runs from its town to a jetty alongside where the boat lies, within reach of it, the hull clear of it', () => {
+  const r = ride('boat'), [w] = PLACES.city.walkways, P = w.points, end = P[P.length - 1];
+  assert.equal(w.width, 3);
+  assert.ok(footprint(PLACES.city).outside(P[0].x, P[0].z) === 0, 'the walkway does not start in the town');
+  // its line comes within reach (main.js RIDE_REACH, 4 m: its near half nearer still) of where the boat waits, beside
+  // it, the jetty's end past its middle (not stopping short of it, nor out in front of its bow)
+  let near = Infinity;
+  for (let t = 0; t <= 1; t += 0.01) near = Math.min(near, Math.hypot(P[P.length - 2].x + (end.x - P[P.length - 2].x) * t - r.board.x, P[P.length - 2].z + (end.z - P[P.length - 2].z) * t - r.board.z));
+  assert.ok(near <= 3.9, `the jetty comes only ${near.toFixed(1)} m from the boat`);
+  const ahead = (end.x - r.board.x) * Math.sin(r.board.yaw) + (end.z - r.board.z) * Math.cos(r.board.yaw);
+  assert.ok(ahead > 0 && ahead < HULL.z, `the jetty ends ${ahead.toFixed(1)} m along the boat`);
+  // the boat's hull (its footprint, at rest and over its first 30 m out) never on the jetty's strip
+  const q = {};
+  for (let s = 0; s <= 30; s += 0.5) {
+    r.path.at(s, q);
+    const fx = Math.sin(q.yaw), fz = Math.cos(q.yaw), lx = Math.cos(q.yaw), lz = -Math.sin(q.yaw);
+    for (let a = -HULL.z; a <= HULL.z; a += 0.5) for (const b of [-HULL.x, 0, HULL.x]) {
+      const x = q.x + fx * a + lx * b, z = q.z + fz * a + lz * b;
+      assert.ok(!onWalkway({ ...w, width: w.width + 0.4 }, x, z), `the boat's hull is on the jetty at s ${s}`);
+    }
+  }
+  // no more than 9 m of the walkway nearer than 9 m to any line (it passes the arrival line's buffers 11 m off)
+  for (const leg of Object.keys(LEGS)) for (const p of P) assert.ok(nearestOn(leg, p.x, p.z).d >= 9, `the walkway comes near ${leg}`);
+});
+
+test('Oceanside\'s jetty runs from where you step off to beside where the boat lands', () => {
+  const r = ride('boat'), [w] = PLACES.ocean.walkways, P = w.points;
+  assert.ok(Math.hypot(P[0].x - r.step.x, P[0].z - r.step.z) <= 1.5, 'the jetty does not start where you step off');
+  assert.ok(walkAt('ocean', 'departure').onWalk(P[0].x, P[0].z), 'the jetty does not start on the station\'s walk');
+  const end = P[P.length - 1];
+  assert.ok(Math.hypot(end.x - r.land.x, end.z - r.land.z) <= 5, 'the jetty does not reach the landing');
+  for (let a = -HULL.z; a <= HULL.z; a += 0.5) {
+    const q = r.path.at(r.path.length), x = q.x + Math.sin(q.yaw) * a, z = q.z + Math.cos(q.yaw) * a;
+    for (const b of [-HULL.x, HULL.x]) assert.ok(!onWalkway({ ...w, width: w.width + 0.4 }, x + Math.cos(q.yaw) * b, z - Math.sin(q.yaw) * b), 'the landed boat is on the jetty');
+  }
+});
+
+test('the boat\'s swerve is continuous, its heading turning with it, and back to nothing by the octopus\'s window\'s end', () => {
+  const r = ride('boat'), a = {}, b = {};
+  let most = 0;
+  for (let s = OCTOPUS.s0 - 20; s <= OCTOPUS.s1 + 20; s += 0.25) {
+    swerveAt(s, a); swerveAt(s + 0.25, b);
+    assert.ok(Math.abs(b.lateral - a.lateral) <= 0.25 * 0.6, `the swerve jumps at ${s}`);
+    // its heading is the swerve's slope (to within its change over the step)
+    assert.ok(Math.abs(Math.tan((a.yaw + b.yaw) / 2) - (b.lateral - a.lateral) / 0.25) < 0.01, `the heading doesn't follow the swerve at ${s}`);
+    assert.ok(Math.abs(b.yaw - a.yaw) < 0.01, `the heading jumps at ${s}`);
+    most = Math.min(most, a.lateral);
+    if (s <= OCTOPUS.s0 || s >= OCTOPUS.s1) assert.equal(a.lateral, 0);
+  }
+  assert.ok(most <= -10, `the boat swerves only ${-most} m`);
+  // away from the octopus (it rises on the sea side, the boat's left): to the right, still over the sea, 1.5 m deep
+  for (let s = OCTOPUS.s0; s <= OCTOPUS.s1; s += 2) {
+    const p = r.path.offsetAt(s, swerveAt(s, a).lateral);
+    assert.ok(SEA_LEVEL - ground(p.x, p.z) >= 1.5, `the swerve runs into ${(SEA_LEVEL - ground(p.x, p.z)).toFixed(1)} m of water at ${s}`);
+  }
+});
+
+// how near the octopus comes to the boat's hull at ride-s s: its arms as capsules round their bones and its body as
+// spheres round its own (as thick as its skinned mesh), from the pose the page gives its bones; while its clip has some
+// say (w < 1), anywhere its arms could reach from its hips, swayed as far as its clips move them
+const ARM_REACH = Math.max(...OCTOPUS_ARMS.map(({ joints }) => {
+  let L = Math.hypot(...joints[0].map((v, k) => v - OCTOPUS_BODY.hips[k]));
+  for (let j = 0; j < 4; j++) L += Math.hypot(...joints[j + 1].map((v, k) => v - joints[j][k]));
+  return L;
+}));
+function octopusClearance(r, s) {
+  const u = (s - OCTOPUS.s0) / (OCTOPUS.s1 - OCTOPUS.s0), K = OCTOPUS.scale, G = OCTOPUS_GIRTH;
+  const pose = octopusPose(u), sw = swerveAt(s), B = r.path.offsetAt(s, sw.lateral), O = placeOctopus(r, s, pose);
+  const by = B.yaw + sw.yaw, cb = Math.cos(by), sb = Math.sin(by), co = Math.cos(O.yaw), so = Math.sin(O.yaw);
+  // a point of the model (its own metres) in the boat's frame
+  const inBoat = ([lx, ly, lz]) => {
+    const dx = O.x + K * (lx * co + lz * so) - B.x, dz = O.z + K * (-lx * so + lz * co) - B.z;
+    return [dx * cb - dz * sb, O.y + K * ly - SEA_LEVEL, dx * sb + dz * cb];
+  };
+  const capsule = (a, b, ra, rb) => {
+    let m = Infinity;
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16, p = inBoat(a.map((v, k) => v + (b[k] - v) * t));
+      m = Math.min(m, hullDist(...p) - K * (ra + (rb - ra) * t));
+    }
+    return m;
+  };
+  const H = OCTOPUS_BODY.hips;
+  if (pose.w < 1) return hullDist(...inBoat(H)) - K * (ARM_REACH + G.sway + G.arm[0]);
+  let d = Math.min(capsule(H, OCTOPUS_BODY.head, G.hips, G.hips), capsule(OCTOPUS_BODY.head, OCTOPUS_BODY.head, G.head, G.head),
+    capsule(OCTOPUS_BODY.mantle, OCTOPUS_BODY.mantle, G.mantle, G.mantle));
+  const radius = [...G.arm, G.tip];
+  for (let a = 0; a < 8; a++) {
+    const J = armJoints(pose, a).map((p) => [p.x, p.y, p.z]);
+    for (let j = 0; j < 4; j++) d = Math.min(d, capsule(J[j], J[j + 1], radius[j], radius[j + 1]));
+  }
+  return d;
+}
+
+test('the octopus never touches the boat: its closest approach to the hull keeps 1 m, every half metre of its window', () => {
+  const r = ride('boat');
+  let least = Infinity, at = 0;
+  for (let s = OCTOPUS.s0; s <= OCTOPUS.s1; s += 0.5) { const d = octopusClearance(r, s); if (d < least) { least = d; at = s; } }
+  assert.ok(least >= 1, `the octopus comes within ${least.toFixed(2)} m of the hull at ride-s ${at}`);
+  assert.ok(least <= 3, `the octopus never comes nearer than ${least.toFixed(1)} m: no near miss`);
+});
+
+test('the octopus rises out of the sea beside the boat, arches its front arms over the hull, and sinks back', () => {
+  const r = ride('boat'), q = {};
+  const at = (u) => octopusPose(u);
+  assert.ok(at(0).rise < -12 && at(1).rise < -12, 'it is not deep at the ends of its window');
+  assert.ok(at(0.42).rise > -1, 'it does not rise out of the sea');
+  assert.ok(at(0.42).side > 6 && at(0).side > 15, 'it is not out on the sea side');
+  // at the height of it, a front arm's curl over the hull's plan (within its half-width), above it
+  let over = false;
+  for (let s = OCTOPUS.s0; s <= OCTOPUS.s1; s += 1) {
+    const u = (s - OCTOPUS.s0) / (OCTOPUS.s1 - OCTOPUS.s0), pose = octopusPose(u), sw = swerveAt(s), B = r.path.offsetAt(s, sw.lateral, q);
+    const O = placeOctopus(r, s, pose), K = OCTOPUS.scale, by = B.yaw + sw.yaw;
+    for (const a of [0, 4]) {
+      const J = armJoints(pose, a)[3], co = Math.cos(O.yaw), so = Math.sin(O.yaw);
+      const dx = O.x + K * (J.x * co + J.z * so) - B.x, dz = O.z + K * (-J.x * so + J.z * co) - B.z;
+      const x = dx * Math.cos(by) - dz * Math.sin(by), z = dx * Math.sin(by) + dz * Math.cos(by);
+      if (Math.abs(x) <= HULL.x && Math.abs(z) <= HULL.z + 1 && O.y + K * J.y > HULL.y1) over = true;
+    }
+  }
+  assert.ok(over, 'no arm comes over the hull');
+  // (all pure, and the pose it's handed filled in place)
+  const pose = octopusPose(0.3);
+  assert.equal(octopusPose(0.6, pose), pose);
+});
+
+test('the boat\'s set pieces: the octopus (with its shot, low over the water) about the middle, the cliffs\' showpiece', () => {
+  const r = ride('boat'), L = r.path.length;
+  const [ev] = r.events;
+  assert.equal(r.events.length, 1);
+  assert.equal(ev.id, 'octopus'); assert.equal(ev.actor, 'octopus');
+  assert.ok(ev.s0 > L * 0.35 && ev.s1 < L * 0.65, 'the octopus is not about the ride\'s middle');
+  assert.ok(ev.shot.kind === 'high-wide' && ev.shot.height <= 5 && ev.shot.at > ev.s0 && ev.shot.at < ev.s1);
+  // the shot stands over the sea, on the shore side (the octopus is on the other)
+  const p = r.path.offsetAt(ev.shot.at, ev.shot.lateral);
+  assert.ok(ev.shot.lateral < 0 && ground(p.x, p.z) < SEA_LEVEL - 1);
+  const [cliffs] = r.showpieces;
+  assert.equal(cliffs.id, 'cliffs');
+  assert.ok(cliffs.s0 >= 0 && cliffs.s1 < ev.s0 && cliffs.shot.kind);
 });

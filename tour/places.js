@@ -5,6 +5,7 @@ import { kitUrl, KIT_BASE, KIT_CDN } from './config.js';
 import { PLACES, EXTRA_REACH } from './world-data.js';
 import { landSampler, LAND_MIN } from './land.js';
 import { groundIndex } from './kit-ground.js';
+import { buildWalkway } from './walkways.js';
 
 // the kit's ground as a lookup (kit-ground.js), in its own frame: the same heights its groundAt() casts a ray for, from
 // its terrain's triangles, each wound as a ray from above would meet it. Off them all, the plain at its foot, as
@@ -142,6 +143,12 @@ export async function buildPlace(id, { onProgress = null } = {}) {
         obj.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(obj);
         if (box.max.x - box.min.x > 0.6 || box.max.z - box.min.z > 0.6) extraBoxes.push({ key: e.key, box });
+      }
+      // its walkways (the City's path to the speedboat's jetty, Oceanside's jetty), on the land as it is now its patch is in
+      for (const [i, w] of (def.walkways ?? []).entries()) {
+        const obj = buildWalkway(w, terrain, `${def.name} walkway ${i + 1}`);
+        group.parent.add(obj);
+        extras.push(obj);
       }
       return extras;
     },

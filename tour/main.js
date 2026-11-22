@@ -511,8 +511,10 @@ async function boot() {
   // the leg's `always` actors as you ride (the rocket, the pods over the towns: as for a train at the ride's leg-s), and
   // whether the far place's two trains are at their platforms yet
   const rideLeg = { track: null, on: null, placed: false };
-  const RIDE_KEEP = 30;   // m: the vehicle you stepped off stays on its pad till you're this far from it
-  let rideKeep = null;    // { id, leg, x, z } of that ride, meanwhile
+  // m: the vehicle you stepped off stays on its pad till you're this much further from it than where you stepped off (the
+  // boat's jetty runs 31 m out from there)
+  const RIDE_KEEP = 30;
+  let rideKeep = null;    // { id, leg, x, z, reach } of that ride, meanwhile
   let autoAfterRide = false;   // Z pressed mid-ride: the auto tour starts once you've landed
 
   // ---- the train you drive: its run (journey.runRoute) and where its front is along it ----
@@ -742,8 +744,8 @@ async function boot() {
     for (const w of t.trains) fleet.wait(w.leg, w.dir);
     pendingTurn = null;
     rideLeg.track = null; rideLeg.on = null;
-    rideKeep = { id: `ride:${ride.leg}`, leg: ride.leg, x: ride.land.x, z: ride.land.z };
     const p = ride.step;
+    rideKeep = { id: `ride:${ride.leg}`, leg: ride.leg, x: ride.land.x, z: ride.land.z, reach: RIDE_KEEP + Math.hypot(p.x - ride.land.x, p.z - ride.land.z) };
     player.enter(p.x, p.z, p.yaw, walkWorld().heightAt(p.x, p.z));
     keys.ignoreHeld();
     ridden = null;
@@ -1315,7 +1317,7 @@ async function boot() {
     // still wanted where it waits (you've teleported back there), it's back on the pad it leaves from
     if (rideKeep) {
       const h = here();
-      if (Math.hypot(h.x - rideKeep.x, h.z - rideKeep.z) > RIDE_KEEP) {
+      if (Math.hypot(h.x - rideKeep.x, h.z - rideKeep.z) > rideKeep.reach) {
         const kit = streamer.get(rideKeep.id)?.kit;
         if (kit) parkVehicle(kit, rideFor(rideKeep.leg), 0);
         rideKeep = null;

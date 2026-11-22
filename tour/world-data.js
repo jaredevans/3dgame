@@ -35,7 +35,14 @@ export const PLACES = {
     stations: [
       { leg: 'city-ocean', end: 'start', role: 'departure', platformLength: 120 },
       { leg: 'future-city', end: 'end', role: 'arrival', platformLength: 120 },
-    ] },
+    ],
+    // the path to the speedboat's jetty (rides.js, the boat; the Speedboat waits there rather than by the departure
+    // station, which stands inland with the town between it and the sea): out of the town's south-east corner, past
+    // the end of the arrival line (its buffers at x 190), south along the cliff top, down the slope to the shore and
+    // out along the jetty beside where the boat lies (on its right, clear of its stern as it swings away), its end just
+    // short of the boat's bow; its sign where it leaves the town
+    walkways: [{ points: [{ x: 191, z: -121 }, { x: 201, z: -129 }, { x: 201, z: -264 }, { x: 212.6, z: -310.3 }, { x: 203.3, z: -324.4 }], width: 3,
+      sign: 'Speedboat to Oceanside ↓' }] },
   // the coast kit's beach is at its own y = 0 and its sea lies to its +z: turned half round so the sea faces -z, and
   // raised 1.2 m so its shoreline meets our sea level. The station is behind its dunes at 3 m.
   ocean: { name: 'Oceanside', kit: KITS.ocean, centre: { x: 1902, z: -198 }, y: 1.2, rot: Math.PI, ground: 3, size: [44, 50],
@@ -56,7 +63,10 @@ export const PLACES = {
     stations: [
       { leg: 'city-ocean', end: 'end', role: 'arrival', platformLength: 120 },
       { leg: 'ocean-mountain', end: 'start', role: 'departure', platformLength: 120 },
-    ] },
+    ],
+    // the harbour's jetty, where the speedboat from the City lands (rides.js): from the approach at the buffer end of
+    // the Highland Climber's platform, out past the line's end beside where the boat lies
+    walkways: [{ points: [{ x: 1974, z: -206 }, { x: 1971.8, z: -214 }, { x: 1971.8, z: -241 }], width: 3 }] },
   // the Alpine kit's composed mountainside on its own island ground: land from -18 to +18 m in its own frame (its skirt,
   // below landMin, is the island's underside), 112 x 112 m about (-4.5, -1.5). Turned 130 degrees so its low end, the
   // chalet and the lift's base station, faces the corner between the two lines and its summit rises behind; raised

@@ -78,6 +78,16 @@ const SOUNDS = {
   whoosh: () => noiseBurst({ type: 'bandpass', freq: 400, to: 2400, q: 1.2, peak: 0.1, attack: 0.5, dur: 1.4 }),
   rumble: () => noiseBurst({ type: 'lowpass', freq: 160, to: 90, q: 0.9, peak: 0.11, attack: 0.4, dur: 2.5 }),
   roar: () => noiseBurst({ type: 'lowpass', freq: 900, to: 300, q: 0.6, peak: 0.08, attack: 0.8, dur: 3.5 }),
+  // the giant octopus: the sea heaving up as it breaks the surface (a deep swell of water rising and pouring off), and
+  // the crash of its arms (or its bulk) hitting the water, with the spray hissing down after it
+  surge() {
+    noiseBurst({ type: 'lowpass', freq: 120, to: 420, q: 0.8, peak: 0.11, attack: 1.1, dur: 3.2 });
+    noiseBurst({ type: 'bandpass', freq: 700, to: 1800, q: 0.7, peak: 0.05, attack: 1.6, dur: 3.4 });
+  },
+  splash() {
+    noiseBurst({ type: 'lowpass', freq: 900, to: 140, q: 0.7, peak: 0.12, attack: 0.03, dur: 1.2 });
+    noiseBurst({ type: 'highpass', freq: 2500, to: 4500, q: 0.5, peak: 0.05, attack: 0.15, dur: 2.2 });
+  },
 };
 export function sound(name) {
   audio ||= new AudioContext();
@@ -114,10 +124,12 @@ export function shimmer(rising = true, dur = 1.5) {
 
 // a ride's engine, looping while you ride (ride-run.js): engine(kind) -> { start(), stop(), set(level) }, level 0..1 the
 // ride's speed against its cruise, raising its pitch and its loudness a little. 'car': the flying car's soft hum, two
-// low tones a little apart and a breath of air over them; it stays under 0.05 gain. A kind with no sound of its own yet
-// is silent
+// low tones a little apart and a breath of air over them; it stays under 0.05 gain. 'boat': the outboard's roar, two
+// rasping saws a little out of tune with each other (they beat), its throb, and the hiss of spray over it, rising
+// with its speed; under 0.07. A kind with no sound of its own yet is silent
 const ENGINES = {
   car: { tones: [[92, 'sine', 1], [185, 'triangle', 0.35]], cut: 700, air: { freq: 900, q: 0.8, gain: 0.25 }, gain: 0.045, pitch: [0.85, 1.15], idle: 0.45 },
+  boat: { tones: [[58, 'sawtooth', 1], [61, 'sawtooth', 0.8], [117, 'square', 0.18]], cut: 650, air: { freq: 2600, q: 0.5, gain: 0.55 }, gain: 0.065, pitch: [0.7, 1.35], idle: 0.3 },
 };
 const QUIET = { start() {}, stop() {}, set() {} };
 export function engine(kind) {

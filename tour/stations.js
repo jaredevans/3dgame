@@ -69,8 +69,22 @@ const besideSign = (s, end, p0, p1) => Math.abs(s - signS(end, p0, p1)) < 4;
 // returns it and its footprint (posts and board, one solid: you can't walk between its posts under the board)
 function signToDepartures(route, end, lane, [p0, p1], text) {
   const side = Math.sign(lane), s = signS(end, p0, p1);
-  const sign = new THREE.Group();
+  const sign = signBoard(text);
   sign.name = 'departure sign';
+  // turned with the line: its +z (the board's face) along the platform, its width across it
+  const q = route.offsetAt(s, lane + side * (SIGN.across - Math.abs(lane)));
+  sign.position.set(q.x, q.y + PLATFORM_TOP, q.z);
+  sign.rotation.y = q.yaw;
+  sign.updateMatrixWorld(true);
+  const hw = SIGN.w / 2, z0 = -SIGN.depth / 2 - 2 * SIGN.post, z1 = SIGN.depth / 2;
+  const corners = [[-hw, z0], [hw, z0], [hw, z1], [-hw, z1]]
+    .map(([x, z]) => { const v = new THREE.Vector3(x, 0, z).applyMatrix4(sign.matrixWorld); return [v.x, v.z]; });
+  return { sign, solid: { key: 'departure-sign', corners } };
+}
+// the board on its two posts, standing on its own origin, its face to +z (and -z): the departure signs' and the
+// walkways' (walkways.js)
+export function signBoard(text) {
+  const sign = new THREE.Group();
   const map = signTexture(text);
   // lit a little by its own face, so it reads at night as well (the Futuristic place is reached after dark)
   const face = new THREE.MeshStandardMaterial({ map, emissive: '#ffffff', emissiveMap: map, emissiveIntensity: 0.3, roughness: 0.8 });
@@ -83,15 +97,7 @@ function signToDepartures(route, end, lane, [p0, p1], text) {
     post.position.set(x * (SIGN.w / 2 - SIGN.post), SIGN.posts / 2, -SIGN.depth / 2 - SIGN.post);   // behind the board
     sign.add(post);
   }
-  // turned with the line: its +z (the board's face) along the platform, its width across it
-  const q = route.offsetAt(s, lane + side * (SIGN.across - Math.abs(lane)));
-  sign.position.set(q.x, q.y + PLATFORM_TOP, q.z);
-  sign.rotation.y = q.yaw;
-  sign.updateMatrixWorld(true);
-  const hw = SIGN.w / 2, z0 = -SIGN.depth / 2 - 2 * SIGN.post, z1 = SIGN.depth / 2;
-  const corners = [[-hw, z0], [hw, z0], [hw, z1], [-hw, z1]]
-    .map(([x, z]) => { const v = new THREE.Vector3(x, 0, z).applyMatrix4(sign.matrixWorld); return [v.x, v.z]; });
-  return { sign, solid: { key: 'departure-sign', corners } };
+  return sign;
 }
 
 // leg: the leg id; end: 'start' or 'end' of it; style: its place's station style (station-style.js); sign: the text of

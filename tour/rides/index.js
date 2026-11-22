@@ -13,7 +13,9 @@
 // loaded fails the build (the ride isn't offered; warned); a set piece that can't be should be left out of `actors`
 // with warn(), the ride going on without it.
 import { buildCar } from './car.js';
+import { buildBoat } from './boat.js';
 
 export const RIDE_BUILDERS = {
+  boat: buildBoat,
   car: buildCar,
 };

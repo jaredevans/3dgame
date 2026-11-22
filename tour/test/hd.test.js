@@ -95,11 +95,14 @@ test("the HD materials' environment follows the daylight: full by day, dim at ni
 test('every animal the actors load is one whose HD maps are made at boot', async () => {
   const { readFileSync, readdirSync } = await import('node:fs');
   const { HD_ANIMALS } = await import('../hd-switch.js');
-  const dir = new URL('../actors/', import.meta.url);
   const loaded = new Set();
-  for (const f of readdirSync(dir)) {
-    if (!f.endsWith('.js')) continue;
-    for (const m of readFileSync(new URL(f, dir), 'utf8').matchAll(/loadAnimal\('([^']+)'\)/g)) loaded.add(m[1]);
+  // (the actors along the legs, and the rides' set pieces)
+  for (const sub of ['../actors/', '../rides/']) {
+    const dir = new URL(sub, import.meta.url);
+    for (const f of readdirSync(dir)) {
+      if (!f.endsWith('.js')) continue;
+      for (const m of readFileSync(new URL(f, dir), 'utf8').matchAll(/loadAnimal\('([^']+)'\)/g)) loaded.add(m[1]);
+    }
   }
   assert.ok(loaded.size >= 4, `found ${[...loaded]}`);
   for (const id of loaded) assert.ok(HD_ANIMALS.includes(id), `${id} is not in HD_ANIMALS`);

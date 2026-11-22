@@ -105,7 +105,14 @@ function boat() {
   const land = { ...at(BUFFERS + d, OUT), y: SEA_LEVEL };
   pts.push(land);
   const step = onGround(at(BUFFERS - 1.5, OUT));   // on the approach at the platform's buffer end
-  return { pts, step: { ...step, yaw: townward('ocean', 'departure')(step.yaw) }, ease: [8, 10], rest: 0 };
+  // the giant octopus about the middle, filmed wide from low over the water on the shore side (the boat swerving
+  // towards the camera, the octopus beyond it with the open sea behind) as its arms come over the hull; and a run along
+  // the cliffs' highest stretch (16 m, some 700-950 m along the path) from out at sea, the cliffs behind the boat
+  return {
+    pts, step: { ...step, yaw: townward('ocean', 'departure')(step.yaw) }, ease: [8, 10], rest: 0,
+    events: [{ id: 'octopus', s0: OCTOPUS.s0, s1: OCTOPUS.s1, actor: 'octopus', shot: { kind: 'high-wide', at: 975, lateral: -60, height: 3, fov: 42 } }],
+    showpieces: [{ id: 'cliffs', s0: 560, s1: 800, shot: { kind: 'heli', lateral: 35, height: 5 } }],
+  };
 }
 
 // The hot-air balloon (ocean-mountain): up from a pad beside Oceanside's departure platform, ~150 m over the forest,
@@ -302,6 +309,145 @@ export function placeEscort(ride, s, slot, out) {
   out.pitch = -p.pitch * 0.35;
   out.scale = smooth((se - 60) / 30) * (1 - smooth((k - 0.8) / 0.2));
   out.visible = out.scale > 0;
+  return out;
+}
+
+// ---- the boat's giant octopus ----
+// At the ride's middle a giant octopus (Polyfork's octopus-base, 5x: some 17 m across, the owner's call) comes up from
+// the deep on the sea side of the boat, a little ahead of it, keeping pace; rises half out of the water, lifts its two
+// front arms high and arches them over the hull while the boat swerves hard away towards the shore, slams them down
+// into the sea where the boat was, and falls behind and sinks back. All of it in the boat's frame along its path, keyed
+// to ride-s (so the same s always gives the same picture, whatever the frame rate), and pure: the page poses the
+// octopus's bones from octopusPose and the test measures how near any of it comes to the hull from the same numbers.
+export const OCTOPUS = {
+  s0: 830, s1: 1170,   // its window in ride-s, about the ride's middle (the path is ~1990 m): ~14 s at cruise
+  scale: 5,            // the model is 3.45 m across with its arms splayed
+  swerve: 14,          // m the boat swerves to its right (towards the shore: it's 180 m out), away from it
+  swerveIn: [0.4, 0.56], swerveOut: [0.64, 0.95],   // (u) out over these, and back onto its path
+  bank: 0.16,          // radians the boat heels into the swerve at its hardest
+};
+// where it is through its window (u 0..1), in the boat's frame: `along` m ahead of the boat on its path, `side` m out
+// to its left (the sea side), `rise` m from the sea's surface to the model's origin (its arms' crown is 3.6 m above
+// that at 5x, the top of its mantle 9.8 m). Joined by a Catmull-Rom curve through these keys
+const OCTO_KEYS = [
+  // u      along  side  rise
+  [0.00,   52,   26,  -17],
+  [0.15,   34,   19,  -11],
+  [0.30,   16,   10.5, -1.2],
+  [0.42,   7,    7.8, -0.1],
+  [0.52,   3,    8.4, -0.3],
+  [0.64,   -4,   9.5, -1.5],
+  [0.78,   -18,  13,  -4.5],
+  [0.90,   -34,  18,  -11],
+  [1.00,   -46,  22,  -17],
+];
+// the model's arms at rest (its bones' rest positions, model metres: every bone's rest rotation is none, so these are
+// the sums of their offsets): root, mid, distal, curl and tip of each, left 1-4 then right 1-4 (1 at the front, +z)
+export const OCTOPUS_ARMS = [
+  [[0.147, 0.727, 0.325], [0.387, 0.405, 0.903], [0.555, 0.355, 1.309], [0.411, 0.596, 1.661], [0.349, 0.576, 1.454]],
+  [[0.356, 0.727, 0.117], [0.933, 0.405, 0.356], [1.34, 0.355, 0.524], [1.601, 0.714, 0.599], [1.401, 0.684, 0.519]],
+  [[0.356, 0.727, -0.178], [0.933, 0.405, -0.417], [1.34, 0.355, -0.585], [1.575, 0.713, -0.724], [1.377, 0.683, -0.638]],
+  [[0.147, 0.727, -0.386], [0.387, 0.405, -0.964], [0.555, 0.355, -1.37], [0.612, 0.711, -1.639], [0.534, 0.682, -1.439]],
+  [[-0.147, 0.727, 0.325], [-0.387, 0.405, 0.903], [-0.555, 0.355, 1.309], [-0.687, 0.714, 1.547], [-0.603, 0.684, 1.349]],
+  [[-0.356, 0.727, 0.117], [-0.933, 0.405, 0.356], [-1.34, 0.355, 0.524], [-1.603, 0.713, 0.593], [-1.404, 0.683, 0.514]],
+  [[-0.356, 0.727, -0.178], [-0.933, 0.405, -0.417], [-1.34, 0.355, -0.585], [-1.57, 0.711, -0.735], [-1.373, 0.682, -0.649]],
+  [[-0.147, 0.727, -0.386], [-0.387, 0.405, -0.964], [-0.555, 0.355, -1.37], [-0.905, 0.596, -1.517], [-0.803, 0.576, -1.327]],
+].map((joints) => {
+  // each arm bends about one axis: level, across the arm's way out from the body (+ lifts it)
+  const [rx, rz] = [joints[2][0], joints[2][2]], n = Math.hypot(rx, rz);
+  return { joints, axis: [-rz / n, 0, rx / n] };
+});
+export const OCTOPUS_BODY = { hips: [0, 0.72, -0.031], head: [0, 1.045, 0.314], mantle: [0, 1.31, -0.371] };
+// how thick it is round each bone (model metres, measured from its skinned mesh: the furthest vertex from each bone's
+// segment), arms' segments root to tip; and how far the clips move its hips off rest at most (Swim backward)
+export const OCTOPUS_GIRTH = { arm: [0.26, 0.22, 0.235, 0.13], tip: 0.08, hips: 0.7, head: 0.6, mantle: 0.75, sway: 0.85 };
+// each arm's bend at its root, mid, distal and curl joints (radians about its axis; + up), in each of its poses
+const LIFT = [1.9, -0.15, -0.2, 0];       // the front arms reared up out of the sea
+const ARCH = [1.12, -0.9, -1.5, -0.2];   // and arched over the boat
+const SLAM = [0.05, 0.12, 0.05, 0.1];     // flung out low across the water where the boat was
+const RAISE = [0.75, -0.25, -0.35, -0.4]; // the next pair lifted, menacing
+const DROOP = [-0.4, 0.15, 0.2, 0.3];     // the back arms hanging down into the sea
+const ROLE = ['front', 'raise', 'droop', 'droop', 'front', 'raise', 'droop', 'droop'];
+const ramp = (u, a, b) => smooth((u - a) / (b - a));
+// the octopus at u through its window: into out { along, side, rise, w (0..1: how much of its pose is ours, not its
+// clip's), clip (its clip's name), bend: Float64Array(32) (arm i's joint j at 4i + j) }
+export function octopusPose(u, out = { along: 0, side: 0, rise: 0, w: 0, clip: '', bend: new Float64Array(32) }) {
+  u = Math.min(1, Math.max(0, u));
+  const K = OCTO_KEYS, n = K.length;
+  let i = 0;
+  while (i < n - 2 && K[i + 1][0] < u) i++;
+  const t = (u - K[i][0]) / (K[i + 1][0] - K[i][0]);
+  for (let c = 1; c <= 3; c++) {
+    // uniform Catmull-Rom between keys i and i+1 (its tangents from the keys either side, scaled to the gaps)
+    const p0 = K[Math.max(0, i - 1)], p1 = K[i], p2 = K[i + 1], p3 = K[Math.min(n - 1, i + 2)];
+    const h = p2[0] - p1[0];
+    const m1 = (p2[c] - p0[c]) / (p2[0] - p0[0] || 1) * h, m2 = (p3[c] - p1[c]) / (p3[0] - p1[0] || 1) * h;
+    const t2 = t * t, t3 = t2 * t;
+    const v = (2 * t3 - 3 * t2 + 1) * p1[c] + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * p2[c] + (t3 - t2) * m2;
+    if (c === 1) out.along = v; else if (c === 2) out.side = v; else out.rise = v;
+  }
+  out.w = ramp(u, 0.13, 0.21) * (1 - ramp(u, 0.76, 0.84));
+  out.clip = u < 0.5 ? 'Swim fast' : u < 0.7 ? 'Swim' : 'Swim backward';
+  const lift = ramp(u, 0.2, 0.34), over = ramp(u, 0.31, 0.42), down = ramp(u, 0.5, 0.6), loose = ramp(u, 0.64, 0.8);
+  const up = lift * (1 - down);
+  const wave = 0.14 * (1 - loose), cyc = 2 * Math.PI * 9 * u;   // (some nine slow writhes over the window)
+  for (let a = 0; a < 8; a++) {
+    const role = ROLE[a];
+    for (let j = 0; j < 4; j++) {
+      let v;
+      if (role === 'front') v = ((LIFT[j] + (ARCH[j] - LIFT[j]) * over) * lift * (1 - down) + SLAM[j] * down) * (1 - loose);
+      else if (role === 'raise') v = RAISE[j] * up * (1 - loose);
+      else v = DROOP[j] * ramp(u, 0.14, 0.3) * (1 - loose);
+      if (j > 0) v += wave * Math.sin(cyc + a * 1.7 + j * 0.9) * (role === 'front' ? 1 - up : 1)   // (a front arm held still while it's up);
+      out.bend[4 * a + j] = v;
+    }
+  }
+  return out;
+}
+// arm a's five joints in the model's frame (model metres) for a pose's bends: into out[0..4] ({ x, y, z })
+const rot = (v, ax, ang, o) => {
+  // Rodrigues' rotation of v about the unit axis ax by ang
+  const c = Math.cos(ang), s = Math.sin(ang), d = ax[0] * v[0] + ax[1] * v[1] + ax[2] * v[2];
+  const cx = ax[1] * v[2] - ax[2] * v[1], cy = ax[2] * v[0] - ax[0] * v[2], cz = ax[0] * v[1] - ax[1] * v[0];
+  o[0] = v[0] * c + cx * s + ax[0] * d * (1 - c); o[1] = v[1] * c + cy * s + ax[1] * d * (1 - c); o[2] = v[2] * c + cz * s + ax[2] * d * (1 - c);
+  return o;
+};
+const AV = [0, 0, 0], AR = [0, 0, 0];
+export function armJoints(pose, a, out = Array.from({ length: 5 }, () => ({ x: 0, y: 0, z: 0 }))) {
+  const { joints, axis } = OCTOPUS_ARMS[a];
+  out[0].x = joints[0][0]; out[0].y = joints[0][1]; out[0].z = joints[0][2];
+  let ang = 0;
+  for (let j = 0; j < 4; j++) {
+    ang += pose.bend[4 * a + j];
+    AV[0] = joints[j + 1][0] - joints[j][0]; AV[1] = joints[j + 1][1] - joints[j][1]; AV[2] = joints[j + 1][2] - joints[j][2];
+    rot(AV, axis, ang, AR);
+    out[j + 1].x = out[j].x + AR[0]; out[j + 1].y = out[j].y + AR[1]; out[j + 1].z = out[j].z + AR[2];
+  }
+  return out;
+}
+// the boat's swerve at ride-s s: into out { lateral (m to its left: negative, right), yaw (radians its heading turns:
+// + left), bank (radians it heels into the turn: + its right side down, as ride-run.js rolls it) }. Smooth (C1) and 0
+// outside its stretch
+export function swerveAt(s, out = { lateral: 0, yaw: 0, bank: 0 }) {
+  const O = OCTOPUS, len = O.s1 - O.s0, u = (s - O.s0) / len;
+  const [a0, a1] = O.swerveIn, [b0, b1] = O.swerveOut;
+  const k = ramp(u, a0, a1) * (1 - ramp(u, b0, b1));
+  // its slope along the path (d lateral / d s): the smoothsteps' derivatives
+  const ds = (x, a, b) => (x <= a || x >= b ? 0 : 6 * ((x - a) / (b - a)) * (1 - (x - a) / (b - a)) / (b - a));
+  const dk = ds(u, a0, a1) * (1 - ramp(u, b0, b1)) - ramp(u, a0, a1) * ds(u, b0, b1);
+  const slope = -O.swerve * dk / len;
+  out.lateral = k > 0 ? -O.swerve * k : 0;
+  out.yaw = Math.atan(slope);
+  out.bank = Math.max(-O.bank, Math.min(O.bank, -out.yaw * 1.4));
+  return out;
+}
+// where the octopus is at ride-s s (the boat there), for a pose: into out { x, y, z, yaw } (its model's origin, and
+// its heading: it faces the boat's place on its path, not where the boat has swerved to)
+const OP = {}, OB = {};
+export function placeOctopus(ride, s, pose, out = {}) {
+  const p = ride.path.offsetAt(Math.min(ride.path.length, s + pose.along), pose.side, OP), b = ride.path.at(s, OB);
+  out.x = p.x; out.z = p.z; out.y = SEA_LEVEL + pose.rise;
+  out.yaw = Math.atan2(b.x - p.x, b.z - p.z);
   return out;
 }
 

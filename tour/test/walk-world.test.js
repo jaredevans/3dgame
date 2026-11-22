@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeWalkWorld } from '../walk-world.js';
+import { makeWalkWorld, WALKWAY_DECK } from '../walk-world.js';
+import { PLACES, SEA_LEVEL, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
+import { stationWalk } from '../station-walk.js';
+import { findPath, PATH } from '../autopath.js';
+import { footprint } from './fixtures.js';
 
 // A place whose kit box (|x| < 20) is bigger than its land (|x| < 10): past its land, inside its box, the kit's
 // ground is its island's underside at -10.5 — the Oceanside case.
@@ -74,4 +78,40 @@ test('a place with only one station built yet', () => {
   assert.equal(w.heightAt(5, 100), 3, 'no platform where the other station will be');
   assert.ok(w.inBounds(0, 100) === false && w.inBounds(100, 20));
   assert.equal(w.blocked(12, 100, 0.35), null);
+});
+
+// ---- a place's walkways (the City's path to the speedboat's jetty) ----
+
+test('a walkway is in bounds along its strip, over the sea too (on its deck), and not 5 m off it', () => {
+  // out from the town's land (|x| < 10) to x = 40, over the sea beyond x = 30
+  const def = { centre: { x: 0, z: 0 }, walkways: [{ points: [{ x: 5, z: 0 }, { x: 40, z: 0 }], width: 3 }] };
+  const w = makeWalkWorld({ place: { ...place, def }, termini: [terminus], terrain, seaLevel: 0 });
+  for (const x of [12, 20, 29, 35, 39]) assert.ok(w.inBounds(x, 0) && w.inBounds(x, 1.4), `the walkway at x ${x}`);
+  for (const x of [12, 20, 35]) assert.equal(w.inBounds(x, 5), false, `5 m off the walkway at x ${x}`);
+  assert.equal(w.inBounds(43, 0), false, 'past its end');
+  // its ground: the land's, and over the sea its deck, 1.2 m up
+  assert.equal(w.heightAt(20, 0), 3);
+  assert.equal(w.heightAt(35, 0), WALKWAY_DECK);
+  assert.equal(w.heightAt(35, 5), -2, 'beside it, the sea');
+  assert.equal(w.heightAt(0, 0), 1.2, 'in the town, its own ground');
+});
+
+test('the City\'s arrival platform, and its departure across the town, to the speedboat\'s jetty are walks (the auto tour\'s planner, on its 0.5 m grid)', () => {
+  const def = PLACES.city, f = footprint(def), terrainW = worldTerrain();
+  const stub = { def, blocked: () => null, onLand: (x, z) => f.outside(x, z) === 0, groundAt: (x, z) => terrainW.heightAt(x, z) };
+  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true }) }));
+  const w = makeWalkWorld({ place: stub, termini, terrain: terrainW, seaLevel: SEA_LEVEL });
+  const P = def.walkways[0].points, to = P[P.length - 1];
+  for (const role of ['arrival', 'departure']) {
+    const st = def.stations.find((s) => s.role === role), r = legRoute(st.leg), win = platformWindow(r.length, st.end, st.platformLength);
+    const from = r.offsetAt((win.sFrom + win.sTo) / 2, Math.sign(laneOf(st.leg)) * 5.75);
+    const it = findPath(w, from, to);
+    let res;
+    do res = it.next(); while (!res.done);
+    assert.ok(res.value, `no way from the ${role} platform to the jetty`);
+    const last = res.value.points[res.value.points.length - 1];
+    assert.ok(Math.hypot(last.x - to.x, last.z - to.z) <= PATH.reach + 0.5);
+    // and on every step of it, the walk world's ground: off the town, the walkway's level, never the sea
+    for (const c of res.value.cells) assert.ok(w.heightAt(c.x, c.z) >= SEA_LEVEL + 1, `under the sea at ${c.x}, ${c.z}`);
+  }
 });
