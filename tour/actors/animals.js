@@ -33,10 +33,9 @@ async function dressHd(id, scene) {
 export function loadAnimal(id) {
   if (!loads.has(id)) {
     const bases = partBases(), url = `${bases[bases.length - 1]}${id}.glb`;
-    // each base given HD_WAIT s (the account CDN first, when configured: a host that never answers is given up on and the
-    // next base tried)
-    const load = (u) => withTimeout(loader.loadAsync(u), HD_WAIT * 1000, `${id}.glb`);
-    loads.set(id, firstOf(bases, `${id}.glb`, load, fellBack).then(async (gltf) => {
+    // (firstOf gives every base but the last a time limit: an account CDN that never answers is given up on, and the
+    // next base tried; the last waits as long as it takes)
+    loads.set(id, firstOf(bases, `${id}.glb`, (u) => loader.loadAsync(u), fellBack).then(async (gltf) => {
       await dressHd(id, gltf.scene);
       return gltf;
     }, (err) => {

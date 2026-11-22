@@ -1,6 +1,6 @@
 // Loading self-hosted Polyfork kit modules and parts. Every failure names the URL it tried.
 import { kitUrl, PART_BASES } from './config.js';
-import { maskAccount } from './hd-switch.js';
+import { maskAccount, withTimeout } from './hd-switch.js';
 
 // modules by URL, each imported once. A load that hangs can be given up on (forgetPending(), when the build it was for
 // stalled): it's forgotten, and the next load of that URL imports it afresh under a query (?retry=n), since the browser's
@@ -56,17 +56,26 @@ export async function urlPart(url, key, params = {}) {
   return obj;
 }
 
-// load(url) from each base in turn until one works: the parts folder beside the kits, then Polyfork's public CDN. Taken
-// from a later base, onFallback(url) says so (the part wasn't copied out of the catalogue); if none works, the last
-// base's error is thrown. -> what load returned
-export async function firstOf(bases, file, load, onFallback = () => {}) {
+// load(url) from each base in turn until one works: the account CDN if configured, the parts folder beside the kits, then
+// Polyfork's public CDN. Taken from a later base, onFallback(url) says so (the part wasn't copied out of the catalogue);
+// if none works, the last base's error is thrown. Every base but the last is given `wait` s: one that hasn't answered by
+// then (a host that never answers) is given up on, and skipped from then on (`skip`, the page's); the last base is waited
+// on as long as it takes, so a slow but working connection still gets its part. -> what load returned
+export const BASE_WAIT = 15;
+const slowBases = new Set();
+export async function firstOf(bases, file, load, onFallback = () => {}, { wait = BASE_WAIT, skip = slowBases } = {}) {
   let err = null;
   for (const [i, base] of bases.entries()) {
+    const last = i === bases.length - 1;
+    if (!last && skip.has(base)) continue;
     try {
-      const got = await load(`${base}${file}`);
+      const got = await (last ? load(`${base}${file}`) : withTimeout(load(`${base}${file}`), wait * 1000, file));
       if (i > 0) onFallback(`${base}${file}`, `${bases[0]}${file}`);
       return got;
-    } catch (e) { err = e; }
+    } catch (e) {
+      if (e?.timeout) skip.add(base);
+      err = e;
+    }
   }
   throw err;
 }
