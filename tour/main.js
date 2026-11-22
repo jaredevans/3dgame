@@ -437,8 +437,8 @@ async function boot() {
   scene.add(anchor);
   look.follow(anchor);
 
-  // ---- views: the cab and the drone ----
-  const views = makeCameras(camera, renderer.domElement, { heightAt: terrain.heightAt });
+  // ---- views: the cab, the nose, the drone and the director ----
+  const views = makeCameras(camera, renderer.domElement, { heightAt: terrain.heightAt, seaLevel: SEA_LEVEL });
 
   // ---- the train you drive: its run (journey.runRoute) and where its front is along it ----
   const drive = { s: 0, v: 0, throttle: 0 };
@@ -458,11 +458,29 @@ async function boot() {
   let evOn = null, evOut = null, evLegS = null;   // this frame's events ({ active, started, ended }), the reactions' answer, the front's leg-s
   const legActors = (leg) => streamer.get(leg)?.events?.built?.actors ?? null;
   const eventDefs = Object.fromEntries(Object.entries(EVENTS).map(([leg, defs]) => [leg, new Map(defs.map((e) => [e.id, e]))]));
+  // what the director's view is told each frame (cameras.js): this run's showpieces (a shot, no actor), the events with a
+  // shot that began this frame (an actor's: a showpiece's window opening is no event), and where the front is on the
+  // leg's own route (leg-s: shots' `at` and `lateral` are the leg's)
+  const viewCtx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started: [] };
   function startEvents() {
     const defs = eventsFor(run.leg, run.dir);
     track = makeEventTrack(defs);
     reactions = makeReactions(defs.filter((e) => e.react), run.dir, { length: train.length, spec: train.spec });
     evOn = evOut = evLegS = null;
+    viewCtx.showpieces = defs.filter((e) => e.shot && !e.actor);
+    views.restart();
+  }
+  function viewContext(dt) {
+    viewCtx.dt = dt;
+    viewCtx.started.length = 0;
+    const started = evOn?.started ?? [];
+    for (let i = 0; i < started.length; i++) {
+      const e = eventDefs[run.leg].get(started[i]);
+      if (e?.shot && e.actor) viewCtx.started.push(e);
+    }
+    viewCtx.legS = evLegS ?? journey.where(state, run, drive.s).s;
+    viewCtx.dir = run.dir; viewCtx.v = drive.v; viewCtx.route = routes[run.leg]; viewCtx.length = train.length;
+    return viewCtx;
   }
   // what an actor is told each frame (on: its event's { t, u } while it's active, else null; here: you're driving a run
   // on its leg)
@@ -622,6 +640,8 @@ async function boot() {
     if (e.code === 'KeyV') views.cycle();
     if (e.code === 'Digit1') views.set('cab');
     if (e.code === 'Digit2') views.set('drone');
+    if (e.code === 'Digit3') views.set('director');
+    if (e.code === 'Digit4') views.set('nose');
   });
   addEventListener('keyup', (e) => keys.up(e.code));
   addEventListener('blur', () => keys.clear());
@@ -812,7 +832,7 @@ async function boot() {
     hud(dt);
     if (controls) controls.update();
     else if (state.mode === 'foot') player.update(dt, footInput(), walkWorld());
-    else views.update(dt, train.model);
+    else views.update(dt, train.model, viewContext(dt));
     // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
     const where = journey.where(state, run, drive.s);
     const driving = state.mode === 'drive', stopped = Math.abs(drive.v) < 0.05;

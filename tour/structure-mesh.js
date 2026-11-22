@@ -138,6 +138,20 @@ function viaduct(route, half, sec, ground) {
   return m;
 }
 
+// the leg-s midway between the supports (a viaduct's piers, a trestle's bents) nearest `s`, where one stands on them:
+// somewhere under it in the clear (the director's camera, cameras.js). `s` itself elsewhere, and under a guideway, whose
+// piers stand under each line, clear between them
+export function clearUnder(sections, s) {
+  const sec = sections?.find((x) => s >= x.s0 && s <= x.s1);
+  let first, n;
+  if (sec?.kind === 'viaduct') { first = sec.s0 + V.abut; n = Math.max(1, Math.round((sec.s1 - V.abut - first) / V.bay)); }
+  else if (sec?.kind === 'trestle') { first = sec.s0; n = Math.max(1, Math.round((sec.s1 - sec.s0) / T.bent)); }
+  else return s;
+  const last = sec.kind === 'viaduct' ? sec.s1 - V.abut : sec.s1, bay = (last - first) / n;
+  const i = Math.min(n - 1, Math.max(0, Math.floor((s - first) / bay)));
+  return first + (i + 0.5) * bay;
+}
+
 // ---- trestle: timber bents every ~6 m under a plank deck, braced, on stone footings ----
 const T = { bent: 6, cap: 0.4, post: 0.34, tier: 6, batter: 0.16 };
 function trestle(route, half, sec, ground) {

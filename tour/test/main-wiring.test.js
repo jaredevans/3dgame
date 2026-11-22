@@ -32,3 +32,15 @@ test('board() leaves out the leg\'s extras', () => {
   assert.match(board[0], /\.leaveOutExtras\(\)/);
   assert.doesNotMatch(src, /leaveOutSuburbs/);
 });
+
+// the director's view (cameras.js) plans from this run's showpieces (a shot, no actor) and the events with a shot that
+// start (an actor's: a showpiece's window opening would cut to it as a short event shot), in the leg's own leg-s and
+// left (run.route is turned round on a back run)
+test("main.js tells the director this run's showpieces and events, on the leg's route", () => {
+  assert.match(src, /viewCtx\.showpieces = defs\.filter\(\(e\) => e\.shot && !e\.actor\)/);
+  assert.match(src, /if \(e\?\.shot && e\.actor\) viewCtx\.started\.push\(e\)/);
+  assert.match(src, /viewCtx\.route = routes\[run\.leg\]/);
+  assert.match(src, /views\.update\(dt, train\.model, viewContext\(dt\)\)/);
+  assert.match(src, /'Digit3'\) views\.set\('director'\)/);
+  assert.match(src, /'Digit4'\) views\.set\('nose'\)/);
+});
