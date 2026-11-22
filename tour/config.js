@@ -1,5 +1,7 @@
 // Where the tour finds its Polyfork kits. They are self-hosted (never committed to this repo):
-// ./kits/ when testing locally, or the owner's server via ?kits=<base url>.
+// ./kits/ when testing locally, or the owner's server via ?kits=<base url>; or built from the owner's Polyfork account
+// CDN (KIT_CDN, below), as the published site is.
+import { KIT_IDS } from './kit-ids.js';
 
 export function resolveKitBase(search) {
   const base = new URLSearchParams(search).get('kits') || './kits/';
@@ -30,17 +32,46 @@ export const KITS = {
 export const PUBLIC_CDN = 'https://polyfork.dev/cdn/';
 const slash = (base) => (base.endsWith('/') ? base : base + '/');
 const local = await import('./local.js').then((m) => m.default ?? m, () => ({}));
+// The kits built from the owner's Polyfork account CDN instead of a kits/ folder: for a site that has none (the
+// published one, whose deploy job writes tour/local.js with `kits: 'cdn'` beside the link), or ?kits=cdn to try it here.
+// Each kit's layout and ground, and its parts by their Polyfork ids (kit-ids.js), come from there, and so do kit.mjs,
+// stage.mjs and clips.mjs. Polyfork says the link is safe in a page (it only reads files); it's still kept out of this
+// repo. Without the link, the folder. -> the link, or null
+export function resolveKitCdn(search, { accountCdn = null, kits = null } = {}) {
+  const asked = new URLSearchParams(search).get('kits');
+  return (asked ? asked === 'cdn' : kits === 'cdn') && accountCdn ? slash(accountCdn) : null;
+}
+const SEARCH = globalThis.location?.search ?? '';
+export const KIT_CDN = resolveKitCdn(SEARCH, local);
+if (!KIT_CDN && (new URLSearchParams(SEARCH).get('kits') === 'cdn' || local.kits === 'cdn')) {
+  console.warn('kits from the CDN need an account CDN link in tour/local.js: using ./kits/');
+}
+
 export function resolvePartBases(search, { accountCdn = null } = {}) {
   const cdn = new URLSearchParams(search).get('cdn');
   if (cdn) return [slash(cdn)];
   return [...(accountCdn ? [slash(accountCdn)] : []), `${resolveKitBase(search)}parts/`, PUBLIC_CDN];
 }
-export const PART_BASES = resolvePartBases(globalThis.location?.search ?? '', local);
+export const PART_BASES = resolvePartBases(SEARCH, local);
 
-export function kitUrl(kitId, file, base = KIT_BASE) {
-  return `${base}${kitId}/${file}`;
+// the modules every kit shares, which the CDN serves once for all of them
+const SHARED = new Set(['kit.mjs', 'stage.mjs', 'clips.mjs', 'city.mjs']);
+
+// a kit's file: in its folder, or (cdn) where the account CDN serves it: the shared modules, the kit's layout (with its
+// parts' ids and its ground: a different shape from the folder's LAYOUT.json, places.js reads both), a part by its id.
+// A part key the kit doesn't have throws
+export function kitUrl(kitId, file, base = KIT_BASE, cdn = KIT_CDN, ids = KIT_IDS) {
+  if (!cdn) return `${base}${kitId}/${file}`;
+  if (SHARED.has(file)) return `${cdn}${file}`;
+  if (file === 'LAYOUT.json') return `${cdn}kit-${kitId}-layout.json`;
+  const id = ids[kitId]?.[file.replace(/\.mjs$/, '')];
+  if (!file.endsWith('.mjs') || !id) throw new Error(`${kitId} has no ${file} on the CDN (node scripts/kit-ids.mjs lists its parts)`);
+  return `${cdn}${id}.mjs`;
 }
 
+// the account CDN's link, hidden from anything shown or logged
+export const maskAccount = (text) => String(text).replace(/https?:\/\/[^\s/]+\/c\/[^\s/]+\//g, '<account CDN>/');
+
 export function loadError(url, err) {
-  return `Could not load: ${url}${err?.message ? ` (${err.message})` : ''}. Check the connection to the kit server and reload.`;
+  return maskAccount(`Could not load: ${url}${err?.message ? ` (${err.message})` : ''}. Check the connection to the kit server and reload.`);
 }

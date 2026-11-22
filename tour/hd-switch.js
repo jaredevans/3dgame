@@ -3,6 +3,7 @@
 // tour/local.js: config.js puts it first in the part bases). HD is on when that link is configured; ?hd=0 turns it off
 // (to compare, or on a slow machine). ?cdn= replaces every base, so it turns HD off too.
 import { HD_EDITIONS } from './trains/specs.js';
+import { maskAccount } from './config.js';
 
 // a base is the account CDN by its /c/<token>/ path
 export const isAccountCdn = (base) => typeof base === 'string' && /^https?:\/\/[^/]+\/c\/[^/]+\/$/.test(base);
@@ -61,7 +62,7 @@ export function withTimeout(promise, ms, what = 'it') {
 }
 
 // a message with the owner's account CDN link (https://host/c/<token>/) masked: it is never printed
-export const maskAccount = (text) => String(text).replace(/https?:\/\/[^\s/]+\/c\/[^\s/]+\//g, '<account CDN>/');
+export { maskAccount };   // (the account CDN's link, hidden from anything shown or logged: config.js)
 
 // a JSON file at `url`, given `ms` (withTimeout: a host that never answers rejects marked as a timeout, so firstOf skips
 // that base from then on, and the fetch is aborted). An answer that isn't ok is a failure naming its status (fetch
