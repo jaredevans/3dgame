@@ -368,10 +368,13 @@ export const roadSurface = (terrain, x, z) => Math.max(terrain.heightAt(x, z), d
 export const ROAD_STEP = 2;                   // metres between the road's samples (its level, the coach's path)
 const ROAD_PAST = 10;                         // the road runs on this far past where the coach waits and where it stops
 let road = null;
+const ROAD_NEAR = 40;                         // metres: how far from the road near() finds it (past the gang's sweep and a tree's reach)
 // the road's line (no heights: the land's level along it is the terrain's, worked out from it): { line (a makeRoute at
 // y 0, from where the coach waits in the Mountain's yard to where it stops on the Wild West's station pad), path: its
 // samples every ROAD_STEP metres, { x, z } (the coach's path), pts: the road's own samples, the path's and ROAD_PAST
-// more straight on at either end (the road a coach stands on, waiting or pulled up) }
+// more straight on at either end (the road a coach stands on, waiting or pulled up), near(x, z): where (x, z) is by
+// the road, ROAD_NEAR m from it at most: { s (along it, as the coach's path; - before it starts), left (m out to its
+// left; - its right), d } or null }
 export function coachRoad() {
   if (road) return road;
   const at = stationSpot('mountain', 'departure'), to = stationSpot('west', 'arrival');
@@ -384,7 +387,29 @@ export function coachRoad() {
   const a = line.at(0).yaw, b = line.at(line.length).yaw, k = ROAD_PAST / ROAD_STEP;
   const before = Array.from({ length: k }, (_, i) => on(path[0], a, -ROAD_STEP * (k - i)));
   const after = Array.from({ length: k }, (_, i) => on(path[n], b, ROAD_STEP * (i + 1)));
-  road = { line, path, pts: [...before, ...path, ...after] };
+  const pts = [...before, ...path, ...after], grid = new Map(), key = (i, j) => `${i},${j}`;
+  pts.forEach((p, k) => {
+    if (k === pts.length - 1) return;
+    const c = key(Math.floor(p.x / ROAD_NEAR), Math.floor(p.z / ROAD_NEAR));
+    if (!grid.has(c)) grid.set(c, []);
+    grid.get(c).push(k);
+  });
+  // (its samples' spacing, and where along it the first is: the road runs on a little before the coach's path starts)
+  const step = line.length / n, first = -step * before.length;
+  function near(x, z) {
+    const ci = Math.floor(x / ROAD_NEAR), cj = Math.floor(z / ROAD_NEAR);
+    let best = null;
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
+      for (const k of grid.get(key(i, j)) ?? []) {
+        const a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (len * len)));
+        const d = Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
+        if (d <= ROAD_NEAR && (!best || d < best.d)) best = { s: first + (k + t) * step, left: ((x - a.x) * dz - (z - a.z) * dx) / len, d };
+      }
+    }
+    return best;
+  }
+  road = { line, path, pts, near };
   return road;
 }
 

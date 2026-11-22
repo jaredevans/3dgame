@@ -5,12 +5,12 @@
 // scene from the build, hidden until the ride's event ('gang') runs.
 import * as THREE from 'three';
 import { sound } from '../audio.js';
+import { clipFor, HORSE } from '../actors/clips.js';
 import { GANG, gangPlan, placeRider } from './coach-plan.js';
 import { crewFigure, seatOnHorse } from './crew.js';
 import { makeSpray } from './spray.js';
 
 const COLORWAYS = ['canvas', 'oilskin', 'linen', 'oilskin', 'canvas'];
-const HORSE = { walk: 1.6, run: 7 };          // the horse's clips' own speeds (m/s)
 const FLASH = 0.07;                           // s a muzzle flash shows
 const AIM = new THREE.Vector3(-0.2, 0.35, 1).normalize();   // the gun arm's way, in the rider's frame: ahead, up a little, out to its right
 const LOUD = 30;                              // m: a shot nearer the camera than this is at its loudest
@@ -104,13 +104,14 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
       aim = aimArm(rider.figure, r.gun);
     }
     group.add(horse.object);
-    riders.push({ horse, anim: rider?.anim ?? null, aim, flash, flashFor: 0, opts: { timeScale: 1, fade: 0.3 } });
+    riders.push({ horse, anim: rider?.anim ?? null, aim, flash, flashFor: 0, gait: { name: 'Idle', timeScale: 1, fade: 0.3 } });
   }
   // the puffs of dust where the shots land (in the world's frame)
   await slicer.frame();
+  await still();   // (its dust's pool made, and its shots worked out: some 16 ms, only where it may land)
   const dust = makeSpray({ count: 520, size: 1.5, life: DUST.life, gravity: 0.5, name: 'gang shots dust', color: '#c9ad84', opacity: 0.9, air: 1.4, floor: -Infinity });
   group.add(dust.points);
-  const plan = gangPlan(ride);   // (worked out here, at a standstill, not mid-ride)
+  const plan = gangPlan(ride);   // (worked out here, at the build's standstill, not mid-ride)
   const P0 = { x: 0, z: 0, yaw: 0, pace: 0, stopped: 0, a: 0, lane: 0, visible: false };
   let next = 0;
   const hide = () => { for (const r of riders) { r.horse.object.visible = false; if (r.flash) r.flash.visible = false; r.flashFor = 0; } next = 0; };
@@ -129,9 +130,8 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
         o.rotation.y = P0.yaw;
         // its gait from its speed (the coach's times its pace): standing, trotting up, galloping
         const v = P0.pace * f.rideV;
-        const name = v < 0.4 ? 'Idle' : v < (HORSE.walk + HORSE.run) / 2 ? 'Walk' : 'Run';
-        r.opts.timeScale = name === 'Idle' ? 1 : Math.min(2.2, Math.max(0.6, v / (name === 'Walk' ? HORSE.walk : HORSE.run)));
-        r.horse.play(name, r.opts);
+        clipFor(v, r.horse.clips, HORSE, r.gait);
+        r.horse.play(r.gait.name, r.gait);
         r.horse.update(dt);
         if (r.anim) r.anim.update(dt);
         // its gun arm raised while it chases (lowered, as it sits, waiting and once it's pulled up)

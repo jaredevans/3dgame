@@ -938,3 +938,32 @@ test('standing still it comes only once you are inside its window, and once a ru
   assert.equal(again.mode, 'wait', 'until the next run');
   assert.equal(again.shown, false);
 });
+
+test('the canyon\'s stagecoach stands on the land along its run, every wheel within 0.15 m of the ground (it crosses the stagecoach ride\'s road and the bench cut for it)', async () => {
+  const { openStretch, CANYON_COACH: C, standOnGround } = await import('../actors/paths.js');
+  const { worldTerrain } = await import('../world-data.js');
+  const terrain = worldTerrain(), h = terrain.heightAt, def = EVENTS['mountain-west'].find((e) => e.id === 'stagecoach');
+  const side = Math.sign(def.shot?.lateral ?? -1) || -1;
+  const road = openStretch(canyon, terrain, side, [C.lateral], def.s0, def.s1, C.tol);
+  assert.ok(road && road.hi - road.lo > 50, 'it has a road');
+  const P = {}, st = {}, W = C.wheels;
+  let worst = 0, at = 0, flat = 0;
+  for (const sgn of [1, -1]) for (let s = road.lo; s <= road.hi; s += 1) {
+    herdPath(canyon, s, side, C.lateral, P);
+    const yaw = P.yaw + (sgn < 0 ? Math.PI : 0);
+    standOnGround(h, P.x, P.z, yaw, W, st);
+    // each wheel's foot as the rig is posed (YXZ: turned, pitched -pitch, rolled roll)
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(st.pitch), sp = Math.sin(st.pitch), cr = Math.cos(st.roll), sr = Math.sin(st.roll);
+    for (const z of [W.front, W.back]) for (const x of [W.half, -W.half]) {
+      const x1 = x * cr, y1 = x * sr;                       // rolled
+      const y2 = y1 * cp + z * sp, z2 = -y1 * sp + z * cp;   // pitched
+      const wx = P.x + x1 * cy + z2 * sy, wz = P.z - x1 * sy + z2 * cy, wy = st.y + y2;
+      const off = Math.abs(wy - h(wx, wz));
+      if (off > worst) { worst = off; at = s; }
+      // (and as it stood before, unpitched on the ground under its middle)
+      flat = Math.max(flat, Math.abs(h(P.x, P.z) - h(wx, wz)));
+    }
+  }
+  assert.ok(worst <= 0.15, `a wheel ${worst.toFixed(2)} m off the ground at ${at}`);
+  assert.ok(flat > worst, 'the land under it is not flat (the test sees something)');
+});

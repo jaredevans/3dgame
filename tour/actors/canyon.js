@@ -12,13 +12,12 @@
 // the left, the horses and the stagecoach the right; the cattle amble off to the right, your own line's side (it's the
 // right-hand one), the lower, open side at the canyon's mouth.
 import * as THREE from 'three';
-import { KITS } from '../config.js';
-import { kitModule } from '../parts.js';
 import { laneOf, drawnGround } from '../world-data.js';
 import { sound } from '../audio.js';
 import { loadAnimal, clipFor } from './animals.js';
-import { herdPath, paceStep } from './paths.js';
-import { seatOnHorse } from '../rides/crew.js';
+import { HORSE } from './clips.js';
+import { herdPath, paceStep, openStretch, CANYON_COACH, standOnGround } from './paths.js';
+import { crewFigure, seatOnHorse } from '../rides/crew.js';
 
 // 1 over u 0..a, falling to 0 over b..1 (a and b the ends of the fades in and out)
 const fade = (u, a, b) => Math.max(0, Math.min(1, u / a, (1 - u) / (1 - b)));
@@ -26,25 +25,6 @@ const sideOf = (def, fallback) => Math.sign(def.shot?.lateral ?? fallback) || fa
 const sgnOf = (dir) => (dir === 'back' ? -1 : 1);
 const warnOut = (what, def, leg, err) =>
   console.warn(`The ${what} at the ${def.id} along ${leg} was left out: ${err?.url ? `could not load ${err.url}` : err?.message ?? err}`);
-const HORSE = { walk: 1.6, run: 7 };   // a horse's natural paces (its clips' own speeds), for clipFor
-const PLATFORM = 122 + 6;              // a platform window's length, and a body's length clear of it
-
-// the longest run of leg-s in s0..s1 (clear of both platform windows) where the land under each of `laterals` metres
-// out on `side` lies within `tol` of the line's level: -> { lo, hi } or null
-function openStretch(route, terrain, side, laterals, s0, s1, tol) {
-  const lo0 = Math.max(s0, PLATFORM), hi0 = Math.min(s1, route.length - PLATFORM), P = {};
-  let best = null, start = null;
-  for (let s = lo0; s <= hi0; s += 5) {
-    const ok = laterals.every((l) => { herdPath(route, s, side, l, P); return Math.abs(terrain.heightAt(P.x, P.z) - P.y) <= tol; });
-    if (ok) start ??= s;
-    if (start !== null && (!ok || s + 5 > hi0)) {
-      const end = ok ? s : s - 5;
-      if (end > start && (!best || end - start > best.hi - best.lo)) best = { lo: start, hi: end };
-      start = null;
-    }
-  }
-  return best;
-}
 
 // an animal's pose beside the line: on its track (herdPath) at leg-s s, `lateral` out on `side`, on the land, facing
 // along the run (sgn) turned `heading` away from the line
@@ -246,15 +226,12 @@ const RIDERS = [
   { ds: -7, lateral: 34, colorway: 'linen' },
 ];
 const RIDE = { lag: 1, ahead: 6, tol: 6, offFor: 14 };
-async function seatRider(horse, kit, colorway) {
-  const figure = await kit('west', 'outlaw-character', { colorway });
-  const { animate } = await kitModule(KITS.railway, 'clips.mjs');
-  const anim = await animate(figure, { clips: ['Sitting'] });
-  anim.play('Sitting', { fade: 0 });
-  anim.update(0);
-  figure.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  seatOnHorse(figure, horse);   // (on the horse's spine, riding its gallop)
-  return anim;
+// an outlaw seated on a horse, riding its gallop (rides/crew.js); -> its clips (null: none), or null if it couldn't be had
+async function seatRider(horse, kit, colorway, warn) {
+  const rider = await crewFigure({ kit, warn }, { kitKey: 'west', key: 'outlaw-character', params: { colorway }, clip: 'Sitting', what: 'rider' });
+  if (!rider) return null;
+  seatOnHorse(rider.figure, horse);
+  return rider.anim;
 }
 
 async function buildRiders({ leg, route, def, terrain, slicer, kit }) {
@@ -269,8 +246,7 @@ async function buildRiders({ leg, route, def, terrain, slicer, kit }) {
   for (const r of RIDERS) {
     await slicer.frame();
     const horse = kind.make();
-    let anim = null;
-    try { anim = await seatRider(horse, kit, r.colorway); } catch (err) { warnOut('rider', def, leg, err); }
+    const anim = await seatRider(horse, kit, r.colorway, (what, err) => warnOut(what, def, leg, err));
     horse.object.visible = false;
     group.add(horse.object);
     riders.push({ ...r, horse, anim });
@@ -482,7 +458,7 @@ async function buildTumbleweeds({ leg, route, def, terrain, slicer, kit }) {
 // ---- the stagecoach ----
 // a frontier stagecoach drawn by two saddled horses on a dirt road 30 m out, at 9 m/s the way the train is going: set off
 // when the event starts so the train draws level with it about the road's middle; it pulls up at the road's end
-const COACH = { lateral: 30, speed: 9, road: 4, tol: 12, pole: 0.6, pair: 0.5, colour: '#9c7d57' };
+const COACH = { ...CANYON_COACH, speed: 9, road: 4, pole: 0.6, pair: 0.5, colour: '#9c7d57' };
 const dirtMat = new THREE.MeshStandardMaterial({ color: COACH.colour, roughness: 1, flatShading: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 
 async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
@@ -543,9 +519,10 @@ async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
     });
   } catch (err) { warnOut('coach horses', def, leg, err); }
   rig.visible = false;
+  rig.rotation.order = 'YXZ';   // (turned to its way, then pitched and rolled to the land)
   group.add(rig);
 
-  const mid = (road.lo + road.hi) / 2, ctx = { route, terrain, P };
+  const mid = (road.lo + road.hi) / 2, ctx = { route, terrain, P }, stand = { y: 0, pitch: 0, roll: 0 };
   let s = null;
   const hide = () => { s = null; rig.visible = false; };
   return {
@@ -565,6 +542,12 @@ async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
       const v = Math.abs(s - before) / Math.max(f.dt, 1e-3);
       rig.visible = true;
       placeBeside(rig, ctx, s, side, COACH.lateral, sgn);
+      // (stood on the land under its wheels, pitched and rolled to it: its lane crosses the stagecoach ride's road near
+      // the Wild West, down one bank of the bench cut for it and up the other)
+      standOnGround(terrain.heightAt, rig.position.x, rig.position.z, rig.rotation.y, COACH.wheels, stand);
+      rig.position.y = stand.y;
+      rig.rotation.x = -stand.pitch;
+      rig.rotation.z = stand.roll;
       for (const { w, r } of wheels) w.rotation.x += v * f.dt / r;
       const clip = clipFor(v, pair[0]?.clips ?? [], HORSE);
       for (const h of pair) { h.play(clip.name, { timeScale: clip.timeScale }); h.update(f.dt); }

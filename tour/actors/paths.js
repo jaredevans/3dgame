@@ -600,3 +600,40 @@ export function planeStep(st, { here, legS, v, top = v, accel = 0, dir, dt, meet
   st.shown = st.mode === 'fly';
   return st;
 }
+
+// ---- the canyon's stagecoach (actors/canyon.js) ----
+const OPEN_CLEAR = PLATFORM + 6;   // a platform window's length, and a body's length clear of it
+// the longest run of leg-s in s0..s1 (clear of both platform windows) where the land under each of `laterals` metres
+// out on `side` lies within `tol` of the line's level: -> { lo, hi } or null
+export function openStretch(route, terrain, side, laterals, s0, s1, tol) {
+  const lo0 = Math.max(s0, OPEN_CLEAR), hi0 = Math.min(s1, route.length - OPEN_CLEAR), P = {};
+  let best = null, start = null;
+  for (let s = lo0; s <= hi0; s += 5) {
+    const ok = laterals.every((l) => { herdPath(route, s, side, l, P); return Math.abs(terrain.heightAt(P.x, P.z) - P.y) <= tol; });
+    if (ok) start ??= s;
+    if (start !== null && (!ok || s + 5 > hi0)) {
+      const end = ok ? s : s - 5;
+      if (end > start && (!best || end - start > best.hi - best.lo)) best = { lo: start, hi: end };
+      start = null;
+    }
+  }
+  return best;
+}
+
+// the canyon's stagecoach: its lane (lateral m out from the line, on the side of its event's shot), the land along its
+// stretch within `tol` of the line's level, and its wheels' feet in its own frame (+z ahead: the front pair, the back
+// pair, and either side), as the Frontier stagecoach's are
+export const CANYON_COACH = { lateral: 30, tol: 12, wheels: { front: 1.31, back: -1.59, half: 0.82 } };
+// a wheeled thing standing on the land at (x, z), heading yaw (wheels: { front, back, half } in its own frame): into out
+// { y (its origin's height: on the plane through its wheels' feet), pitch (+ its front up), roll (+ its left side up) },
+// for a pose in YXZ (rotation.x = -pitch, rotation.z = roll), so every wheel is on the ground however the land falls
+export function standOnGround(heightAt, x, z, yaw, wheels, out = {}) {
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), lx = Math.cos(yaw), lz = -Math.sin(yaw), { front, back, half } = wheels;
+  const h = (a, l) => heightAt(x + fx * a + lx * l, z + fz * a + lz * l);
+  const fl = h(front, half), fr = h(front, -half), bl = h(back, half), br = h(back, -half);
+  const hf = (fl + fr) / 2, hb = (bl + br) / 2;
+  out.pitch = Math.atan2(hf - hb, front - back);
+  out.roll = Math.atan2((fl + bl) / 2 - (fr + br) / 2, 2 * half);
+  out.y = hb + (hf - hb) * (0 - back) / (front - back);
+  return out;
+}

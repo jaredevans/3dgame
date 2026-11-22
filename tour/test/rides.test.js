@@ -16,7 +16,7 @@ import { TOWERS, footprint } from './fixtures.js';
 import { BENCH, ROAD, coachRoad, roadSurface } from '../world-data.js';
 import { BED_HALF } from '../terrain.js';
 import { CLEAR_LINE } from '../scenery.js';
-import { GANG, GANG_SHOTS, COACH_FOOT, RIDER_REACH, PUFF, placeRider, gangPlan, fromCoach } from '../rides/coach-plan.js';
+import { GANG, GANG_SHOTS, COACH_FOOT, COACH_TEAM, RIDER_REACH, PUFF, placeRider, gangPlan, fromCoach } from '../rides/coach-plan.js';
 
 const terrain = worldTerrain(), ground = (x, z) => terrain.heightAt(x, z);
 const rides = RIDE_LEGS.map(rideFor);
@@ -741,11 +741,15 @@ test('the coach\'s road keeps clear of the railway\'s formation and the trains\'
   });
 });
 
-test('the coach\'s wheels sit on the road: each within 0.15 m of the ground, and of the road as it\'s drawn (no wheel sunk or floating)', () => {
-  const r = ride('coach'), p = {};
-  // its wheels' feet in its holder's frame (left, up, ahead), the path riding ride.rest over the ground
+test('the coach\'s wheels and its team\'s hooves sit on the road: each within 0.15 m of the ground (no wheel or hoof sunk or floating), the wheels of the road as it\'s drawn too', () => {
+  const r = ride('coach'), p = {}, T = COACH_TEAM;
+  // its wheels' feet in its holder's frame (left, up, ahead), the path riding ride.rest over the ground; and its team's
+  // hooves, carried rigid with it ahead of its front wheels (a sharp change in its climb would lift them off the ground
+  // or sink them into it)
   const WHEELS = [[0.82, 1.31], [-0.82, 1.31], [0.82, -1.59], [-0.82, -1.59]];
-  let worst = 0, worstDrawn = 0, at = 0;
+  const HOOVES = [];
+  for (const sx of [-1, 1]) for (const w of [-T.wide, T.wide]) for (const z of T.hooves) HOOVES.push([sx * T.x + w, z]);
+  let worst = 0, worstDrawn = 0, at = 0, hoof = 0, hoofAt = 0;
   for (let s = 0; s <= r.path.length; s += 2) {
     r.path.at(s, p);
     const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw), cp = Math.cos(p.pitch), sp = Math.sin(p.pitch);
@@ -757,10 +761,16 @@ test('the coach\'s wheels sit on the road: each within 0.15 m of the ground, and
       if (off > worst) { worst = off; at = s; }
       worstDrawn = Math.max(worstDrawn, drawn);
     }
+    for (const [x, z] of HOOVES) {
+      const y = -r.rest, yy = y * cp + z * sp, zz = -y * sp + z * cp;
+      const wx = p.x + x * cy + zz * sy, wz = p.z - x * sy + zz * cy, off = Math.abs(p.y + yy - ground(wx, wz));
+      if (off > hoof) { hoof = off; hoofAt = s; }
+    }
   }
+  assert.ok(hoof <= 0.15, `a hoof ${hoof.toFixed(2)} m off the ground at ${hoofAt}`);
   assert.ok(worst <= 0.15, `a wheel ${worst.toFixed(2)} m off the ground at ${at}`);
   // (the road is drawn ROAD.lift over the land, and over the drawn land's corners where they round a crease off: a wheel
-  // may sit that little more into its surface, at the foot of the drop onto the Wild West's station pad)
+  // may sit that little more into its surface)
   assert.ok(worstDrawn <= 0.15 + ROAD.lift, `a wheel ${worstDrawn.toFixed(2)} m off the road as it's drawn`);
 });
 
@@ -771,17 +781,7 @@ test('the gang: five riders break from beside the road after the coach, up behin
   assert.deepEqual({ id: ev.id, actor: ev.actor, s0: ev.s0, s1: ev.s1 }, { id: 'gang', actor: 'gang', s0: GANG.s0, s1: GANG.s1 });
   const track = makeRideTrack(r.events);
   let nearest = Infinity, fastest = 0, jump = 0, alongside = 0, inFile = 0, firstMove = Infinity, lastStop = 0, rails = Infinity, overlap = null, astray = null;
-  // where a point is by the road (its samples): { s along it, left (m out to its left), d }
-  const { line, path, pts } = coachRoad(), step = line.length / (path.length - 1), first = -step * (pts.length - path.length) / 2;
-  const byRoad = (x, z) => {
-    let best = { d: Infinity };
-    for (let k = 0; k < pts.length - 1; k++) {
-      const a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
-      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (len * len))), d = Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
-      if (d < best.d) best = { d, s: first + (k + t) * step, left: ((x - a.x) * dz - (z - a.z) * dx) / len };
-    }
-    return best;
-  };
+  const byRoad = coachRoad().near;   // (where a point is by the road: { s along it, left, d } or null)
   let t0 = 0;
   walkRide(r, (s, t, v) => {
     const on = track.step({ s, dt: t - t0 }); t0 = t;
@@ -805,7 +805,7 @@ test('the gang: five riders break from beside the road after the coach, up behin
       // on the road's bench, or in the gang's sweep beside it, where the scenery keeps clear for them (sampled)
       if (Math.round(s) % 10 === 0) {
         const n = byRoad(o.x, o.z), G = GANG.sweep;
-        if (!(n.d <= BENCH.half + 1 || (n.s >= G.a0 && n.s <= G.a1 && n.left >= 0 && n.left <= G.out))) astray ??= `rider ${i} at ${s.toFixed(0)}: ${n.left.toFixed(1)} m out at ${n.s.toFixed(0)}`;
+        if (!n || !(n.d <= BENCH.half + 1 || (n.s >= G.a0 && n.s <= G.a1 && n.left >= 0 && n.left <= G.out))) astray ??= `rider ${i} at ${s.toFixed(0)}: ${n ? `${n.left.toFixed(1)} m out at ${n.s.toFixed(0)}` : 'far from the road'}`;
       }
       if (s > 150 && s < 700) for (const leg of Object.keys(LEGS)) {
         // (sampled: the riders' lanes run 30 m and more from the line)

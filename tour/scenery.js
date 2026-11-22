@@ -130,31 +130,8 @@ function theWorld() {
     const p = legRoute(leg).at(e.react.at.out);
     return { x: p.x, z: p.z, fx: Math.sin(p.yaw), fz: Math.cos(p.yaw) };
   }));
-  // the stagecoach's road (world-data.js coachRoad): its samples on a 32 m grid, and where along it the gang rides out
-  // to its left (rides/coach-plan.js: their lanes across the open land below the col)
-  const coach = coachRoad(), RG = 32, rgrid = new Map();
-  coach.pts.forEach((p, k) => {
-    if (k === coach.pts.length - 1) return;
-    const c = key(Math.floor(p.x / RG), Math.floor(p.z / RG));
-    if (!rgrid.has(c)) rgrid.set(c, []);
-    rgrid.get(c).push(k);
-  });
-  // (its samples' spacing, and where along it the first is: the road runs on a little before the coach's path starts)
-  const step = coach.line.length / (coach.path.length - 1), first = -step * (coach.pts.length - coach.path.length) / 2;
-  // the road's nearest point to (x, z) within RG: { s (along it), left (m out to its left; - its right), d } or null
-  function nearRoad(x, z) {
-    const ci = Math.floor(x / RG), cj = Math.floor(z / RG);
-    let best = null;
-    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
-      for (const k of rgrid.get(key(i, j)) ?? []) {
-        const a = coach.pts[k], b = coach.pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
-        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (len * len)));
-        const d = Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
-        if (!best || d < best.d) best = { s: first + (k + t) * step, left: ((x - a.x) * dz - (z - a.z) * dx) / len, d };
-      }
-    }
-    return best;
-  }
+  // where a spot is by the stagecoach's road (world-data.js coachRoad), and so by the gang's lanes beside it
+  const nearRoad = coachRoad().near;
   world = { near, toPlace, extras, portals, pads, waters, roads, nearRoad };
   return world;
 }

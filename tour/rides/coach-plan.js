@@ -22,6 +22,9 @@ import { coachRoad, legRoute, LEGS } from '../world-data.js';
 // the coach and its team in its holder's frame (metres; +z ahead, +x its left): its body and wheels (2 m across, 4.5
 // m long, its middle on the holder) and the pair ahead of it (to 5.6 m), measured in the page
 export const COACH_FOOT = { half: 1.1, back: -2.4, front: 5.6 };
+// its team, a pair abreast ahead of it on its pole (the holder's frame): each horse's middle x either side, z ahead; its
+// hooves stand about `hooves` (z, from its hind feet to its fore) and `wide` either side of its middle
+export const COACH_TEAM = { x: 0.52, z: 4.15, hooves: [3.3, 5.0], wide: 0.15 };
 export const RIDER_REACH = 1.3;   // a horse and its rider reach this far from its middle (the horse 2.4 m long)
 export const GANG = {
   count: 5,

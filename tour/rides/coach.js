@@ -7,7 +7,9 @@
 import * as THREE from 'three';
 import { crewFigure, sitOn } from './crew.js';
 import { buildGang } from './gang.js';
+import { COACH_TEAM } from './coach-plan.js';
 import { makeSpray } from './spray.js';
+import { clipFor, HORSE } from '../actors/clips.js';
 
 const COACH = { key: 'stagecoach', params: { colorway: 'saloon-red', load: 'baggage' } };
 // the coach, measured (2 x 2.79 x 4.5 m, +z forward, +x its left): the driver's box at the front, its cushion's top
@@ -16,10 +18,9 @@ const BOX = { top: 2.06, z: 1.22, x: 0.38 };
 // your eyes, sitting on the box's left (the driver on its right, as on a Western coach), looking ahead over the team
 const SEAT = { x: BOX.x, y: BOX.top + 0.78, z: BOX.z + 0.08 };
 // the team: a pair abreast, ahead of the coach's front on a pole from its front axle
-const TEAM = { x: 0.52, z: 4.15, pole: [2.0, 4.9] };
+const TEAM = { ...COACH_TEAM, pole: [2.0, 4.9] };
 const WHEELS = ['wheel-fl', 'wheel-fr', 'wheel-rl', 'wheel-rr'];
 const RUNNING = new Set(['wheel-rl', 'wheel-rr', 'steer-front']);   // the running gear: on the road, not on the springs
-const HORSE = { walk: 1.6, run: 7 };
 // its body on its springs at speed: how far it bobs (m), rocks side to side and pitches (radians), and how hard it jolts
 const SPRING = { bob: 0.035, roll: 0.022, pitch: 0.014, jolt: 0.03 };
 const STEER = { base: 2.9, most: 0.4, ease: 4 };   // the front axle turned to its turn's radius (its wheelbase, m), at most, eased
@@ -91,7 +92,7 @@ export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal
   const actors = new Map();
   try { actors.set('gang', await buildGang({ ride, slicer, still, kit, terrain, loadAnimal, warn })); } catch (err) { if (err?.dropped) throw err; warn('gang', err); }
 
-  const opts = { timeScale: 1, fade: 0.4 }, p = new THREE.Vector3();
+  const gait = { name: 'Idle', timeScale: 1, fade: 0.4 }, p = new THREE.Vector3();
   let t = 0, steerNow = 0, lastYaw = null, dustDue = 0;
   return {
     vehicle: { holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y - ride.rest, SEAT.z) },
@@ -104,9 +105,8 @@ export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal
       driver?.anim?.update(dt);
       const v = f.rideS === null ? 0 : f.rideV, k = Math.min(1, Math.max(0, v / ride.profile.v));
       // the team: standing, trotting off, galloping
-      const name = v < 0.4 ? 'Idle' : v < (HORSE.walk + HORSE.run) / 2 ? 'Walk' : 'Run';
-      opts.timeScale = name === 'Idle' ? 1 : Math.min(2.2, Math.max(0.6, v / (name === 'Walk' ? HORSE.walk : HORSE.run)));
-      for (let i = 0; i < team.length; i++) { team[i].play(name, opts); team[i].update(dt); }
+      if (team.length) clipFor(v, team[0].clips, HORSE, gait);
+      for (let i = 0; i < team.length; i++) { team[i].play(gait.name, gait); team[i].update(dt); }
       // the wheels turn with its way along (rolling forward: its tops going ahead); the front axle steers into its turn
       for (let i = 0; i < wheels.length; i++) wheels[i].w.rotation.x += v * dt / wheels[i].r;
       const yaw = holder.rotation.y;

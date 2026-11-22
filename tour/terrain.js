@@ -23,6 +23,7 @@ const COVER = 9, COVER_HALF = 11, FUNNEL = 30;
 const MOUTH = 6;                // a ground cell across a portal within this of the bore's centre is left out (the portal fills it)
 const TUBE_HALF = 6.5;          // a chunk's skirt never hangs below the tube's roof within this of the line
 const ROAD_SMOOTH = 0.2;        // a road's level is the ground along its centre smoothed, never more than this off it
+const ROAD_RAMP = 36;           // metres: a road eases to a pad's level over this, before the pad
 const ROAD_CELL = 16;           // metres: a road's samples are found by this grid (wider than its reach either side)
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
@@ -296,6 +297,21 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     for (let k = 0; k < 40; k++) {
       y = y.map((v, i) => (i === 0 || i === n - 1 ? g[i] : Math.min(g[i] + ROAD_SMOOTH, Math.max(g[i] - ROAD_SMOOTH, (y[i - 1] + v + y[i + 1]) / 3))));
     }
+    // where a pad holds the ground (a station's yard, its platform's side: the pads win over the bench), the road is at
+    // the pad's level; and it eases to that level over ROAD_RAMP metres before it, not in the pad's own short blend (a
+    // station's pad may stand a metre below the land beside it: a vehicle would take that step at speed)
+    const held = b.pts.map((p) => padHold(p.x, p.z) >= 0.99);
+    const along = [0];
+    for (let i = 1; i < n; i++) along.push(along[i - 1] + Math.hypot(b.pts[i].x - b.pts[i - 1].x, b.pts[i].z - b.pts[i - 1].z));
+    const eased = y.slice();
+    for (let i = 0; i < n; i++) {
+      if (held[i]) { eased[i] = g[i]; continue; }
+      let j = -1, d = ROAD_RAMP;
+      for (let k = i - 1; k >= 0 && along[i] - along[k] < d; k--) if (held[k]) { j = k; d = along[i] - along[k]; break; }
+      for (let k = i + 1; k < n && along[k] - along[i] < d; k++) if (held[k]) { j = k; d = along[k] - along[i]; break; }
+      if (j >= 0) eased[i] = lerp(g[j], y[i], smooth(0, ROAD_RAMP, d));
+    }
+    y = eased;
     const grid = new Map();
     for (let i = 0; i < n - 1; i++) {
       const k = `${Math.floor(b.pts[i].x / ROAD_CELL)},${Math.floor(b.pts[i].z / ROAD_CELL)}`;
@@ -331,6 +347,18 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
   }
 
   function heightAt(x, z) { return ground(x, z, true, true); }
+  // how much the pads hold the ground at (x, z): 1 on one, falling to 0 over its blend
+  function padHold(x, z) {
+    let hold = 0;
+    for (const p of pads) {
+      let d;
+      if (p.r !== undefined) d = Math.max(0, Math.hypot(x - p.x, z - p.z) - p.r);
+      else { const [lx, lz] = toLocal(x, z, p); d = outside(lx, lz, p.w / 2, p.d / 2); }
+      const blend = p.blend ?? PAD_BLEND;
+      if (d < blend) hold = Math.max(hold, 1 - smooth(0, blend, d));
+    }
+    return hold;
+  }
   // the ground: the land, the placed kits' own ground (patches), the track bed, the roads' benches cut into them (never
   // into a line's formation) and the pads, each over the last
   function ground(x, z, withBench, withPatches) {
