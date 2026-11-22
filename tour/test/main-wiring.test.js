@@ -148,6 +148,10 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   assert.match(src, /if \(\(state\.mode === 'foot' \|\| \(state\.mode === 'drive' && Math\.abs\(drive\.v\) < 0\.05\)\)/);
   assert.match(src, /where\.ride = true/);
   assert.match(src, /views\.update\(dt, runner\.train, runner\.viewContext\(dt\)\)/);
+  // the prompts by a ride: ready, or still being built
+  assert.match(src, /if \(r\) prompt = rideReady\(r\.leg\) \? `Take the \$\{r\.name\} to \$\{PLACES\[r\.to\]\.name\} \(E\)` : `Getting the \$\{r\.name\} ready…`;/);
+  // the vehicle you stepped off, let go of or wanted again where it waits, is put back on its own pad
+  assert.match(src, /if \(kit\) parkVehicle\(kit, rideFor\(rideKeep\.leg\), 0\);/);
   // every ride's path worked out behind the loading screen, before the first places are asked for
   const warmAt = src.indexOf('for (const leg of RIDE_LEGS) rideFor(leg)'), firstWant = src.indexOf('await streamer.want(wanted({ place: state.place }))');
   assert.ok(warmAt > 0 && warmAt < firstWant, 'the rides are worked out before the first want');

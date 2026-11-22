@@ -512,7 +512,7 @@ async function boot() {
   // whether the far place's two trains are at their platforms yet
   const rideLeg = { track: null, on: null, placed: false };
   const RIDE_KEEP = 30;   // m: the vehicle you stepped off stays on its pad till you're this far from it
-  let rideKeep = null;    // { id, x, z } of that ride, meanwhile
+  let rideKeep = null;    // { id, leg, x, z } of that ride, meanwhile
   let autoAfterRide = false;   // Z pressed mid-ride: the auto tour starts once you've landed
 
   // ---- the train you drive: its run (journey.runRoute) and where its front is along it ----
@@ -742,7 +742,7 @@ async function boot() {
     for (const w of t.trains) fleet.wait(w.leg, w.dir);
     pendingTurn = null;
     rideLeg.track = null; rideLeg.on = null;
-    rideKeep = { id: `ride:${ride.leg}`, x: ride.land.x, z: ride.land.z };
+    rideKeep = { id: `ride:${ride.leg}`, leg: ride.leg, x: ride.land.x, z: ride.land.z };
     const p = ride.step;
     player.enter(p.x, p.z, p.yaw, walkWorld().heightAt(p.x, p.z));
     keys.ignoreHeld();
@@ -1311,10 +1311,15 @@ async function boot() {
     if (tp.active && !tp.swapped) for (const id of tpKeep) set.add(id);   // where you stood, and where you're going, too
     // nothing new while moving (riding too)
     if (!arr.build || state.mode === 'ride') set = new Set([...set].filter((id) => !streamer.toBuild(id)));
-    // the vehicle you've stepped off stays on its pad (its kit wanted) till you're away from it
+    // the vehicle you've stepped off stays on its pad (its kit wanted) till you're away from it; then, let go here, or
+    // still wanted where it waits (you've teleported back there), it's back on the pad it leaves from
     if (rideKeep) {
       const h = here();
-      if (Math.hypot(h.x - rideKeep.x, h.z - rideKeep.z) > RIDE_KEEP) rideKeep = null; else set.add(rideKeep.id);
+      if (Math.hypot(h.x - rideKeep.x, h.z - rideKeep.z) > RIDE_KEEP) {
+        const kit = streamer.get(rideKeep.id)?.kit;
+        if (kit) parkVehicle(kit, rideFor(rideKeep.leg), 0);
+        rideKeep = null;
+      } else set.add(rideKeep.id);
     }
     streamer.want(set);
     // what's built may land (a kit built in one go, an upload) only on foot, or at a standstill where arrival lets it
