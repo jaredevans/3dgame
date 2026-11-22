@@ -590,7 +590,7 @@ test('zoneOfTriangles finds a zone\'s triangles by all three of their vertex col
 
 // ---- the Metro Glide's leg (actors/metro.js) ----
 import {
-  PLATFORM, LANES, GLIDE, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, PLANE, planeAt, planeStep, soonest,
+  PLATFORM, LANES, CITY_AIR, GLIDE, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, PLANE, planeAt, planeStep, soonest,
 } from '../actors/paths.js';
 import { PLACES, LEGS } from '../world-data.js';
 import { LAYOUT, clearGround } from '../suburbs.js';
@@ -629,11 +629,11 @@ const toKit = (place, x, z) => {
 const lines = Object.keys(LEGS).map((id) => { const r = legRoute(id), pts = []; for (let s = 0; s <= r.length; s += 2) pts.push(r.at(s)); return pts; });
 const toLines = (x, z) => Math.min(...lines.map((pts) => Math.min(...pts.map((q) => Math.hypot(x - q.x, z - q.z)))));
 
-test('six fliers over each town: 30-60 m over the Futuristic place, 40-90 m over Downtown City', () => {
+test('six fliers over the Futuristic place, 30-60 m up; none over Downtown City', () => {
   assert.equal(LANES.future.length, 6);
-  assert.equal(LANES.city.length, 6);
+  assert.equal(LANES.city, undefined, 'no flying cars over Downtown City (owner, 2026-11-21)');
   const o = {};
-  for (const [town, [lo, hi]] of [['future', [30, 60]], ['city', [40, 90]]]) {
+  for (const [town, [lo, hi]] of [['future', [30, 60]]]) {
     const P = PLACES[town];
     for (const lane of LANES[town]) for (let t = 0; t < 120; t += 0.5) {
       laneAt(t, lane, P, o);
@@ -646,7 +646,7 @@ test('six fliers over each town: 30-60 m over the Futuristic place, 40-90 m over
 test('each glides round its lane at about 15 m/s, facing the way it goes, banked into the turn', () => {
   assert.equal(GLIDE.speed, 15);
   const a = {}, b = {};
-  for (const town of ['future', 'city']) for (const lane of LANES[town]) for (let t = 0; t < 60; t += 1.3) {
+  for (const town of ['future']) for (const lane of LANES[town]) for (let t = 0; t < 60; t += 1.3) {
     laneAt(t, lane, PLACES[town], a);
     laneAt(t + 0.05, lane, PLACES[town], b);
     const v = Math.hypot(b.x - a.x, b.z - a.z) / 0.05;
@@ -661,24 +661,108 @@ test('each glides round its lane at about 15 m/s, facing the way it goes, banked
   assert.ok(LANES.future.some((l) => l.dir > 0) && LANES.future.some((l) => l.dir < 0), 'both ways round');
 });
 
+// a lane kept over its town, out of the towers (`reach` metres wider than a tower for its own size: a pod's 6, a
+// helicopter's rotor more) and of any line (so out of the platform windows), over `span` seconds
+function keepsClear(town, lanes, { reach = 6, span = 2 * Math.PI * 60 / GLIDE.speed } = {}) {
+  const o = {}, P = PLACES[town], [ox, oz] = P.offset ?? [0, 0];
+  for (const [i, lane] of lanes.entries()) for (let t = 0; t < span; t += 0.25) {
+    laneAt(t, lane, P, o);
+    const [lx, lz] = toKit(P, o.x, o.z);
+    assert.ok(Math.abs(lx - ox) <= P.size[0] / 2 - 5 && Math.abs(lz - oz) <= P.size[1] / 2 - 5, `${town} lane ${i} leaves the town at ${lx.toFixed(0)}, ${lz.toFixed(0)}`);
+    const up = o.y - P.y;
+    for (const w of TOWERS[town]) {
+      if (Math.hypot(lx - w.x, lz - w.z) > w.r + reach) continue;
+      assert.ok(up >= w.top + 3 || up + 2.5 <= w.from - 3, `${town} lane ${i} through the ${w.x}, ${w.z} at ${up.toFixed(1)} m`);
+    }
+    assert.ok(toLines(o.x, o.z) >= 15, `${town} lane ${i} over a line`);
+  }
+}
+
 test('their lanes stay over their towns, clear of every line (so out of the platform windows), and of the towers', () => {
-  const o = {};
-  for (const town of ['future', 'city']) {
-    const P = PLACES[town], [ox, oz] = P.offset ?? [0, 0];
-    for (const [i, lane] of LANES[town].entries()) for (let t = 0; t < 2 * Math.PI * 60 / GLIDE.speed; t += 0.25) {
+  keepsClear('future', LANES.future);
+});
+
+// ---- the helicopters and drones over Downtown City (owner, 2026-11-21: no flying cars there) ----
+
+// Downtown City's streets clear of anything over 20 m, in its kit's frame (measured in the page: the highest point of
+// every mesh of the town, on a 4 m grid): the east-west street z -12..8 right across, the north-south one x -8..12 the
+// whole way along. Below its towers' tops (32 m) plus 3, a drone keeps 3 m inside one of them
+const STREETS = { ew: [-12, 8], ns: [-8, 12] };
+const CITY_TOP = 32;
+const kinds = { copters: CITY_AIR.copters, drones: CITY_AIR.drones };
+
+test('two helicopters 70-110 m over Downtown City and four drones 30-60 m, among its towers', () => {
+  assert.equal(CITY_AIR.copters.length, 2);
+  assert.equal(CITY_AIR.drones.length, 4);
+  const P = PLACES.city, o = {};
+  for (const [kind, [lo, hi]] of [['copters', [70, 110]], ['drones', [30, 60]]]) {
+    for (const lane of kinds[kind]) for (let t = 0; t < 120; t += 0.25) {
       laneAt(t, lane, P, o);
-      const [lx, lz] = toKit(P, o.x, o.z);
-      assert.ok(Math.abs(lx - ox) <= P.size[0] / 2 - 5 && Math.abs(lz - oz) <= P.size[1] / 2 - 5, `${town} lane ${i} leaves the town at ${lx.toFixed(0)}, ${lz.toFixed(0)}`);
       const up = o.y - P.y;
-      for (const w of TOWERS[town]) {
-        if (Math.hypot(lx - w.x, lz - w.z) > w.r + 6) continue;
-        assert.ok(up >= w.top + 3 || up + 2.5 <= w.from - 3, `${town} lane ${i} through the ${w.x}, ${w.z} at ${up.toFixed(1)} m`);
+      assert.ok(up >= lo && up <= hi, `a ${kind.slice(0, -1)} at ${up.toFixed(1)} m`);
+    }
+  }
+  // some drones down among the towers (below their tops), some over them
+  assert.ok(CITY_AIR.drones.some((l) => l.up < CITY_TOP) && CITY_AIR.drones.some((l) => l.up > CITY_TOP + 5));
+  assert.ok(CITY_AIR.copters.some((l) => l.dir > 0) && CITY_AIR.copters.some((l) => l.dir < 0), 'the helicopters both ways round');
+  assert.ok(CITY_AIR.drones.some((l) => l.dir > 0) && CITY_AIR.drones.some((l) => l.dir < 0), 'the drones both ways round');
+});
+
+test('the helicopters fly slow wide loops banked gently; the drones dart round short ones, tilted but never tipped over', () => {
+  const P = PLACES.city, a = {}, b = {};
+  const loop = (lane) => 2 * Math.PI * ((lane.a + lane.b) / 2) / lane.speed;   // (seconds round: loopAt's)
+  for (const [kind, lanes] of Object.entries(kinds)) for (const lane of lanes) {
+    let most = 0;
+    for (let t = 0; t < 60; t += 0.7) {
+      laneAt(t, lane, P, a);
+      laneAt(t + 0.02, lane, P, b);
+      const v = Math.hypot(b.x - a.x, b.z - a.z) / 0.02;
+      if (kind === 'copters') assert.ok(v > 10 && v < 25, `a helicopter at ${v.toFixed(1)} m/s`);
+      else assert.ok(v < 20, `a drone at ${v.toFixed(1)} m/s`);
+      if (v > 1) {   // (facing the way it goes, where it's going anywhere much)
+        const way = Math.atan2(b.x - a.x, b.z - a.z), off = Math.atan2(Math.sin(way - a.yaw), Math.cos(way - a.yaw));
+        assert.ok(Math.abs(off) < 0.1, `a ${kind.slice(0, -1)} facing ${off.toFixed(3)} off its way`);
       }
+      most = Math.max(most, Math.abs(a.roll));
     }
-    for (const [i, lane] of LANES[town].entries()) for (let t = 0; t < 30; t += 1) {
-      laneAt(t, lane, P, o);
-      assert.ok(toLines(o.x, o.z) >= 15, `${town} lane ${i} over a line`);
+    if (kind === 'copters') {
+      assert.ok(lane.a >= 40 && lane.b >= 35, 'a wide loop');
+      assert.ok(loop(lane) >= 15, `round in ${loop(lane).toFixed(1)} s`);
+      assert.ok(most > 0.05 && most <= 0.27, `a helicopter banked ${(most * 180 / Math.PI).toFixed(1)} deg`);
+    } else {
+      assert.ok(Math.max(lane.a, lane.b) <= 30 && Math.min(lane.a, lane.b) <= 15, 'a short loop');
+      assert.ok(loop(lane) <= 12, `round in ${loop(lane).toFixed(1)} s`);
+      assert.ok(most > 0.05 && most <= 0.45, `a drone tilted ${(most * 180 / Math.PI).toFixed(1)} deg`);
     }
+  }
+});
+
+test('the bank is capped by a lane\'s maxBank, its speed and bob its own; a lane without them glides as a pod does', () => {
+  const P = PLACES.city, base = { x: 0, z: 0, a: 10, b: 6, up: 40, dir: 1, phase: 0 };
+  const o = {}, p = {};
+  let most = 0;
+  for (let t = 0; t < 10; t += 0.1) { most = Math.max(most, Math.abs(laneAt(t, { ...base, speed: 12, maxBank: 0.2 }, P, o).roll)); }
+  assert.ok(most <= 0.2 + 1e-9 && most > 0.19, `capped at ${most}`);
+  // no speed, bob or cap of its own: GLIDE's
+  laneAt(3, base, P, o);
+  laneAt(3, { ...base, speed: GLIDE.speed, bob: GLIDE.bob, maxBank: Infinity }, P, p);
+  assert.deepEqual(o, p);
+  // a bob of its own
+  let lo = Infinity, hi = -Infinity;
+  for (let t = 0; t < GLIDE.period; t += 0.1) { const y = laneAt(t, { ...base, bob: 3 }, P, o).y - P.y; lo = Math.min(lo, y); hi = Math.max(hi, y); }
+  assert.ok(hi - lo > 5.9 && hi - lo <= 6, `bobs ${(hi - lo).toFixed(2)} m`);
+});
+
+test('the helicopters and drones keep over Downtown City, clear of its towers and every line; the low drones keep to its streets', () => {
+  keepsClear('city', CITY_AIR.copters, { reach: 9, span: 60 });   // (a helicopter's rotor reaches 5.5-7 m out)
+  keepsClear('city', CITY_AIR.drones, { reach: 6, span: 30 });
+  const P = PLACES.city, o = {};
+  for (const [i, lane] of CITY_AIR.drones.entries()) for (let t = 0; t < 30; t += 0.1) {
+    laneAt(t, lane, P, o);
+    if (o.y - P.y >= CITY_TOP + 3) continue;
+    const [lx, lz] = toKit(P, o.x, o.z);
+    const inEw = lz >= STREETS.ew[0] + 3 && lz <= STREETS.ew[1] - 3, inNs = lx >= STREETS.ns[0] + 3 && lx <= STREETS.ns[1] - 3;
+    assert.ok(inEw || inNs, `drone ${i} at ${(o.y - P.y).toFixed(1)} m off the streets at ${lx.toFixed(1)}, ${lz.toFixed(1)}`);
   }
 });
 

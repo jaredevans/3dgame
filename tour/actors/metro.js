@@ -1,7 +1,8 @@
 // The Metro Glide's leg (future-city): hover pods and cargo skiffs flying their lanes among the towers of the Futuristic
-// place (not over Downtown City), lit after dark; cars, taxis and trucks going both ways along the suburbs' streets, their
-// headlights on in the dark; and an airliner coming in low over the line to land, gear down, lit after dark. (The level
-// crossing at the city end is crossing.js's; the bridge and the skyline are showpieces: shots, no actor.)
+// place, and helicopters and drones over Downtown City (no flying cars there), all lit after dark; cars, taxis and trucks
+// going both ways along the suburbs' streets, their headlights on in the dark; and an airliner coming in low over the
+// line to land, gear down, lit after dark. (The level crossing at the city end is crossing.js's; the bridge and the
+// skyline are showpieces: shots, no actor.)
 //
 // The leg runs from the Futuristic place (s 0) north-north-east and round to the right into Downtown City (s 2083), from
 // night towards sunrise. Its suburbs (suburbs.js) line it on both sides over s 200-430 and 780-1800: a street 54 m out
@@ -17,7 +18,7 @@ import { TRAIN_SPECS } from '../trains/specs.js';
 import { sound } from '../audio.js';
 import { lightZones, partJson } from './coast.js';
 import {
-  LANES, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, PLANE, planeAt, planeStep,
+  LANES, CITY_AIR, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, PLANE, planeAt, planeStep,
 } from './paths.js';
 
 const warnOut = (what, def, leg, err) =>
@@ -82,17 +83,80 @@ function litShapes(obj, night) {
 }
 
 // ---- the fliers ----
-// six over the Futuristic place (not Downtown City: owner, 2026-11-21), on the lanes paths.js LANES lays out (round its
-// towers, gliding at 15 m/s and banked into their turns), four commuter pods and two cargo skiffs, from the Chrome
-// Arcology kit; lit after dark (their
-// headlights, tail lamps and light strips, a skiff's lift slots). Always shown, wherever you are: by the clock, so each
-// is where it would be
+// six over the Futuristic place (not Downtown City: owner, 2026-11-21; it has helicopters and drones instead, below), on
+// the lanes paths.js LANES lays out (round its towers, gliding at 15 m/s and banked into their turns), four commuter pods
+// and two cargo skiffs, from the Chrome Arcology kit; lit after dark (their headlights, tail lamps and light strips, a
+// skiff's lift slots). Always shown, wherever you are: by the clock, so each is where it would be
 export const FLIER_TOWNS = ['future'];
 const FLIERS = [
   ['commuter-hover-pod', { colorway: 'arcology-white' }], ['commuter-hover-pod', { colorway: 'lilac-line' }],
   ['hover-cargo-skiff', { colorway: 'arc-white', bays: '2' }], ['commuter-hover-pod', { colorway: 'butter-cab' }],
   ['hover-cargo-skiff', { colorway: 'dock-blue', bays: '3' }], ['commuter-hover-pod', { colorway: 'graphite-night' }],
 ];
+
+// ---- the helicopters and drones over Downtown City ----
+// (owner, 2026-11-21: "use helicopters and drones instead" of flying cars there) on the lanes paths.js CITY_AIR lays out:
+// two helicopters on slow, wide loops high over the towers, and four survey drones darting round short ones lower down,
+// two of them down the streets among the towers. Each a Polyfork part, kept whole so its rotors (its rig's nodes) turn
+// every frame about their rig axes, at `rev` turns a second (a drone's front left and back right the other way): kept
+// under half a turn of their blades' symmetry a frame at 60 fps, so none seems to stand or run backwards (the 8-bladed
+// fan, 45 degrees, at 3.5). Lit after dark from its -params.json night map (coast.js lightZones: the helicopters' nav
+// lights and beacons, the ambulance's cabin, chin lamp and beacons, a drone's camera lens and status lights); one whose
+// map can't be read flies unlit. A part that can't be loaded is left out (warned); the rest fly. Nose down a little
+// (`tilt`), as they fly forward
+const COPTERS = [
+  { id: 'helicopter-9d1986', params: { colorway: 'charter-blue', rotor: 'running' }, tilt: 0.05,
+    rotors: [['rotor-main', 'y', 3], ['rotor-tail', 'x', 7]] },
+  { id: 'air-ambulance-helicopter-ed9acc', params: { colorway: 'ems-white' }, tilt: 0.05,
+    rotors: [['rotor', 'y', 2.5], ['tail-fan', 'x', 3.5]] },
+];
+const DRONE = {
+  id: 'survey-drone-7c71f9', tilt: 0.12,
+  rotors: [['rotor-fr', 'y', 12], ['rotor-bl', 'y', 12], ['rotor-fl', 'y', -12], ['rotor-br', 'y', -12]],
+};
+const DRONE_WAYS = ['ceramic-white', 'rescue-orange', 'deep-space', 'regolith-tan'];
+
+// one helicopter or drone: -> { obj, lit: its lit materials, rotors: [{ node, axis, base, turn: radians a second }] }
+async function aircraft({ id, rotors }, params, leg) {
+  const obj = await cdnPart(id, params);
+  obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  obj.rotation.order = 'YXZ';
+  let lit = [];
+  try {
+    const zones = lightZones(obj, (await partJson(id)).night);   // (its lit twins cast no shadow)
+    lit = zones.mats;
+    zones.names.forEach((n, k) => { if (!zones.counts[k]) console.warn(`The ${id} over Downtown City along ${leg}: no ${n} to light (its albedo isn't in the model)`); });
+  } catch (err) {
+    console.warn(`The ${id} over Downtown City along ${leg} flies unlit: could not read its night map${err?.url ? ` (${err.url})` : `: ${err?.message ?? err}`}`);
+  }
+  const spin = [];
+  for (const [name, axis, rev] of rotors) {
+    const node = obj.getObjectByName(name);
+    if (node) spin.push({ node, axis, base: node.rotation[axis], turn: 2 * Math.PI * rev });
+    else console.warn(`The ${id} over Downtown City along ${leg}: no ${name} to turn`);
+  }
+  return { obj, lit, rotors: spin };
+}
+
+// -> { craft: [{ obj, lane, tilt, rotors }], lit } (nothing in it if none of them could be made)
+async function buildCityAir({ leg, def, slicer, group }) {
+  const want = [
+    ...COPTERS.map((c, i) => ({ part: c, params: c.params, lane: CITY_AIR.copters[i], name: `helicopter ${i + 1}` })),
+    ...CITY_AIR.drones.map((lane, i) => ({ part: DRONE, params: { colorway: DRONE_WAYS[i % DRONE_WAYS.length] }, lane, name: `drone ${i + 1}` })),
+  ];
+  const craft = [], lit = [];
+  for (const { part: p, params, lane, name } of want) {
+    await slicer.frame();   // (one a frame)
+    try {
+      const a = await aircraft(p, params, leg);
+      a.obj.name = `${name} city`;
+      group.add(a.obj);
+      craft.push({ obj: a.obj, lane, tilt: p.tilt, rotors: a.rotors });
+      lit.push(...a.lit);
+    } catch (err) { warnOut(`${name} over Downtown City (${p.id})`, def, leg, err); }
+  }
+  return { craft, lit };
+}
 
 async function buildFliers({ leg, def, slicer, kit }) {
   const group = new THREE.Group();
@@ -111,10 +175,10 @@ async function buildFliers({ leg, def, slicer, kit }) {
       lit.push(...k.lit);
     } catch (err) { warnOut(key, def, leg, err); kinds.push(null); }
   }
-  if (!kinds.some(Boolean)) throw new Error('none of its fliers could be made');
   const fliers = [];
   // over the Futuristic place only: Downtown City is an older city with no flying cars (owner, 2026-11-21)
-  for (const town of FLIER_TOWNS) {
+  if (!kinds.some(Boolean)) console.warn(`The ${def.id} along ${leg}: none of its hover pods could be made`);
+  else for (const town of FLIER_TOWNS) {
     for (const [i, lane] of LANES[town].entries()) {
       const k = kinds[i] ?? kinds.find(Boolean);   // (a kind that couldn't be made: another flies its lane)
       const f = new THREE.Group();
@@ -129,7 +193,11 @@ async function buildFliers({ leg, def, slicer, kit }) {
       fliers.push({ f, lane, place: PLACES[town] });
     }
   }
-  const P = {};
+  // and over Downtown City, its helicopters and drones
+  const air = await buildCityAir({ leg, def, slicer, group });
+  lit.push(...air.lit);
+  if (!fliers.length && !air.craft.length) throw new Error('none of its fliers could be made');
+  const P = {}, city = PLACES.city;
   let night = -1;
   return {
     group,
@@ -139,6 +207,12 @@ async function buildFliers({ leg, def, slicer, kit }) {
         laneAt(f.time, x.lane, x.place, P);
         x.f.position.set(P.x, P.y, P.z);
         x.f.rotation.set(0, P.yaw, P.roll);
+      }
+      for (const c of air.craft) {
+        laneAt(f.time, c.lane, city, P);
+        c.obj.position.set(P.x, P.y, P.z);
+        c.obj.rotation.set(c.tilt, P.yaw, P.roll);
+        for (const r of c.rotors) r.node.rotation[r.axis] = r.base + r.turn * f.time;
       }
       const k = clamp01(f.night);
       if (k !== night) { night = k; for (const m of lit) m.emissiveIntensity = k; }

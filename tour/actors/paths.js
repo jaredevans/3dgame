@@ -380,17 +380,19 @@ export function zoneOfTriangles(colors, itemSize, targets, tol = 0.004) {
 
 // ---- the Metro Glide's leg (metro.js) ----
 
-// the fliers: hover pods and cargo skiffs on lanes among the towers of both towns, gliding at `speed` and banked into
-// their turns as a plane is (tan bank = speed x turn rate / g), rising and falling `bob` metres every `period` seconds.
-// (loopAt goes round an ellipse at about `speed`: a little faster along its ends, as its a and b differ)
+// the fliers: hover pods and cargo skiffs on lanes among the towers of the Futuristic place, gliding at `speed` and
+// banked into their turns as a plane is (tan bank = speed x turn rate / g), rising and falling `bob` metres every
+// `period` seconds. (loopAt goes round an ellipse at about `speed`: a little faster along its ends, as its a and b
+// differ.) A lane may fly its own `speed` and `bob`, and cap its bank at `maxBank` (radians): CITY_AIR's do
 export const GLIDE = { speed: 15, g: 9.81, bob: 1, period: 11 };
 
 // each lane an ellipse (paths' loopAt) in its town's own frame (its kit's: x, z about the place's centre, as places.js
 // turns it), `a` along x and `b` along z either way of (x, z), `up` metres over the town's ground, `dir` +1 one way
 // round and -1 the other, from `phase`. Over the Futuristic place the low ones keep inside the ring of towers (the
 // monolith, the capsule towers, the slabs), under the kit's own fliers parked up high; the higher ones clear the
-// monolith and keep wide of those parked fliers, the highest over all of it. Over Downtown City every lane is over its
-// towers (32 m). (The tests hold them to it, and to their towns and heights.)
+// monolith and keep wide of those parked fliers, the highest over all of it. None over Downtown City: an older city,
+// with no flying cars (owner, 2026-11-21; CITY_AIR flies there instead). (The tests hold them to it, and to their
+// towns and heights.)
 export const LANES = {
   future: [
     { x: 4, z: -4, a: 30, b: 26, up: 33, dir: 1, phase: 0 },
@@ -400,13 +402,24 @@ export const LANES = {
     { x: 4, z: 12, a: 40, b: 34, up: 52, dir: 1, phase: 3.3 },
     { x: -2, z: 2, a: 52, b: 60, up: 59, dir: -1, phase: 5.2 },
   ],
-  city: [
-    { x: 0, z: 0, a: 44, b: 36, up: 42, dir: 1, phase: 0 },
-    { x: -8, z: 4, a: 52, b: 42, up: 52, dir: -1, phase: 1.7 },
-    { x: 6, z: -4, a: 38, b: 32, up: 61, dir: 1, phase: 3.4 },
-    { x: 0, z: 2, a: 58, b: 46, up: 70, dir: -1, phase: 5.0 },
-    { x: -4, z: -2, a: 48, b: 40, up: 79, dir: 1, phase: 2.6 },
-    { x: 4, z: 0, a: 56, b: 44, up: 88, dir: -1, phase: 4.4 },
+};
+
+// over Downtown City instead of flying cars (owner, 2026-11-21): lanes as LANES' (in its kit's frame), each with its own
+// speed, bob and bank. Two helicopters on slow, wide loops round the whole town over its towers (32 m), 80 and 100 m
+// up, banked gently (at most 12.6 degrees); four drones darting round short loops, two of them down among the towers
+// (31 and 34 m up, under their tops), each along one of the town's two cross streets (the one east-west at kit z -4, the
+// one north-south at x 3: clear of anything over 20 m), and two over the towers, at 44 and 55 m. A drone tilts into its
+// turns, up to 23 degrees. (The tests hold them to it: their heights, the towers, the streets, the town, the lines.)
+export const CITY_AIR = {
+  copters: [
+    { x: 0, z: 0, a: 58, b: 44, up: 82, dir: 1, phase: 0, speed: 15, bob: 2, maxBank: 0.22 },
+    { x: -4, z: 2, a: 50, b: 40, up: 100, dir: -1, phase: 2.5, speed: 13, bob: 2, maxBank: 0.22 },
+  ],
+  drones: [
+    { x: 0, z: -4, a: 24, b: 3, up: 31, dir: 1, phase: 0, speed: 9, bob: 0.6, maxBank: 0.4 },
+    { x: 3, z: 0, a: 3, b: 22, up: 34, dir: -1, phase: 1.3, speed: 8, bob: 0.6, maxBank: 0.4 },
+    { x: 34, z: -30, a: 12, b: 8, up: 44, dir: 1, phase: 0.6, speed: 7, bob: 0.8, maxBank: 0.4 },
+    { x: -46, z: -6, a: 9, b: 14, up: 55, dir: -1, phase: 3.1, speed: 8, bob: 0.8, maxBank: 0.4 },
   ],
 };
 
@@ -414,7 +427,7 @@ const lp = {}, loop = {};
 // where a flier on `lane` is at time u, and its heading there: round its ellipse (dir -1: the other way), turned by its
 // town (c, s: the cos and sin of its rot) -> lp, filled ({ x, z, yaw })
 function laneSpot(u, lane, place, c, s) {
-  loop.a = lane.a; loop.b = lane.b; loop.speed = GLIDE.speed; loop.phase = lane.phase;
+  loop.a = lane.a; loop.b = lane.b; loop.speed = lane.speed ?? GLIDE.speed; loop.phase = lane.phase;
   loopAt(lane.dir * u, loop, lp);
   const lx = lane.x + lp.along, lz = lane.z + lp.across;
   const vx = lane.dir * Math.sin(lp.heading), vz = lane.dir * Math.cos(lp.heading);   // (along x, along z: loopAt's)
@@ -423,7 +436,7 @@ function laneSpot(u, lane, place, c, s) {
   return lp;
 }
 // a lane's place in the world at time t (place: its town's PLACES entry): -> out, filled ({ x, y, z, yaw, roll: its bank,
-// as the rotation about its nose: - rolls its left (+x) side down, into a left-hand turn })
+// as the rotation about its nose: - rolls its left (+x) side down, into a left-hand turn; no more than its maxBank })
 export function laneAt(t, lane, place, out = {}) {
   const c = Math.cos(place.rot), s = Math.sin(place.rot), h = 0.05;
   const x0 = laneSpot(t - h, lane, place, c, s).x, z0 = lp.z, yaw0 = lp.yaw;
@@ -431,8 +444,9 @@ export function laneAt(t, lane, place, out = {}) {
   const v = Math.hypot(x1 - x0, z1 - z0) / (2 * h), turn = Math.atan2(Math.sin(yaw1 - yaw0), Math.cos(yaw1 - yaw0)) / (2 * h);
   laneSpot(t, lane, place, c, s);
   out.x = lp.x; out.z = lp.z; out.yaw = lp.yaw;
-  out.y = place.y + lane.up + GLIDE.bob * Math.sin(2 * Math.PI * t / GLIDE.period + lane.phase);
-  out.roll = -Math.atan(v * turn / GLIDE.g);
+  out.y = place.y + lane.up + (lane.bob ?? GLIDE.bob) * Math.sin(2 * Math.PI * t / GLIDE.period + lane.phase);
+  const cap = lane.maxBank ?? Infinity;
+  out.roll = Math.min(cap, Math.max(-cap, -Math.atan(v * turn / GLIDE.g)));
   return out;
 }
 
