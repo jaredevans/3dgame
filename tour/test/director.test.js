@@ -391,7 +391,7 @@ test("west-future out: the rocket's shot from behind its window still cuts in (i
   assert.equal(r.shot.at, 1750);
 });
 
-test('a ready event cuts into the arrival shot after 1.5 s, and the arrival shot is picked again after it', () => {
+test('a ready event cuts into the arrival shot once it has had 5 s, and the arrival shot is picked again after it', () => {
   const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
   const e = { id: 'horses', s0: 1500, s1: 1900, actor: 'horses', shot: { kind: 'heli', at: 1650, lateral: -60 } };
   const d = makeDirector({ rand: () => 0 });
@@ -404,18 +404,31 @@ test('a ready event cuts into the arrival shot after 1.5 s, and the arrival shot
     if (r.cut) cuts.push([r.shot.id, i / 10]);
   }
   assert.equal(cuts[0][0], 'horses');
-  assert.ok(Math.abs(cuts[0][1] - 1.5) < 0.05, `horses cut ${cuts[0][1]} s in`);
+  assert.ok(cuts[0][1] >= 4.95 && cuts[0][1] <= 5.15, `horses cut ${cuts[0][1]} s in`);
   assert.equal(cuts[1][0], 'arrive', JSON.stringify(cuts));
 });
 
-test('standing at the destination for 120 s: the arrival shot ends after 2 s, and no shot after it is held under 5 s', () => {
+test('the arrival shot is not picked while an event waits in the queue: that event first, then the arrival', () => {
+  const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
+  const e = { id: 'crossing', s0: 1300, s1: 1950, actor: 'crossing', shot: { kind: 'trackside', at: 1800, lateral: -10 } };
+  const d = makeDirector({ rand: () => 0 });
+  d.step({ ...base, legS: 1300, v: 20, started: [e] });   // queued (1800 is 500 m ahead: not ready yet)
+  const cuts = [];
+  for (let legS = 1302; legS < 1990; legS += 2) { const r = d.step({ ...base, legS, v: 20, showpieces: [arrive] }); if (r.cut) cuts.push([r.shot.id, legS]); }
+  const ids = cuts.map((c) => c[0]);
+  assert.ok(ids.indexOf('crossing') >= 0 && ids.indexOf('crossing') < ids.indexOf('arrive'), JSON.stringify(cuts));
+  assert.equal(ids.filter((id) => id === 'arrive').length, 1, JSON.stringify(cuts));
+});
+
+test('standing at the destination for 120 s: the arrival shot ends once stood 2 s and held 5 s, and no shot after it is held under 5 s', () => {
   const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
   for (const r of [0, 0.5, 0.999]) {
     const d = makeDirector({ rand: () => r });
     assert.equal(d.step({ ...base, legS: 1980, v: 4, showpieces: [arrive] }).shot.id, 'arrive');
     const cuts = [];
     for (let i = 1; i <= 1200; i++) if (d.step({ ...base, legS: 1986, v: 0, showpieces: [arrive] }).cut) cuts.push(i / 10);
-    assert.ok(cuts[0] >= 2 && cuts[0] <= 2.3, `rand ${r}: arrival ended ${cuts[0]} s in`);
+    // (picked just before the stop: it has its 5 s)
+    assert.ok(cuts[0] >= 4.95 && cuts[0] <= 5.15, `rand ${r}: arrival ended ${cuts[0]} s in`);
     for (let i = 1; i < cuts.length; i++) assert.ok(cuts[i] - cuts[i - 1] >= 4.95, `rand ${r}: a shot held ${(cuts[i] - cuts[i - 1]).toFixed(1)} s at ${cuts[i - 1]}`);
   }
 });
