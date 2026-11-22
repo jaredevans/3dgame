@@ -187,7 +187,9 @@ test('the world terrain stays walkable: gentle near lines and places, no cliffs 
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   // (the stagecoach's road is cut into the col's steep flank: its cut and fill are declared, measured on their own below)
-  const road = coachRoad().pts, onBench = (x, z) => road.some((p) => Math.hypot(p.x - x, p.z - z) < BENCH.half + BENCH.blend + 1);
+  const road = coachRoad().pts, reach = BENCH.half + BENCH.blend + 1;
+  const box = road.reduce((b, p) => ({ x0: Math.min(b.x0, p.x - reach), x1: Math.max(b.x1, p.x + reach), z0: Math.min(b.z0, p.z - reach), z1: Math.max(b.z1, p.z + reach) }), { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity });
+  const onBench = (x, z) => x > box.x0 && x < box.x1 && z > box.z0 && z < box.z1 && road.some((p) => Math.hypot(p.x - x, p.z - z) < reach);
   let worstNear = 0, worstFar = 0, counted = 0;
   for (let i = 0; i < 120000; i++) {
     const x = -1400 + rnd() * 5200, z = -300 + rnd() * 2900;
@@ -195,7 +197,7 @@ test('the world terrain stays walkable: gentle near lines and places, no cliffs 
     if (cn.some((c) => c.pts.some((p) => Math.hypot(p.x - x, p.z - z) < c.reach))) continue;
     if (mesas.some((m) => Math.abs(Math.hypot(x - m.x, z - m.z) - m.r) < m.e)) continue;
     if (byPortal(x, z)) continue;
-    if (Math.abs(x - 2800) < 260 && Math.abs(z - 1330) < 600 && onBench(x, z)) continue;
+    if (onBench(x, z)) continue;
     const a = t.heightAt(x, z), step = Math.max(Math.abs(a - t.heightAt(x + 1, z)), Math.abs(a - t.heightAt(x, z + 1)));
     counted++;
     if (lines.some((p) => Math.hypot(p.x - x, p.z - z) < (p.r ?? 150))) worstNear = Math.max(worstNear, step);

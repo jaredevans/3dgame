@@ -311,10 +311,12 @@ async function boot() {
       });
       ctx.check();
       // the stagecoach's road on the bench cut for it (world-data.js coachRoad), drawn with its leg: there whenever the
-      // land is, whether or not you take the coach
-      if (id === COACH_ROAD_LEG) { road = roadMesh(await slicer.run(roadJob(terrain))); ctx.check(); }
+      // land is, whether or not you take the coach (its heights a slice at a time; made into a mesh at a standstill)
+      const roadArrays = id === COACH_ROAD_LEG ? await slicer.run(roadJob(terrain)) : null;
+      ctx.check();
       shadows(structures);
       await ctx.still();
+      if (roadArrays) road = roadMesh(roadArrays);
       await warm(...tracks, structures, ...(road ? [road] : []));
       ctx.check();
     } catch (err) { thing.dispose(); throw err; }

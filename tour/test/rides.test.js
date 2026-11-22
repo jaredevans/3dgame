@@ -770,7 +770,18 @@ test('the gang: five riders break from beside the road after the coach, up behin
   const [ev] = r.events;
   assert.deepEqual({ id: ev.id, actor: ev.actor, s0: ev.s0, s1: ev.s1 }, { id: 'gang', actor: 'gang', s0: GANG.s0, s1: GANG.s1 });
   const track = makeRideTrack(r.events);
-  let nearest = Infinity, fastest = 0, jump = 0, alongside = 0, inFile = 0, firstMove = Infinity, lastStop = 0, rails = Infinity, overlap = null;
+  let nearest = Infinity, fastest = 0, jump = 0, alongside = 0, inFile = 0, firstMove = Infinity, lastStop = 0, rails = Infinity, overlap = null, astray = null;
+  // where a point is by the road (its samples): { s along it, left (m out to its left), d }
+  const { line, path, pts } = coachRoad(), step = line.length / (path.length - 1), first = -step * (pts.length - path.length) / 2;
+  const byRoad = (x, z) => {
+    let best = { d: Infinity };
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (len * len))), d = Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
+      if (d < best.d) best = { d, s: first + (k + t) * step, left: ((x - a.x) * dz - (z - a.z) * dx) / len };
+    }
+    return best;
+  };
   let t0 = 0;
   walkRide(r, (s, t, v) => {
     const on = track.step({ s, dt: t - t0 }); t0 = t;
@@ -791,6 +802,11 @@ test('the gang: five riders break from beside the road after the coach, up behin
       const along = (o.x - c.x) * c.sx + (o.z - c.z) * c.sz;
       if (Math.abs(along) <= 4 && o.lane > 5) alongside++;
       if (Math.abs(o.lane) <= 1.5 && along < -6 && o.stopped === 0) inFile++;
+      // on the road's bench, or in the gang's sweep beside it, where the scenery keeps clear for them (sampled)
+      if (Math.round(s) % 10 === 0) {
+        const n = byRoad(o.x, o.z), G = GANG.sweep;
+        if (!(n.d <= BENCH.half + 1 || (n.s >= G.a0 && n.s <= G.a1 && n.left >= 0 && n.left <= G.out))) astray ??= `rider ${i} at ${s.toFixed(0)}: ${n.left.toFixed(1)} m out at ${n.s.toFixed(0)}`;
+      }
       if (s > 150 && s < 700) for (const leg of Object.keys(LEGS)) {
         // (sampled: the riders' lanes run 30 m and more from the line)
         if (Math.round(s) % 25 === 0) rails = Math.min(rails, nearestOn(leg, o.x, o.z).d);
@@ -806,6 +822,7 @@ test('the gang: five riders break from beside the road after the coach, up behin
   });
   assert.ok(nearest >= GANG.clear, `a rider ${nearest.toFixed(2)} m from the coach`);
   assert.equal(overlap, null, overlap);
+  assert.equal(astray, null, astray);
   assert.ok(fastest <= 21, `a rider at ${fastest.toFixed(1)} m/s`);
   assert.ok(jump <= 0.5, `a rider jumped ${jump.toFixed(2)} m in a frame`);
   assert.ok(alongside > 60 * 3, `riders alongside the coach for ${(alongside / 60).toFixed(1)} rider-seconds`);
