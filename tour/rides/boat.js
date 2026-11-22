@@ -7,8 +7,7 @@
 // heeling into the turn. Its jetties are the places' own (walkways.js). The octopus is its set piece (octopus.js).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { KITS } from '../config.js';
-import { kitModule } from '../parts.js';
+import { crewFigure } from './crew.js';
 import { SEA_LEVEL } from '../world-data.js';
 import { swerveAt } from '../rides.js';
 import { buildOctopus } from './octopus.js';
@@ -65,19 +64,12 @@ export async function buildBoat({ ride, slicer, still, cdnPart, loadAnimal, kit,
   let anim = null;
   await slicer.frame();
   await still();   // (the captain made and his clips put on: only where it may land)
-  try {
-    const captain = await kit('ocean', 'fisherman', { age: 'adult', build: 1.05 });
-    captain.name = 'captain';
-    captain.position.set(0, HELM.deck, HELM.z);
-    captain.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-    try {
-      const { animate } = await kitModule(KITS.railway, 'clips.mjs');
-      anim = await animate(captain, { clips: ['Idle'] });
-      anim.play('Idle', { fade: 0 });
-      anim.update(0);
-    } catch (err) { warn('captain\'s clips', err); }
-    hull.add(captain);
-  } catch (err) { if (err?.dropped) throw err; warn('captain', err); }
+  const captain = await crewFigure({ kit, warn }, { kitKey: 'ocean', key: 'fisherman', params: { age: 'adult', build: 1.05 }, name: 'captain' });
+  if (captain) {
+    captain.figure.position.set(0, HELM.deck, HELM.z);
+    hull.add(captain.figure);
+    anim = captain.anim;
+  }
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
 

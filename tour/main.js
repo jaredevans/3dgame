@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { quietToNonIndexed } from './three-guards.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, part, cdnPart, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
-import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL, COACH_ROAD_LEG } from './world-data.js';
 import { departureFor, departureSign, rideSign, pointer } from './wayfinding.js';
 import { makeMap } from './map.js';
 import { wantedSet, neededToDrive, readyToLeave, readyToRide } from './streaming.js';
@@ -52,6 +52,7 @@ import { makeShuttleCab } from './cabs/shuttle.js';
 import { RIDE_LEGS, rideFor } from './rides.js';
 import { nearRide, makeRideRunner, parkVehicle } from './ride-run.js';
 import { RIDE_BUILDERS } from './rides/index.js';
+import { roadJob, roadMesh } from './rides/road-mesh.js';
 
 // each train spec's cab, made for its leading vehicle (a steam cab is measured per locomotive model)
 const CABS = {
@@ -282,7 +283,7 @@ async function boot() {
     await ctx.still();
     const route = legRoute(id), lanes = [laneOf(id), -laneOf(id)];
     const tracks = lanes.map((lane) => buildTrack(route, lane, route.sections));   // none on its guideways
-    let structures = null, suburbs = null, events = null;
+    let structures = null, suburbs = null, events = null, road = null;
     const thing = {
       structures: null, suburbs: null, events: null,
       // done once its extras are in (or left out): the train along it waits for that, so they're never built as you
@@ -298,7 +299,7 @@ async function boot() {
         }
       },
       dispose() {
-        unload.add(...tracks, ...(structures ? [structures] : []));   // freed at a standstill, with the kits' parts unless something drawn shares them
+        unload.add(...tracks, ...(structures ? [structures] : []), ...(road ? [road] : []));   // freed at a standstill, with the kits' parts unless something drawn shares them
         suburbs?.dispose();
         events?.dispose();
         if (disown(legOwner, id, thing)) terrain.removeStructures(route);
@@ -309,13 +310,17 @@ async function boot() {
         terrain, waters: FEATURES.filter((f) => f.kind === 'valley' && f.water && f.leg === id),
       });
       ctx.check();
+      // the stagecoach's road on the bench cut for it (world-data.js coachRoad), drawn with its leg: there whenever the
+      // land is, whether or not you take the coach
+      if (id === COACH_ROAD_LEG) { road = roadMesh(await slicer.run(roadJob(terrain))); ctx.check(); }
       shadows(structures);
       await ctx.still();
-      await warm(...tracks, structures);
+      await warm(...tracks, structures, ...(road ? [road] : []));
       ctx.check();
     } catch (err) { thing.dispose(); throw err; }
     for (const t of tracks) scene.add(t);
     scene.add(structures);
+    if (road) scene.add(road);
     own(legOwner, id, thing);
     terrain.addStructures(route);   // its portals now fill the ground left out across them
     suburbs = LEGS[id].suburbs ? scenery(async ({ gone }) => {

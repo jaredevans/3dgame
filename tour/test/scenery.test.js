@@ -205,3 +205,30 @@ test("nothing grows on a level crossing's road", async () => {
     }
   }
 });
+
+test('nothing grows on the stagecoach\'s road or its bench, or across the gang\'s lanes beside it', async () => {
+  const { coachRoad, BENCH } = await import('../world-data.js');
+  const { GANG } = await import('../rides/coach-plan.js');
+  const { line, path, pts } = coachRoad(), step = line.length / (path.length - 1), first = -step * (pts.length - path.length) / 2;
+  // the chunks round the road too (it runs up to 240 m from the line)
+  const keys = new Set();
+  for (const p of pts) for (const dx of [-40, 0, 40]) for (const dz of [-40, 0, 40]) keys.add(`${Math.floor((p.x + dx) / CHUNK)},${Math.floor((p.z + dz) / CHUNK)}`);
+  const near = [...keys].flatMap((k) => { const [i, j] = k.split(',').map(Number); return scatter(i, j, CHUNK, terrain, { seed: 1 }); });
+  let looked = 0;
+  for (const q of near) {
+    const r = VARIANTS[q.v].r;
+    let best = { d: Infinity };
+    for (let k = 0; k < pts.length - 1; k++) {
+      const a = pts[k], b = pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz);
+      const t = Math.max(0, Math.min(1, ((q.x - a.x) * dx + (q.z - a.z) * dz) / (len * len)));
+      const d = Math.hypot(q.x - a.x - t * dx, q.z - a.z - t * dz);
+      if (d < best.d) best = { d, s: first + (k + t) * step, left: ((q.x - a.x) * dz - (q.z - a.z) * dx) / len };
+    }
+    if (best.d > 60) continue;
+    looked++;
+    assert.ok(best.d >= BENCH.half + r, `a ${q.key} on the coach's road at ${best.s.toFixed(0)}`);
+    const G = GANG.sweep;
+    assert.ok(!(best.s > G.a0 && best.s < G.a1 && best.left > -r && best.left < G.out + r), `a ${q.key} in the gang's way at ${best.s.toFixed(0)}`);
+  }
+  assert.ok(looked > 30, `${looked} pieces near the road`);   // (a check that it looked: much of it runs by the line, kept clear)
+});

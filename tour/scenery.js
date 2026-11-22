@@ -8,6 +8,8 @@ import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute, legSections, stationPads, 
 import { KITS } from './config.js';
 import { EVENTS } from './events.js';
 import { ROAD } from './suburbs.js';
+import { coachRoad, BENCH } from './world-data.js';
+import { GANG } from './rides/coach-plan.js';
 
 export const CLEAR_LINE = 12;     // nothing reaches nearer a line's centre than this: its swept path and its track bed
 export const MAX_SLOPE = 0.8;     // nor stands where the ground rises more than this (per metre) over 4 m on any side
@@ -19,6 +21,7 @@ const SUBURB = { pad: 30, out: 80 };       // nor in a leg's suburbs: their lots
 const RIVER_ABOVE = 1.2;          // nor in a river: below its water (floor + 0.7) and a little more, in its valley
 const CELL = 16;                  // one candidate spot in each 16 m square of a chunk (256 to a 256 m chunk)
 const NEAR_LINE = 80;             // out to here beside a line, a spot is never left too sparse (no bare stretches)
+const CLEAR_ROAD = BENCH.half + 3; // nor this near the stagecoach's road (its bench, and the foot of its cut and fill)
 
 // The parts, measured in the page with these knobs (metres): r how far the part reaches from its origin (clear of the
 // line by CLEAR_LINE + r), base how far out its foot touches the ground (it stands at the lowest ground round that),
@@ -127,7 +130,32 @@ function theWorld() {
     const p = legRoute(leg).at(e.react.at.out);
     return { x: p.x, z: p.z, fx: Math.sin(p.yaw), fz: Math.cos(p.yaw) };
   }));
-  world = { near, toPlace, extras, portals, pads, waters, roads };
+  // the stagecoach's road (world-data.js coachRoad): its samples on a 32 m grid, and where along it the gang rides out
+  // to its left (rides/coach-plan.js: their lanes across the open land below the col)
+  const coach = coachRoad(), RG = 32, rgrid = new Map();
+  coach.pts.forEach((p, k) => {
+    if (k === coach.pts.length - 1) return;
+    const c = key(Math.floor(p.x / RG), Math.floor(p.z / RG));
+    if (!rgrid.has(c)) rgrid.set(c, []);
+    rgrid.get(c).push(k);
+  });
+  // (its samples' spacing, and where along it the first is: the road runs on a little before the coach's path starts)
+  const step = coach.line.length / (coach.path.length - 1), first = -step * (coach.pts.length - coach.path.length) / 2;
+  // the road's nearest point to (x, z) within RG: { s (along it), left (m out to its left; - its right), d } or null
+  function nearRoad(x, z) {
+    const ci = Math.floor(x / RG), cj = Math.floor(z / RG);
+    let best = null;
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
+      for (const k of rgrid.get(key(i, j)) ?? []) {
+        const a = coach.pts[k], b = coach.pts[k + 1], dx = b.x - a.x, dz = b.z - a.z, len = Math.hypot(dx, dz) || 1;
+        const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (len * len)));
+        const d = Math.hypot(x - a.x - t * dx, z - a.z - t * dz);
+        if (!best || d < best.d) best = { s: first + (k + t) * step, left: ((x - a.x) * dz - (z - a.z) * dx) / len, d };
+      }
+    }
+    return best;
+  }
+  world = { near, toPlace, extras, portals, pads, waters, roads, nearRoad };
   return world;
 }
 
@@ -151,6 +179,10 @@ function clearOf(w, x, z, r) {
   }
   for (const p of w.toPlace) if (outsideRect(p, x, z, p.size[0], p.size[1], ...(p.offset ?? [0, 0])) < CLEAR_PLACE) return false;
   for (const [ex, ez] of w.extras) if (Math.hypot(x - ex, z - ez) < CLEAR_EXTRA + r) return false;
+  const n = w.nearRoad(x, z);
+  if (n && n.d < CLEAR_ROAD + r) return false;
+  const G = GANG.sweep;
+  if (n && n.s > G.a0 && n.s < G.a1 && n.left > -r && n.left < G.out + r) return false;
   for (const q of w.roads) {
     const along = (x - q.x) * q.fx + (z - q.z) * q.fz, across = (x - q.x) * q.fz - (z - q.z) * q.fx;
     if (Math.abs(along) < ROAD.width / 2 + r && Math.abs(across) <= ROAD.length + r) return false;

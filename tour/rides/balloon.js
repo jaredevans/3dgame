@@ -10,8 +10,7 @@
 // platform where it sets down. The crows are its set piece (crows.js).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { KITS } from '../config.js';
-import { kitModule } from '../parts.js';
+import { crewFigure } from './crew.js';
 import { BALLOON, envelopeRadius, burnAt } from '../rides.js';
 import { buildCrows } from './crows.js';
 
@@ -224,19 +223,12 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   let anim = null;
   await slicer.frame();
   await still();
-  try {
-    const pilot = await kit('mountain', 'mountaineer', {});
-    pilot.name = 'balloon pilot';
-    pilot.position.set(PILOT.x, BALLOON.floor + 0.08, PILOT.z);
-    pilot.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-    try {
-      const { animate } = await kitModule(KITS.railway, 'clips.mjs');
-      anim = await animate(pilot, { clips: ['Idle'] });
-      anim.play('Idle', { fade: 0 });
-      anim.update(0);
-    } catch (err) { warn('pilot\'s clips', err); }
-    holder.add(pilot);
-  } catch (err) { if (err?.dropped) throw err; warn('pilot', err); }
+  const pilot = await crewFigure({ kit, warn }, { kitKey: 'mountain', key: 'mountaineer', name: 'balloon pilot', what: 'pilot' });
+  if (pilot) {
+    pilot.figure.position.set(PILOT.x, BALLOON.floor + 0.08, PILOT.z);
+    holder.add(pilot.figure);
+    anim = pilot.anim;
+  }
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
 

@@ -22,15 +22,18 @@ function dotTexture() {
 }
 
 // count: the pool's size (the oldest is reused when it's full); size: a point's size in metres; life: seconds (a
-// particle's own may be given); gravity: m/s² (0: foam that lies on the water, drifting and fading)
-export function makeSpray({ count, size, life, gravity, name = 'spray', opacity = 1 }) {
+// particle's own may be given); gravity: m/s² (0: foam that lies on the water, drifting and fading); color: its tint
+// (white spray, tan dust); air: how fast it all slows in the air, 1/s (dust; foam on the water slows anyway); floor:
+// below this height a particle is gone (the sea's surface, for spray)
+export function makeSpray({ count, size, life, gravity, name = 'spray', opacity = 1, color = '#ffffff', air = 0, floor = SEA_LEVEL - 0.3 }) {
   const pos = new Float32Array(count * 3), vel = new Float32Array(count * 3), col = new Float32Array(count * 4);
-  const age = new Float32Array(count).fill(1), span = new Float32Array(count).fill(life), fall = new Float32Array(count);
+  // (every slot starts dead: its age past its span of 0, so nothing shows until it's flung)
+  const age = new Float32Array(count).fill(1), span = new Float32Array(count), fall = new Float32Array(count);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 4).setUsage(THREE.DynamicDrawUsage));
   const points = new THREE.Points(geo, new THREE.PointsMaterial({
-    size, map: dotTexture(), vertexColors: true, transparent: true, depthWrite: false, opacity,
+    size, map: dotTexture(), vertexColors: true, transparent: true, depthWrite: false, opacity, color,
   }));
   points.name = name;
   points.frustumCulled = false;   // (moved by hand, all over)
@@ -65,10 +68,11 @@ export function makeSpray({ count, size, life, gravity, name = 'spray', opacity 
         age[i] += dt;
         vel[i * 3 + 1] -= fall[i] * dt;
         pos[i * 3] += vel[i * 3] * dt; pos[i * 3 + 1] += vel[i * 3 + 1] * dt; pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
-        // foam slows on the water; spray that falls back in is gone
-        if (!fall[i]) { const k = Math.exp(-dt * 1.5); vel[i * 3] *= k; vel[i * 3 + 2] *= k; }
+        // foam slows on the water, and anything in air that drags (dust); spray that falls back in (under `floor`) is gone
+        const slow = (fall[i] ? 0 : 1.5) + air;
+        if (slow) { const k = Math.exp(-dt * slow); vel[i * 3] *= k; vel[i * 3 + 2] *= k; }
         const k = age[i] / span[i];
-        col[i * 4 + 3] = pos[i * 3 + 1] < SEA_LEVEL - 0.3 ? 0 : Math.min(1, 1.5 * (1 - k));
+        col[i * 4 + 3] = pos[i * 3 + 1] < floor ? 0 : Math.min(1, 1.5 * (1 - k));
       }
       geo.attributes.position.needsUpdate = true;
       geo.attributes.color.needsUpdate = true;

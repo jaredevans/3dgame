@@ -13,6 +13,10 @@ import { LEGS, PLACES, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow,
 import { stationWalk } from '../station-walk.js';
 import { rocketPad } from '../actors/paths.js';
 import { TOWERS, footprint } from './fixtures.js';
+import { BENCH, ROAD, coachRoad, roadSurface } from '../world-data.js';
+import { BED_HALF } from '../terrain.js';
+import { CLEAR_LINE } from '../scenery.js';
+import { GANG, GANG_SHOTS, COACH_FOOT, RIDER_REACH, PUFF, placeRider, gangPlan, fromCoach } from '../rides/coach-plan.js';
 
 const terrain = worldTerrain(), ground = (x, z) => terrain.heightAt(x, z);
 const rides = RIDE_LEGS.map(rideFor);
@@ -58,8 +62,8 @@ test('five rides, one per leg, onward', () => {
     assert.equal(r.to, LEGS[r.leg].to);
     assert.equal(rideFor(r.leg), r, 'memoised');
     // (each ride's set pieces are its own tasks': so far the car's escort and its two shots, the boat's octopus and its,
-    // the balloon's crows and its two)
-    if (r.id !== 'car' && r.id !== 'boat' && r.id !== 'balloon') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
+    // the balloon's crows and its two, the coach's gang and its two)
+    if (r.id !== 'car' && r.id !== 'boat' && r.id !== 'balloon' && r.id !== 'coach') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
   }
   assert.throws(() => rideFor('nowhere'));
 });
@@ -696,4 +700,190 @@ test('the balloon\'s showpieces: the crows round the canopy (heli) once they\'ve
     if (s === wide.s0) assert.ok(far(falls) > far(b) + 100 && far(vm) > far(b) + 100, 'they are not beyond the balloon');
   }
   for (const sp of r.showpieces) assert.ok(sp.s0 >= 0 && sp.s1 <= r.path.length && !sp.actor);
+});
+
+// ---- the stagecoach: its road on its bench, and its gang ----
+
+// the coach's footprint (and its team's) where the coach is at ride-s s, for fromCoach
+const coachFrame = (r, s) => { const p = r.path.at(s); return { x: p.x, z: p.z, sx: Math.sin(p.yaw), sz: Math.cos(p.yaw) }; };
+// every frame of the ride at dt 1/60, as the runner takes it: fn(s, t, v)
+function walkRide(r, fn) {
+  let st = { s: 0, t: 0 };
+  while (!st.done) { st = rideStep(st, 1 / 60, r); fn(st.s, st.t, st.v); }
+}
+
+test('the coach\'s road lies on a level bench cut into the land: under 5% across within 3 m of its centre, every metre of it', () => {
+  const { line } = coachRoad();
+  assert.ok(BENCH.half >= 3 && BENCH.half <= 4 && BENCH.blend >= 8 && BENCH.blend <= 10);
+  let worst = 0, at = 0;
+  for (let s = 0; s <= line.length; s += 1) {
+    const c = line.offsetAt(s, 0), mid = ground(c.x, c.z);
+    for (const d of [-3, -2, -1, 1, 2, 3]) {
+      const o = line.offsetAt(s, d), f = Math.abs(ground(o.x, o.z) - mid) / Math.abs(d);
+      if (f > worst) { worst = f; at = s; }
+    }
+  }
+  assert.ok(worst < 0.05, `the road falls ${(worst * 100).toFixed(1)}% across at ${at}`);
+  // and the coach's path is the road's, on the ground along its centre
+  const r = ride('coach');
+  assert.ok(Math.abs(r.path.length - line.length) < 2);
+});
+
+test('the coach\'s road keeps clear of the railway\'s formation and the trains\' swept path (its edges past the track bed)', () => {
+  // (all of it as it's drawn: the coach's way and the road on past either end of it)
+  const { pts } = coachRoad();
+  assert.ok(pts.length > coachRoad().path.length);
+  pts.forEach((c, k) => {
+    for (const leg of Object.keys(LEGS)) {
+      const n = nearestOn(leg, c.x, c.z);
+      assert.ok(n.d - ROAD.half >= BED_HALF + 1, `the road's edge ${(n.d - ROAD.half).toFixed(1)} m from ${leg}'s line at its ${k}th sample`);
+    }
+  });
+});
+
+test('the coach\'s wheels sit on the road: each within 0.15 m of the ground, and of the road as it\'s drawn (no wheel sunk or floating)', () => {
+  const r = ride('coach'), p = {};
+  // its wheels' feet in its holder's frame (left, up, ahead), the path riding ride.rest over the ground
+  const WHEELS = [[0.82, 1.31], [-0.82, 1.31], [0.82, -1.59], [-0.82, -1.59]];
+  let worst = 0, worstDrawn = 0, at = 0;
+  for (let s = 0; s <= r.path.length; s += 2) {
+    r.path.at(s, p);
+    const cy = Math.cos(p.yaw), sy = Math.sin(p.yaw), cp = Math.cos(p.pitch), sp = Math.sin(p.pitch);
+    for (const [x, z] of WHEELS) {
+      // as the runner poses it (YXZ, pitched up its climb): the foot's place in the world
+      const y = -r.rest, yy = y * cp + z * sp, zz = -y * sp + z * cp;
+      const wx = p.x + x * cy + zz * sy, wz = p.z - x * sy + zz * cy, wy = p.y + yy;
+      const off = Math.abs(wy - ground(wx, wz)), drawn = Math.abs(wy - roadSurface(terrain, wx, wz));
+      if (off > worst) { worst = off; at = s; }
+      worstDrawn = Math.max(worstDrawn, drawn);
+    }
+  }
+  assert.ok(worst <= 0.15, `a wheel ${worst.toFixed(2)} m off the ground at ${at}`);
+  // (the road is drawn ROAD.lift over the land, and over the drawn land's corners where they round a crease off: a wheel
+  // may sit that little more into its surface, at the foot of the drop onto the Wild West's station pad)
+  assert.ok(worstDrawn <= 0.15 + ROAD.lift, `a wheel ${worstDrawn.toFixed(2)} m off the road as it's drawn`);
+});
+
+test('the gang: five riders break from beside the road after the coach, up behind and alongside it, then in file over the col; never within 4 m of it, never on one another, at a horse\'s pace, clear of the railway', () => {
+  const r = ride('coach'), o = {}, prev = [];
+  assert.equal(GANG.count, 5);
+  const [ev] = r.events;
+  assert.deepEqual({ id: ev.id, actor: ev.actor, s0: ev.s0, s1: ev.s1 }, { id: 'gang', actor: 'gang', s0: GANG.s0, s1: GANG.s1 });
+  const track = makeRideTrack(r.events);
+  let nearest = Infinity, fastest = 0, jump = 0, alongside = 0, inFile = 0, firstMove = Infinity, lastStop = 0, rails = Infinity, overlap = null;
+  let t0 = 0;
+  walkRide(r, (s, t, v) => {
+    const on = track.step({ s, dt: t - t0 }); t0 = t;
+    if (!on.active.has('gang')) return;
+    const c = coachFrame(r, s), pos = [];
+    for (let i = 0; i < GANG.count; i++) {
+      placeRider(r, s, i, o);
+      pos.push({ ...o });
+      if (!o.visible) { prev[i] = null; continue; }
+      nearest = Math.min(nearest, fromCoach(c, o.x, o.z) - RIDER_REACH);
+      const speed = o.pace * v;
+      fastest = Math.max(fastest, speed);
+      if (speed > 1 && s < firstMove) firstMove = s;
+      if (o.stopped > 0 && o.stopped < 1) lastStop = Math.max(lastStop, s);
+      if (prev[i]) jump = Math.max(jump, Math.hypot(o.x - prev[i].x, o.z - prev[i].z));
+      prev[i] = { x: o.x, z: o.z };
+      // beside the coach (level with its body, out in its lane), or behind it on the road
+      const along = (o.x - c.x) * c.sx + (o.z - c.z) * c.sz;
+      if (Math.abs(along) <= 4 && o.lane > 5) alongside++;
+      if (Math.abs(o.lane) <= 1.5 && along < -6 && o.stopped === 0) inFile++;
+      if (s > 150 && s < 700) for (const leg of Object.keys(LEGS)) {
+        // (sampled: the riders' lanes run 30 m and more from the line)
+        if (Math.round(s) % 25 === 0) rails = Math.min(rails, nearestOn(leg, o.x, o.z).d);
+      }
+    }
+    // no two horses on one another: apart along each one's way (2.4 m long) or across it (0.9 m with its rider's legs)
+    for (let i = 0; i < GANG.count; i++) for (let j = 0; j < GANG.count; j++) {
+      if (i === j || !pos[i].visible || !pos[j].visible) continue;
+      const dx = pos[j].x - pos[i].x, dz = pos[j].z - pos[i].z, sn = Math.sin(pos[i].yaw), cs = Math.cos(pos[i].yaw);
+      const al = Math.abs(dx * sn + dz * cs), ac = Math.abs(dx * cs - dz * sn);
+      if (al < 2.8 && ac < 1.3) overlap ??= `${i} and ${j} at ${s.toFixed(0)}: ${al.toFixed(1)} along, ${ac.toFixed(1)} across`;
+    }
+  });
+  assert.ok(nearest >= GANG.clear, `a rider ${nearest.toFixed(2)} m from the coach`);
+  assert.equal(overlap, null, overlap);
+  assert.ok(fastest <= 21, `a rider at ${fastest.toFixed(1)} m/s`);
+  assert.ok(jump <= 0.5, `a rider jumped ${jump.toFixed(2)} m in a frame`);
+  assert.ok(alongside > 60 * 3, `riders alongside the coach for ${(alongside / 60).toFixed(1)} rider-seconds`);
+  assert.ok(inFile > 60 * 5, `riders in file behind it for ${(inFile / 60).toFixed(1)} rider-seconds`);
+  // the chase over ride-s ~200-650 (ruling R12): from their ambush to the last pulling up
+  assert.ok(firstMove >= 200 && lastStop <= 680, `the chase runs ${firstMove.toFixed(0)}-${lastStop.toFixed(0)}`);
+  assert.ok(rails >= CLEAR_LINE + 10, `a rider ${rails.toFixed(1)} m from a line`);
+});
+
+test('the gang fires and always misses: each puff of dust lands 6 m and more from the coach for all its life, clear of every rider, its line of fire clear of the coach', () => {
+  const r = ride('coach'), { shots } = gangPlan(r), o = {}, q = {};
+  assert.ok(shots.length >= 20, `${shots.length} shots`);
+  assert.ok(new Set(shots.map((sh) => sh.rider)).size >= 3, 'three riders or more fire');
+  assert.ok(shots.some((sh) => sh.ping) && shots.some((sh) => !sh.ping));
+  assert.ok(gangPlan(r) === gangPlan(r), 'worked out once');
+  // the coach's ride-s at each moment (the ride's own clock), to follow a puff's life
+  const sAtT = [];
+  walkRide(r, (s) => sAtT.push(s));
+  const tOf = (s) => sAtT.findIndex((x) => x >= s);
+  for (const sh of shots) {
+    placeRider(r, sh.s, sh.rider, o);
+    assert.ok(o.visible && o.pace > 0.5 && o.stopped === 0, `a shot at ${sh.s.toFixed(0)} by rider ${sh.rider} not riding`);
+    // its life: the coach's ride-s each frame of it
+    for (let k = tOf(sh.s); k < sAtT.length && k <= tOf(sh.s) + PUFF.life * 60; k++) {
+      const s = sAtT[k], c = coachFrame(r, s);
+      // (all its dust, PUFF.spread round where it lands, 6 m from the coach)
+      assert.ok(PUFF.spread >= 1.5 && PUFF.life >= 2.5);
+      assert.ok(fromCoach(c, sh.x, sh.z) - PUFF.spread >= 6, `a puff ${fromCoach(c, sh.x, sh.z).toFixed(1)} m from the coach at ${s.toFixed(0)}`);
+      for (let i = 0; i < GANG.count; i++) {
+        placeRider(r, s, i, q);
+        if (q.visible) assert.ok(Math.hypot(q.x - sh.x, q.z - sh.z) - RIDER_REACH - PUFF.spread >= PUFF.riders, `a puff on rider ${i}`);
+      }
+    }
+    // the line from the gun to where it lands passes the coach (its team too) 1.5 m wide at least
+    const c = coachFrame(r, sh.s);
+    for (let u = 0; u <= 1; u += 0.02) {
+      assert.ok(fromCoach(c, o.x + (sh.x - o.x) * u, o.z + (sh.z - o.z) * u) >= 1.5, `a shot at ${sh.s.toFixed(0)} through the coach`);
+    }
+    // on the land, off the railway
+    for (const leg of Object.keys(LEGS)) assert.ok(nearestOn(leg, sh.x, sh.z).d >= PUFF.rail);
+  }
+});
+
+test('the gang falls back one by one and is gone (out of sight, over 400 m back) before the last 300 m of the ride', () => {
+  const r = ride('coach'), o = {}, hidden = new Array(GANG.count).fill(null), stopped = [];
+  assert.ok(GANG.s1 <= r.path.length - 300);
+  walkRide(r, (s) => {
+    const c = coachFrame(r, s);
+    for (let i = 0; i < GANG.count; i++) {
+      placeRider(r, s, i, o);
+      if (o.stopped >= 1 && stopped[i] === undefined) stopped[i] = s;
+      if (!o.visible) {
+        if (hidden[i] === null) {
+          hidden[i] = s;
+          assert.ok(o.stopped >= 1 && Math.hypot(o.x - c.x, o.z - c.z) > GANG.gone, `rider ${i} vanished ${Math.hypot(o.x - c.x, o.z - c.z).toFixed(0)} m from the coach`);
+        }
+      } else assert.equal(hidden[i], null, `rider ${i} came back at ${s.toFixed(0)}`);
+      if (s >= GANG.s1) assert.ok(!o.visible, `rider ${i} still there at ${s.toFixed(0)}`);
+    }
+  });
+  // one by one: each pulls up at its own moment, some seconds apart
+  const order = stopped.slice().sort((a, b) => a - b);
+  for (let k = 1; k < order.length; k++) assert.ok(order[k] - order[k - 1] >= 20, 'two riders pulled up together');
+  assert.ok(hidden.every((h) => h !== null && h <= GANG.s1));
+});
+
+test('the coach\'s showpieces: the chase from low ahead beside the road, and a heli out past the gang\'s lanes, over the chase', () => {
+  const r = ride('coach'), by = Object.fromEntries(r.showpieces.map((p) => [p.id, p]));
+  assert.deepEqual(Object.keys(by).sort(), ['gang-heli', 'gang-low']);
+  assert.deepEqual(r.showpieces, GANG_SHOTS);
+  const low = by['gang-low'], heli = by['gang-heli'];
+  assert.equal(low.shot.kind, 'trackside');
+  assert.ok(low.shot.height <= 2 && low.shot.at > low.s1 - 10 && low.shot.at <= low.s1 + 60, 'it stands ahead of the coach as it comes');
+  // on the road's right, off the gang's lanes (its left), the land there within reach of the road's level
+  assert.ok(low.shot.lateral < -(ROAD.half + 2) && low.shot.lateral > -10);
+  const cam = r.path.offsetAt(low.shot.at, low.shot.lateral);
+  assert.ok(Math.abs(ground(cam.x, cam.z) - cam.y) < 3);
+  assert.equal(heli.shot.kind, 'heli');
+  assert.ok(heli.shot.lateral >= 25, 'out past the gang\'s lanes (to 15 m)');
+  for (const p of r.showpieces) assert.ok(p.s0 >= 200 && p.s1 <= 650 && !p.actor);
 });

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
-import { makeTerrain, BED_DROP } from '../terrain.js';
-import { worldTerrain, LEGS, FEATURES, PLACES, SEA_LEVEL, legRoute, legSections } from '../world-data.js';
+import { makeTerrain, BED_DROP, BED_HALF } from '../terrain.js';
+import { worldTerrain, LEGS, FEATURES, PLACES, SEA_LEVEL, legRoute, legSections, coachRoad, BENCH } from '../world-data.js';
 import { sectionAt } from '../structures.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
@@ -186,6 +186,8 @@ test('the world terrain stays walkable: gentle near lines and places, no cliffs 
   for (const p of Object.values(PLACES)) lines.push({ x: p.centre.x, z: p.centre.z, r: 160 });
   let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  // (the stagecoach's road is cut into the col's steep flank: its cut and fill are declared, measured on their own below)
+  const road = coachRoad().pts, onBench = (x, z) => road.some((p) => Math.hypot(p.x - x, p.z - z) < BENCH.half + BENCH.blend + 1);
   let worstNear = 0, worstFar = 0, counted = 0;
   for (let i = 0; i < 120000; i++) {
     const x = -1400 + rnd() * 5200, z = -300 + rnd() * 2900;
@@ -193,6 +195,7 @@ test('the world terrain stays walkable: gentle near lines and places, no cliffs 
     if (cn.some((c) => c.pts.some((p) => Math.hypot(p.x - x, p.z - z) < c.reach))) continue;
     if (mesas.some((m) => Math.abs(Math.hypot(x - m.x, z - m.z) - m.r) < m.e)) continue;
     if (byPortal(x, z)) continue;
+    if (Math.abs(x - 2800) < 260 && Math.abs(z - 1330) < 600 && onBench(x, z)) continue;
     const a = t.heightAt(x, z), step = Math.max(Math.abs(a - t.heightAt(x + 1, z)), Math.abs(a - t.heightAt(x, z + 1)));
     counted++;
     if (lines.some((p) => Math.hypot(p.x - x, p.z - z) < (p.r ?? 150))) worstNear = Math.max(worstNear, step);
@@ -277,4 +280,45 @@ test('colouring can be given the height and slope it would otherwise work out', 
   assert.equal(t.regionAt(100, 100, 12, 0), 'grass');
   // and left out, it works them out as before
   assert.equal(t.regionAt(100, 100), t.regionAt(100, 100, t.heightAt(100, 100), 0));
+});
+
+test('a road\'s bench: level across its middle, back to the land beyond its reach, never on a line\'s formation', () => {
+  // a straight line along z, and a road beside it 20 m out that swings in to 9 m from it; on the noise's rolling land
+  const line = makeRoute([{ x: 0, y: 12, z: -400 }, { x: 0, y: 12, z: 400 }]);
+  const pts = [];
+  for (let z = -300; z <= 300; z += 2) pts.push({ x: z < 100 ? 20 : 20 - Math.min(11, (z - 100) * 0.1), z });
+  const opts = { routes: [line], base: 8, seed: 5 };
+  const plain = makeTerrain(opts), cut = makeTerrain({ ...opts, roads: [{ pts, half: 3, blend: 9 }] });
+  let level = 0, reached = 0;
+  for (let i = 5; i < pts.length - 5; i += 3) {
+    const p = pts[i], q = pts[i + 1], dx = q.x - p.x, dz = q.z - p.z, len = Math.hypot(dx, dz), lx = dz / len, lz = -dx / len;
+    const mid = cut.heightAt(p.x, p.z);
+    // level across its middle (bar where it comes into the line's track bed's blend, which it takes over)
+    for (const d of [-3, -1.5, 1.5, 3]) {
+      const h = cut.heightAt(p.x + lx * d, p.z + lz * d);
+      if (p.x + lx * d > BED_HALF + 3) { level = Math.max(level, Math.abs(h - mid) / Math.abs(d)); }
+    }
+    // beyond its reach, the land as it was
+    for (const d of [-14, 14]) {
+      const x = p.x + lx * d, z = p.z + lz * d;
+      assert.equal(cut.heightAt(x, z), plain.heightAt(x, z), `the land moved ${d} m from the road at ${z}`);
+      reached++;
+    }
+  }
+  assert.ok(level < 0.02, `the bench falls ${(level * 100).toFixed(1)}% across`);
+  assert.ok(reached > 50);
+  // the line's formation untouched, even where the road's bench reaches it
+  for (let z = -300; z <= 300; z += 5) for (const x of [0.5 - BED_HALF, -3, 0, 3, BED_HALF - 0.5]) assert.equal(cut.heightAt(x, z), plain.heightAt(x, z), `the formation moved at ${x}, ${z}`);
+  // and the land away from the road just as it was
+  for (let z = -380; z <= 380; z += 20) for (const x of [-120, -60, 60, 120]) assert.equal(cut.heightAt(x, z), plain.heightAt(x, z));
+});
+
+test('the stagecoach\'s road: its cut and fill are steep (a road cut into a hillside) but no cliff', () => {
+  const t = worldTerrain(), { line } = coachRoad();
+  let worst = 0;
+  for (let s = 0; s <= line.length; s += 2) for (let d = -14; d <= 14; d += 1) {
+    const o = line.offsetAt(s, d), a = t.heightAt(o.x, o.z);
+    worst = Math.max(worst, Math.abs(a - t.heightAt(o.x + 1, o.z)), Math.abs(a - t.heightAt(o.x, o.z + 1)));
+  }
+  assert.ok(worst <= 2.6, `steepest ${worst.toFixed(2)} m per metre`);
 });

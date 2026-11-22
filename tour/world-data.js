@@ -4,6 +4,7 @@
 // The sea lies to the -z side of the coast; heading +x along the coast, the sea is on your left.
 import { makeRoute } from './route.js';
 import { makeTerrain } from './terrain.js';
+import { FINE } from './chunks.js';
 import { structuresFor } from './structures.js';
 import { KITS } from './config.js';
 
@@ -318,6 +319,75 @@ export function placePads() {
   }));
 }
 
+// Points by one of a place's stations, in its platform's frame: `inn` metres in from the platform's open end along the
+// line (negative: past it, out along the line), `out` metres out from the line's centre on its town side (negative: the
+// far side). Past either end of the line it runs on straight. -> (inn, out, y) => { x, y, z, yaw: the line's heading }
+export function stationSpot(placeId, role) {
+  const st = PLACES[placeId].stations.find((s) => s.role === role);
+  const route = legRoute(st.leg), L = route.length, w = platformWindow(L, st.end, st.platformLength);
+  const town = Math.sign(laneOf(st.leg)), atEnd = st.end === 'end';
+  const open = atEnd ? w.sFrom : w.sTo, inward = atEnd ? 1 : -1;
+  return (inn, out, y) => {
+    const s = open + inward * inn, c = Math.min(L, Math.max(0, s)), p = route.at(c), ex = s - c;
+    const sn = Math.sin(p.yaw), cs = Math.cos(p.yaw);
+    return { x: p.x + sn * ex + cs * town * out, z: p.z + cs * ex - sn * town * out, y, yaw: p.yaw };
+  };
+}
+
+// ---- the stagecoach's road (mountain-west) ----
+// A dirt road of its own from the Mountain's station yard to the Wild West's arrival station, for the stagecoach ride
+// (rides.js). The railway's canyon is a slot too narrow for a road, so the road keeps to the land west of the line:
+// south beside it through the pass's foothills, over the col between the canyon's wall and the massif (some 39 m up),
+// down across the low ground west of the canyon (5-10 m), and back up to the line at the canyon's end, along it to the
+// station. The line was found by searching the land for the gentlest way a coach could take (no turn tighter than 15 m,
+// the canyon slot and the Wild West's town kept out), so its points are hand-placed: the land gives no road.
+// Much of it runs along steep hillsides (the col's flank falls 50-90% across it), so the land is cut into a level bench
+// for it (owner's ruling R11, 2026-11-22), held as the track bed is (terrain.js `roads`): level across BENCH.half either
+// side of its centre, at the road's own level (the land along its centre, smoothed), blending back to the land over
+// BENCH.blend more. The road's surface (rides/road-mesh.js) is drawn on the bench with the leg.
+export const COACH_ROAD_LEG = 'mountain-west';   // the leg it runs beside, whose build draws it
+export const COACH_ROAD = [
+  [2588, 780], [2580, 828], [2572, 876], [2572, 1044], [2576, 1092], [2600, 1140], [2616, 1188],   // beside the line
+  [2616, 1332], [2604, 1356], [2600, 1380], [2600, 1428], [2604, 1452], [2616, 1468],             // up over the col
+  [2640, 1492], [2688, 1540], [2712, 1568], [2724, 1592], [2748, 1620], [2772, 1668], [2788, 1680], // down to the flats
+  [2812, 1688], [2908, 1688], [2932, 1692], [2944, 1712], [2956, 1736], [2968, 1748], [2992, 1772], // and back up
+  [3004, 1792], [3008, 1816],                                                                     // to the line
+];
+export const BENCH = { half: 3.5, blend: 10 };   // metres: level across the road, then back to the land
+export const ROAD = { half: 1.75, lift: 0.04 };   // the road's surface: 3.5 m across, drawn this far over the land
+// the land as it's drawn at the finest detail (chunks.js: flat triangles on a FINE grid, each square split from its
+// corner (1, 0) to (0, 1)), which may stand a little off heightAt between its corners
+export function drawnGround(terrain, x, z, cell = FINE) {
+  const a = Math.floor(x / cell), b = Math.floor(z / cell), fx = x / cell - a, fz = z / cell - b;
+  const h = (u, v) => terrain.heightAt((a + u) * cell, (b + v) * cell);
+  if (fx + fz <= 1) { const p = h(0, 0); return p + fx * (h(1, 0) - p) + fz * (h(0, 1) - p); }
+  const s = h(1, 1); return s + (1 - fx) * (h(0, 1) - s) + (1 - fz) * (h(1, 0) - s);
+}
+// the road's surface at (x, z): on the land, and over the drawn land wherever that stands higher
+export const roadSurface = (terrain, x, z) => Math.max(terrain.heightAt(x, z), drawnGround(terrain, x, z)) + ROAD.lift;
+export const ROAD_STEP = 2;                   // metres between the road's samples (its level, the coach's path)
+const ROAD_PAST = 10;                         // the road runs on this far past where the coach waits and where it stops
+let road = null;
+// the road's line (no heights: the land's level along it is the terrain's, worked out from it): { line (a makeRoute at
+// y 0, from where the coach waits in the Mountain's yard to where it stops on the Wild West's station pad), path: its
+// samples every ROAD_STEP metres, { x, z } (the coach's path), pts: the road's own samples, the path's and ROAD_PAST
+// more straight on at either end (the road a coach stands on, waiting or pulled up) }
+export function coachRoad() {
+  if (road) return road;
+  const at = stationSpot('mountain', 'departure'), to = stationSpot('west', 'arrival');
+  // in the yard beside the platform; along the station's approach to its pad, 12 m out
+  const ends = { board: at(20, 14), land: to(60, 12) };
+  const line = makeRoute([ends.board, ...COACH_ROAD.map(([x, z]) => ({ x, z })), to(-6, 12), to(25, 12), ends.land].map((p) => ({ x: p.x, y: 0, z: p.z })));
+  const n = Math.ceil(line.length / ROAD_STEP), q = {}, path = [];
+  for (let i = 0; i <= n; i++) { line.at(i * line.length / n, q); path.push({ x: q.x, z: q.z }); }
+  const on = (p, yaw, d) => ({ x: p.x + Math.sin(yaw) * d, z: p.z + Math.cos(yaw) * d });
+  const a = line.at(0).yaw, b = line.at(line.length).yaw, k = ROAD_PAST / ROAD_STEP;
+  const before = Array.from({ length: k }, (_, i) => on(path[0], a, -ROAD_STEP * (k - i)));
+  const after = Array.from({ length: k }, (_, i) => on(path[n], b, ROAD_STEP * (i + 1)));
+  road = { line, path, pts: [...before, ...path, ...after] };
+  return road;
+}
+
 // a leg's structures (structures.js): found from the land, plus the ones it asks for (held to the line's length); none on
 // its platforms bar a guideway laid at grade
 export const STRUCTURE_ENDS = 125;
@@ -343,7 +413,7 @@ export function worldTerrain({ patches = [] } = {}) {
   const legs = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
   const clearings = Object.values(PLACES).map((p) => ({ x: p.centre.x, z: p.centre.z, r: 130 }));
   const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
-    features: FEATURES, biomes: BIOMES, clearings });
+    features: FEATURES, biomes: BIOMES, clearings, roads: [{ pts: coachRoad().pts, ...BENCH }] });
   giveSections(t);   // the land without beds decides them, and the beds (read as the ground is asked for) follow them
   if (!patches.length) cached = t;
   return t;

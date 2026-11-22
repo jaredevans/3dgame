@@ -5,7 +5,7 @@ import { CHUNK, chunksNear } from './chunks.js';
 import { sectionAt, TUBE_TOP } from './structures.js';
 
 export const BED_DROP = 0.05;   // ground sits this far below a route's formation level (route.y), under the ballast
-const BED_HALF = 6;             // metres either side of the route centre held exactly at the bed
+export const BED_HALF = 6;      // metres either side of the route centre held exactly at the bed
 const BED_BLEND = 30;           // then blending back to natural ground over this many metres
 const PAD_BLEND = 20;
 const PATCH_BLEND = 25;
@@ -22,6 +22,8 @@ const TAPER = 6, BRIDGE_EASE = 20;
 const COVER = 9, COVER_HALF = 11, FUNNEL = 30;
 const MOUTH = 6;                // a ground cell across a portal within this of the bore's centre is left out (the portal fills it)
 const TUBE_HALF = 6.5;          // a chunk's skirt never hangs below the tube's roof within this of the line
+const ROAD_SMOOTH = 0.2;        // a road's level is the ground along its centre smoothed, never more than this off it
+const ROAD_CELL = 16;           // metres: a road's samples are found by this grid (wider than its reach either side)
 
 const smooth = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -129,12 +131,23 @@ const outside = (lx, lz, hx, hz) => Math.hypot(Math.max(0, Math.abs(lx) - hx), M
 //   { kind: 'valley', x0, z0, x1, z1, floor, half = 20, fade = 60, ease = 80, easeHead }  a trough between two points with
 //                                   a flat floor at height `floor` within `half` of its axis, sides over `fade`, shallowing
 //                                   to nothing over `ease` at its ends (`easeHead` at x0, z0 instead, if given: a steep head)
+// roads: [{ pts: [{ x, z }] (its centre line, samples a few metres apart), half, blend }]: each a level bench cut into the
+// land (and filled out over it), held level across `half` metres either side of its centre at the road's own level (the
+// ground along its centre without it, smoothed), blending back to the land over `blend` more. Cut into the land, the
+// patches and the track bed's blend alike (never into a line's formation), and under the pads, which win where they
+// meet it.
 // Massifs and mesas keep clear of every route, big circular pad and `clearings` { x, z, r }, so a line never sits in a pit.
 // biomes { kind: 'grass'|'snow'|'desert'|'urban', x, z, r }: the nearest wins, ragged over ~200 m; they only recolour.
 export const SNOWLINE = 60;
 export function makeTerrain({ routes = [], pads = [], patches: given = [], coast = null, base = 8, seaLevel = 0, seed = 1,
-  features = [], biomes = [], legs = {}, clearings = [], chunk = CHUNK } = {}) {
+  features = [], biomes = [], legs = {}, clearings = [], roads = [], chunk = CHUNK } = {}) {
   const patches = [...given];
+  const benches = roads.map((r) => {
+    const reach = r.half + r.blend + ROAD_CELL;
+    const bb = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+    for (const p of r.pts) { bb.x0 = Math.min(bb.x0, p.x - reach); bb.x1 = Math.max(bb.x1, p.x + reach); bb.z0 = Math.min(bb.z0, p.z - reach); bb.z1 = Math.max(bb.z1, p.z + reach); }
+    return { pts: r.pts, half: r.half, blend: r.blend, bb, level: null, grid: null };
+  });
   let dirty = new Set();
   const touch = (p) => { for (const k of chunksNear(p.x, p.z, (p.r ?? 100) + DIRTY_REACH, chunk)) dirty.add(k); };
   function addPatch(p) { if (!patches.includes(p)) { patches.push(p); touch(p); } }
@@ -273,10 +286,57 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
     return lerp(shore, SEA_FLOOR + fbm(x / 60, z / 60, seed + 5), smooth(0, outW, -c.d));
   }
 
-  function heightAt(x, z) {
+  // the roads' benches: each road's level along it (the ground under its centre without it, smoothed: each sample the
+  // average of its neighbours', never more than ROAD_SMOOTH off its own ground), and its samples in a grid for the
+  // nearest point; worked out the first time the ground near it is asked for
+  function benchOf(b) {
+    if (b.level) return b;
+    const n = b.pts.length, g = b.pts.map((p) => ground(p.x, p.z, false, false));
+    let y = g.slice();
+    for (let k = 0; k < 40; k++) {
+      y = y.map((v, i) => (i === 0 || i === n - 1 ? g[i] : Math.min(g[i] + ROAD_SMOOTH, Math.max(g[i] - ROAD_SMOOTH, (y[i - 1] + v + y[i + 1]) / 3))));
+    }
+    const grid = new Map();
+    for (let i = 0; i < n - 1; i++) {
+      const k = `${Math.floor(b.pts[i].x / ROAD_CELL)},${Math.floor(b.pts[i].z / ROAD_CELL)}`;
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(i);
+    }
+    b.level = Float64Array.from(y);
+    b.grid = grid;
+    return b;
+  }
+  // the bench under (x, z), the land there being h: h if it's out of every road's reach
+  function benched(x, z, h) {
+    for (let r = 0; r < benches.length; r++) {
+      const b = benches[r];
+      if (x < b.bb.x0 || x > b.bb.x1 || z < b.bb.z0 || z > b.bb.z1) continue;
+      benchOf(b);
+      // the nearest point of its centre line (between its samples), within its reach
+      const ci = Math.floor(x / ROAD_CELL), cj = Math.floor(z / ROAD_CELL), pts = b.pts, reach = b.half + b.blend;
+      let bd = reach * reach, ly = 0, hit = false;
+      for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) {
+        const list = b.grid.get(`${i},${j}`);
+        if (!list) continue;
+        for (let k = 0; k < list.length; k++) {
+          const a = list[k], p = pts[a], q = pts[a + 1], dx = q.x - p.x, dz = q.z - p.z;
+          const t = Math.min(1, Math.max(0, ((x - p.x) * dx + (z - p.z) * dz) / (dx * dx + dz * dz || 1)));
+          const ex = p.x + dx * t - x, ez = p.z + dz * t - z, d = ex * ex + ez * ez;
+          if (d < bd) { bd = d; ly = b.level[a] + (b.level[a + 1] - b.level[a]) * t; hit = true; }
+        }
+      }
+      if (hit) h = lerp(ly, h, smooth(b.half, reach, Math.sqrt(bd)));
+    }
+    return h;
+  }
+
+  function heightAt(x, z) { return ground(x, z, true, true); }
+  // the ground: the land, the placed kits' own ground (patches), the track bed, the roads' benches cut into them (never
+  // into a line's formation) and the pads, each over the last
+  function ground(x, z, withBench, withPatches) {
     let h = natural(x, z);
     // a placed kit's own ground first, so the track bed and the pads beside the line still win next to it
-    for (const p of patches) {
+    if (withPatches) for (const p of patches) {
       const [lx, lz] = toLocal(x, z, p), r = p.sample(lx, lz);
       if (!r || r.d >= PATCH_BLEND) continue;
       h = lerp(p.y + r.h - (p.drop ?? 0), h, smooth(0, PATCH_BLEND, r.d));
@@ -291,6 +351,11 @@ export function makeTerrain({ routes = [], pads = [], patches: given = [], coast
       if (w < bestW) { bestW = w; bestN = n; bestR = routes[i]; }
     }
     if (bestW < 1) h = bedded(h, bestN, bestW, sectionAt(bestR.sections, bestN.s));
+    // (over the track bed's blend, so a road beside a line is level across too; held off the formation itself)
+    if (withBench && benches.length) {
+      const b = benched(x, z, h), keep = bestN ? smooth(BED_HALF, BED_HALF + 3, bestN.dist) : 1;
+      h += (b - h) * keep;
+    }
     for (const p of pads) {
       let d;
       if (p.r !== undefined) d = Math.max(0, Math.hypot(x - p.x, z - p.z) - p.r);

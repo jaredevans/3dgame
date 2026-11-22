@@ -52,8 +52,8 @@ function noiseBuffer() {
   return noise;
 }
 // a burst of noise through a filter: its gain rising over `attack` s to `peak`, held, then gone by `dur`
-function noiseBurst({ type, freq, to = freq, q = 0.7, peak, attack, dur }) {
-  const t0 = audio.currentTime, src = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
+function noiseBurst({ type, freq, to = freq, q = 0.7, peak, attack, dur, at = 0 }) {
+  const t0 = audio.currentTime + at, src = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
   src.buffer = noiseBuffer(); src.loop = true;
   f.type = type; f.Q.value = q;
   f.frequency.setValueAtTime(freq, t0); f.frequency.exponentialRampToValueAtTime(to, t0 + dur);
@@ -88,10 +88,27 @@ const SOUNDS = {
     noiseBurst({ type: 'lowpass', freq: 900, to: 140, q: 0.7, peak: 0.12, attack: 0.03, dur: 1.2 });
     noiseBurst({ type: 'highpass', freq: 2500, to: 4500, q: 0.5, peak: 0.05, attack: 0.15, dur: 2.2 });
   },
+  // the stagecoach's gang, Western-film style: a cap gun's crack (a sharp snap of bright noise with a short slap under
+  // it), and a ricochet's ping (a whining tone sweeping down as it flies off a rock, a little after the crack), each as
+  // loud as `level` (0..1: nearer, louder)
+  crack(level = 1) {
+    noiseBurst({ type: 'highpass', freq: 1800, to: 900, q: 0.7, peak: 0.1 * level, attack: 0.002, dur: 0.09 });
+    noiseBurst({ type: 'bandpass', freq: 500, to: 220, q: 1.1, peak: 0.07 * level, attack: 0.004, dur: 0.22 });
+  },
+  ping(level = 1) {
+    const t0 = audio.currentTime + 0.12, o = audio.createOscillator(), g = audio.createGain();
+    const f0 = 2300 + Math.random() * 600;
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f0 * 0.42, t0 + 0.55);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.045 * level, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.6);
+    o.connect(g).connect(audio.destination); o.start(t0); o.stop(t0 + 0.65);
+    noiseBurst({ type: 'highpass', freq: 3000, q: 0.5, peak: 0.03 * level, attack: 0.002, dur: 0.05, at: 0.12 });
+  },
 };
-export function sound(name) {
+// level: how loud (0..1) for the sounds that take one (the gang's shots)
+export function sound(name, level) {
   audio ||= new AudioContext();
-  SOUNDS[name]?.();
+  SOUNDS[name]?.(level);
 }
 
 // teleporting (T): a shimmering tone, rising as you fizz out (falling as you fizz in), `dur` s long. Two soft sines a
@@ -129,8 +146,9 @@ export function shimmer(rising = true, dur = 1.5) {
 // rasping saws a little out of tune with each other (they beat), its throb, and the hiss of spray over it, rising
 // with its speed; under 0.07. 'balloon': the jets' whine, two high tones a little apart over a low turbine hum and the
 // rush of their exhaust, rising with their thrust; and the burners' whoosh in bursts, a deep roar of noise, as hard as
-// set()'s `burn` says they burn (the runner gives it from the ride's own clock); under 0.07. A kind with no sound of its
-// own yet is silent
+// set()'s `burn` says they burn (the runner gives it from the ride's own clock); under 0.07. 'coach': the stagecoach's
+// wheels rumbling, its team's hooves galloping faster with its speed, its body creaking (it ignores `burn`); under
+// 0.07. A kind with no sound of its own yet is silent
 const ENGINES = {
   car: { tones: [[92, 'sine', 1], [185, 'triangle', 0.35]], cut: 700, air: { freq: 900, q: 0.8, gain: 0.25 }, gain: 0.045, pitch: [0.85, 1.15], idle: 0.45 },
   boat: { tones: [[58, 'sawtooth', 1], [61, 'sawtooth', 0.8], [117, 'square', 0.18]], cut: 650, air: { freq: 2600, q: 0.5, gain: 0.55 }, gain: 0.065, pitch: [0.7, 1.35], idle: 0.3 },
@@ -139,7 +157,27 @@ const ENGINES = {
     air: { freq: 1400, q: 0.6, gain: 0.5 }, gain: 0.04, pitch: [0.8, 1.12], idle: 0.25,
     burner: { freq: 260, to: 520, q: 0.7, gain: 0.07 },
   },
+  // the stagecoach: its wheels' low rumble on the dirt (no engine tones), the team's hooves in a gallop's four beats
+  // (a knock of noise each, quickening with its speed) and the body creaking on its springs; under 0.07
+  coach: {
+    tones: [], cut: 1400, air: { freq: 150, q: 0.6, gain: 1 }, gain: 0.06, pitch: [1, 1], idle: 0.3,
+    hooves: { freq: 700, q: 1.3, gain: 0.9, rate: [1.1, 2.2], beats: [[0, 1], [0.11, 0.75], [0.22, 0.9], [0.34, 0.7]], width: 0.014 },
+    creak: { freq: 196, band: 1150, q: 8, gain: 0.5, rate: 0.47 },
+  },
 };
+// a gallop's knocks as a periodic wave (Fourier series of narrow bumps, each one's `width` of a stride, at its beat's
+// place in the stride, as loud as its beat): -> { real, imag, mean } (mean: the bumps' level averaged over a stride,
+// which an oscillator leaves out)
+function gallop(H) {
+  const N = 40, real = new Float32Array(N), imag = new Float32Array(N), area = H.width * Math.sqrt(2 * Math.PI);
+  let mean = 0;
+  for (const [, a] of H.beats) mean += a * area;
+  for (let n = 1; n < N; n++) {
+    const g = 2 * area * Math.exp(-((2 * Math.PI * n * H.width) ** 2) / 2);
+    for (const [at, a] of H.beats) { real[n] += a * g * Math.cos(2 * Math.PI * n * at); imag[n] += a * g * Math.sin(2 * Math.PI * n * at); }
+  }
+  return { real, imag, mean };
+}
 const QUIET = { start() {}, stop() {}, set() {} };
 export function engine(kind) {
   const k = ENGINES[kind];
@@ -173,13 +211,41 @@ export function engine(kind) {
         src.connect(lp).connect(g).connect(audio.destination); src.start(t0);
         burn = { src, lp, g };
       }
-      nodes = { out, oscs, air, burn };
+      // the hooves: noise knocked through a band, its level beaten out by an oscillator of the gallop's wave (on top of
+      // its mean, so it's silent between the knocks); the creak: a rasping tone through a narrow band, swelling and
+      // dying away on a slow swing
+      let hooves = null, creak = null;
+      if (k.hooves) {
+        const H = k.hooves, w = gallop(H), src = audio.createBufferSource(), bp = audio.createBiquadFilter(), g = audio.createGain();
+        src.buffer = noiseBuffer(); src.loop = true;
+        bp.type = 'bandpass'; bp.frequency.value = H.freq; bp.Q.value = H.q;
+        g.gain.value = H.gain * w.mean;
+        const lfo = audio.createOscillator(), depth = audio.createGain();
+        lfo.setPeriodicWave(audio.createPeriodicWave(w.real, w.imag, { disableNormalization: true }));
+        lfo.frequency.value = H.rate[0]; depth.gain.value = H.gain;
+        lfo.connect(depth).connect(g.gain);
+        src.connect(bp).connect(g).connect(out); src.start(t0); lfo.start(t0);
+        hooves = { src, lfo };
+      }
+      if (k.creak) {
+        const C = k.creak, o = audio.createOscillator(), bp = audio.createBiquadFilter(), g = audio.createGain();
+        o.type = 'sawtooth'; o.frequency.value = C.freq;
+        bp.type = 'bandpass'; bp.frequency.value = C.band; bp.Q.value = C.q;
+        g.gain.value = C.gain / 2;
+        const lfo = audio.createOscillator(), depth = audio.createGain();
+        lfo.frequency.value = C.rate; depth.gain.value = C.gain / 2;
+        lfo.connect(depth).connect(g.gain);
+        o.connect(bp).connect(g).connect(out); o.start(t0); lfo.start(t0);
+        creak = { o, lfo };
+      }
+      nodes = { out, oscs, air, burn, hooves, creak };
     },
     set(level, burning = 0) {
       if (!nodes) return;
       const t = audio.currentTime, u = Math.min(1, Math.max(0, level));
       nodes.out.gain.setTargetAtTime(k.gain * (k.idle + (1 - k.idle) * u), t, 0.3);
       for (const { o, f } of nodes.oscs) o.frequency.setTargetAtTime(f * (k.pitch[0] + (k.pitch[1] - k.pitch[0]) * u), t, 0.3);
+      if (nodes.hooves) { const R = k.hooves.rate; nodes.hooves.lfo.frequency.setTargetAtTime(R[0] + (R[1] - R[0]) * u, t, 0.4); }
       if (nodes.burn) {
         // as hard as the burners burn now, the roar opening up as it swells
         const b = Math.min(1, Math.max(0, burning)), B = k.burner;
@@ -189,11 +255,12 @@ export function engine(kind) {
     },
     stop() {
       if (!nodes) return;
-      const t = audio.currentTime, { out, oscs, air, burn } = nodes;
+      const t = audio.currentTime, { out, oscs, air, burn, hooves, creak } = nodes;
       nodes = null;
       out.gain.cancelScheduledValues(t); out.gain.setTargetAtTime(0, t, 0.25);
       for (const { o } of oscs) o.stop(t + 1.5);
       air.stop(t + 1.5);
+      for (const n of [hooves?.src, hooves?.lfo, creak?.o, creak?.lfo]) n?.stop(t + 1.5);
       if (burn) { burn.g.gain.cancelScheduledValues(t); burn.g.gain.setTargetAtTime(0, t, 0.2); burn.src.stop(t + 1.5); }
     },
   };

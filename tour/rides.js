@@ -7,8 +7,9 @@
 // The path is where the vehicle's holder rides: `rest` metres over its pad where it stands at either end (on the
 // water's surface for the boat, on the ground for the coach), so a vehicle's own model sits that far below it.
 import { makeRoute } from './route.js';
-import { PLACES, LEGS, COAST, SEA_LEVEL, FEATURES, legRoute, laneOf, platformWindow, legSections, worldTerrain } from './world-data.js';
+import { PLACES, LEGS, COAST, SEA_LEVEL, FEATURES, legRoute, laneOf, legSections, worldTerrain, stationSpot, coachRoad, drawnGround } from './world-data.js';
 import { rocketPad } from './actors/paths.js';
+import { GANG, GANG_SHOTS } from './rides/coach-plan.js';
 
 export const RIDE_LEGS = ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future', 'future-city'];
 export const RIDE_DT = 0.1;   // the most a ride moves on in one frame (a long frame or a hidden tab)
@@ -25,20 +26,6 @@ function over(x, z, r, h) {
   return top + h;
 }
 
-// Points by one of a place's stations, in its platform's frame: `inn` metres in from the platform's open end along the
-// line (negative: past it, out along the line), `out` metres out from the line's centre on its town side (negative: the
-// far side). Past either end of the line it runs on straight. -> (inn, out, y) => { x, y, z, yaw: the line's heading }
-function stationSpot(placeId, role) {
-  const st = PLACES[placeId].stations.find((s) => s.role === role);
-  const route = legRoute(st.leg), L = route.length, w = platformWindow(L, st.end, st.platformLength);
-  const town = Math.sign(laneOf(st.leg)), atEnd = st.end === 'end';
-  const open = atEnd ? w.sFrom : w.sTo, inward = atEnd ? 1 : -1;
-  return (inn, out, y) => {
-    const s = open + inward * inn, c = Math.min(L, Math.max(0, s)), p = route.at(c), ex = s - c;
-    const sn = Math.sin(p.yaw), cs = Math.cos(p.yaw);
-    return { x: p.x + sn * ex + cs * town * out, z: p.z + cs * ex - sn * town * out, y, yaw: p.yaw };
-  };
-}
 // facing out from the platform towards the town, at a station (placeId, role)
 function townward(placeId, role) {
   const st = PLACES[placeId].stations.find((s) => s.role === role), town = Math.sign(laneOf(st.leg));
@@ -160,32 +147,22 @@ function balloon() {
 // the canyon's wall and the massif (owner's ruling, 2026-11-22). Each steep stretch of it at most `run` metres long.
 export const COACH_GRADE = 0.12;
 export const COACH_COL = { x: 2650, z: 1420, r: 200, grade: 0.17, run: 60 };
-// The stagecoach (mountain-west): along a dirt road of its own from the Mountain's station yard to the Wild West's
-// arrival station. The railway's canyon is a slot too narrow for a road, so the road keeps to the land west of the
-// line: south beside it through the pass's foothills, over the col between the canyon's wall and the massif (some 39 m
-// up), down across the low ground west of the canyon (5-10 m), and back up to the line at the canyon's end, along it to
-// the station. The line was found by searching the land for the gentlest way a coach could take (no turn tighter than
-// 15 m, the canyon slot and the Wild West's town kept out), so its points are hand-placed: the land gives no road.
-// The coach rides on the ground (0.2 m over it), held within 0.2 m of it where that smooths a bump out of its climb.
-const ROAD = [
-  [2588, 780], [2580, 828], [2572, 876], [2572, 1044], [2576, 1092], [2600, 1140], [2616, 1188],   // beside the line
-  [2616, 1332], [2604, 1356], [2600, 1380], [2600, 1428], [2604, 1452], [2616, 1468],             // up over the col
-  [2640, 1492], [2688, 1540], [2712, 1568], [2724, 1592], [2748, 1620], [2772, 1668], [2788, 1680], // down to the flats
-  [2812, 1688], [2908, 1688], [2932, 1692], [2944, 1712], [2956, 1736], [2968, 1748], [2992, 1772], // and back up
-  [3004, 1792], [3008, 1816],                                                                     // to the line
-];
+// The stagecoach (mountain-west): along its dirt road (world-data.js coachRoad: over the col west of the canyon, on a
+// bench cut into the land) from the Mountain's station yard to the Wild West's arrival station. The coach rides on the
+// ground (0.2 m over it): the bench is level across the road at the road's own level, so its wheels are on the land.
 function coach() {
-  const REST = 0.2, at = stationSpot('mountain', 'departure'), to = stationSpot('west', 'arrival');
-  const board = at(20, 14), land = to(60, 12);   // in the yard beside the platform; on the station's pad, 12 m out
-  const line = makeRoute([board, ...ROAD.map(([x, z]) => ({ x, z })), to(-6, 12), to(25, 12), land].map((p) => ({ x: p.x, y: 0, z: p.z })));
-  const n = Math.ceil(line.length / 2), q = {}, xs = [], zs = [], g = [];
-  for (let i = 0; i <= n; i++) { line.at(i * line.length / n, q); xs.push(q.x); zs.push(q.z); g.push(ground(q.x, q.z) + REST); }
-  // the road's level: the ground's, smoothed where the land is rough, never more than 0.2 m off it
-  let y = g.slice();
-  for (let k = 0; k < 40; k++) y = y.map((v, i) => i === 0 || i === n ? g[i] : Math.min(g[i] + 0.2, Math.max(g[i] - 0.2, (y[i - 1] + v + y[i + 1]) / 3)));
-  const pts = xs.map((x, i) => ({ x, y: y[i], z: zs[i] }));
+  const REST = 0.2, to = stationSpot('west', 'arrival');
+  // (on the land as it's drawn where that stands a little higher, as the road's surface is: where the bench meets the
+  // Wild West's station pad, a metre lower, the drawn land rounds the crease off)
+  const t = worldTerrain(), pts = coachRoad().path.map((p) => ({ x: p.x, y: Math.max(ground(p.x, p.z), drawnGround(t, p.x, p.z)) + REST, z: p.z }));
   const step = onGround(to(60, 9.5));
-  return { pts, step: { ...step, yaw: townward('west', 'arrival')(step.yaw) }, ease: [6, 8], rest: REST };
+  // the gang over the middle of the ride (rides/coach-plan.js); the director's two: the chase from low ahead beside the
+  // road as the gang breaks from its ambush, and a heli alongside on the open side as they ride level with it
+  return {
+    pts, step: { ...step, yaw: townward('west', 'arrival')(step.yaw) }, ease: [6, 8], rest: REST,
+    events: [{ id: 'gang', s0: GANG.s0, s1: GANG.s1, actor: 'gang' }],
+    showpieces: GANG_SHOTS,
+  };
 }
 
 export const JET = { radius: 1500, cruise: 80, rest: 1.5 };

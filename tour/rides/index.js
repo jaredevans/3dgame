@@ -15,9 +15,11 @@
 import { buildCar } from './car.js';
 import { buildBoat } from './boat.js';
 import { buildBalloon } from './balloon.js';
+import { buildCoach } from './coach.js';
 
 export const RIDE_BUILDERS = {
   boat: buildBoat,
   balloon: buildBalloon,
+  coach: buildCoach,
   car: buildCar,
 };

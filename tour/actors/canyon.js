@@ -14,10 +14,11 @@
 import * as THREE from 'three';
 import { KITS } from '../config.js';
 import { kitModule } from '../parts.js';
-import { laneOf } from '../world-data.js';
+import { laneOf, drawnGround } from '../world-data.js';
 import { sound } from '../audio.js';
 import { loadAnimal, clipFor } from './animals.js';
 import { herdPath, paceStep } from './paths.js';
+import { seatOnHorse } from '../rides/crew.js';
 
 // 1 over u 0..a, falling to 0 over b..1 (a and b the ends of the fades in and out)
 const fade = (u, a, b) => Math.max(0, Math.min(1, u / a, (1 - u) / (1 - b)));
@@ -245,26 +246,14 @@ const RIDERS = [
   { ds: -7, lateral: 34, colorway: 'linen' },
 ];
 const RIDE = { lag: 1, ahead: 6, tol: 6, offFor: 14 };
-// where the saddle's seat is on the saddled horse (its own frame, from its rest pose: the saddle's mesh spans y 0.68-1.59
-// and z -0.32..0.38 under the withers at 1.44), and how far a seated figure's hips sit above what it sits on
-const SEAT = { y: 1.36, z: 0.0, hips: 0.1 };
-
 async function seatRider(horse, kit, colorway) {
   const figure = await kit('west', 'outlaw-character', { colorway });
   const { animate } = await kitModule(KITS.railway, 'clips.mjs');
   const anim = await animate(figure, { clips: ['Sitting'] });
   anim.play('Sitting', { fade: 0 });
   anim.update(0);
-  // its hips in the Sitting pose, and the horse's spine at rest, both in their own frames
-  const hips = new THREE.Vector3(), spineAt = new THREE.Vector3();
-  figure.updateMatrixWorld(true);
-  figure.getObjectByName('Hips')?.getWorldPosition(hips);
-  horse.object.updateMatrixWorld(true);
-  const spine = horse.object.getObjectByName('Spine') ?? horse.object;
-  spine.getWorldPosition(spineAt);
-  figure.position.set(0, SEAT.y + SEAT.hips - hips.y - spineAt.y, SEAT.z - hips.z - spineAt.z);
   figure.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  spine.add(figure);
+  seatOnHorse(figure, horse);   // (on the horse's spine, riding its gallop)
   return anim;
 }
 
@@ -494,7 +483,7 @@ async function buildTumbleweeds({ leg, route, def, terrain, slicer, kit }) {
 // a frontier stagecoach drawn by two saddled horses on a dirt road 30 m out, at 9 m/s the way the train is going: set off
 // when the event starts so the train draws level with it about the road's middle; it pulls up at the road's end
 const COACH = { lateral: 30, speed: 9, road: 4, tol: 12, pole: 0.6, pair: 0.5, colour: '#9c7d57' };
-const dirtMat = new THREE.MeshStandardMaterial({ color: COACH.colour, roughness: 1, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const dirtMat = new THREE.MeshStandardMaterial({ color: COACH.colour, roughness: 1, flatShading: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 
 async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
   const group = new THREE.Group();
@@ -504,18 +493,20 @@ async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
   if (!road) throw new Error('no open land beside the line for the stagecoach road');
   const P = {};
 
-  // the road: a strip on the land along its stretch
+  // the road: a strip on the land along its stretch, laid on the land as it's drawn (it crosses the stagecoach ride's
+  // road near its end, where the land is cut for that road's bench: a strip sampled only at its edges sank into the
+  // bench's cut), under the ride's road where they cross
   {
-    const pos = [], idx = [], n = Math.ceil((road.hi - road.lo) / 3);
+    const pos = [], idx = [], n = Math.ceil(road.hi - road.lo), ACROSS = [-COACH.road / 2, -COACH.road / 4, 0, COACH.road / 4, COACH.road / 2], m = ACROSS.length;
     herdPath(route, road.lo, side, COACH.lateral, P);
     const o = { x: P.x, z: P.z };
     for (let k = 0; k <= n; k++) {
       const s = road.lo + (road.hi - road.lo) * k / n;
-      for (const d of [-COACH.road / 2, COACH.road / 2]) {
+      for (const d of ACROSS) {
         herdPath(route, s, side, COACH.lateral + d, P);
-        pos.push(P.x - o.x, terrain.heightAt(P.x, P.z) + 0.06, P.z - o.z);
+        pos.push(P.x - o.x, Math.max(terrain.heightAt(P.x, P.z), drawnGround(terrain, P.x, P.z)) + 0.04, P.z - o.z);
       }
-      if (k) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      if (k) for (let j = 0; j < m - 1; j++) { const a = (k - 1) * m + j; idx.push(a, a + 1, a + m, a + 1, a + m + 1, a + m); }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
