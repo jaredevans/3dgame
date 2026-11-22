@@ -64,6 +64,29 @@ function merge(spans) {
   return out;
 }
 
+// where a bridge stands on the land, in leg-s: a viaduct's abutment faces (ABUT in from each end) with its piers evenly
+// between them (about BAY apart), a trestle's bents from end to end (about BENT apart); none for anything else.
+// structure-mesh.js builds them there; the director's camera (cameras.js) stands between them
+export const SUPPORT = { abut: 6, bay: 20, bent: 6 };
+export function supports(sec) {
+  let first, last, every;
+  if (sec?.kind === 'viaduct') { first = sec.s0 + SUPPORT.abut; last = sec.s1 - SUPPORT.abut; every = SUPPORT.bay; }
+  else if (sec?.kind === 'trestle') { first = sec.s0; last = sec.s1; every = SUPPORT.bent; }
+  else return [];
+  const n = Math.max(1, Math.round((last - first) / every)), out = [];
+  for (let i = 0; i <= n; i++) out.push(first + (last - first) * i / n);
+  return out;
+}
+// the leg-s midway between the supports either side of `s`, on a viaduct or trestle: under it in the clear. `s` itself
+// elsewhere (and under a guideway, whose piers stand under each line, clear between them)
+export function clearUnder(sections, s) {
+  const at = supports(sectionAt(sections, s));
+  if (at.length < 2) return s;
+  let i = 0;
+  while (i < at.length - 2 && s >= at[i + 1]) i++;
+  return (at[i] + at[i + 1]) / 2;
+}
+
 // the section a distance lies in, or null
 export function sectionAt(sections, s) {
   if (!sections) return null;

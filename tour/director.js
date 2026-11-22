@@ -1,21 +1,33 @@
 // The director's shot planner: pure (no three.js), so Node can test it. It decides when to cut and to what; the camera
 // view (cameras.js, Task 10) frames each shot.
 //
-// step({ dt, legS, dir, v, showpieces, started, length }) -> { shot, cut }
+// step({ dt, legS, dir, v, showpieces, started, length, tunnels }) -> { shot, cut }   (the same object every step)
 //   showpieces  EventDefs with a shot (and no actor) running on this run
 //   started     EventDefs with a shot that began this frame (an `always` one starts when the train enters its window)
+//   tunnels     [{ s0, s1 }] the leg's tunnels (leg-s), kept clear of general shots; none if not given
 //   shot        { kind, id: string|null, at: leg-s|null, lateral, height, fov, hold }
 //   lateral     metres, + left of the leg's out direction
 // Leg-s grows going out and shrinks going back, so "ahead" is sign * (+1 out, -1 back).
+//
+// A started event is queued, and cuts in once the front is within its lead of the shot's `at` (at once with no `at`),
+// after the current shot has had EVENT_DELAY s; not into a portal or below showpiece's long hold, nor into another
+// event's shot: those finish first, then the queue is served in order. An event's fixed shot (trackside, below, wide,
+// high-wide) holds until the train's middle has passed its `at` (up to LONG_HOLD s), so it sees the train go by.
 
 import { aheadOf } from './events.js';
 
 const HOLD_MIN = 5, HOLD_MAX = 8;
 const EVENT_DELAY = 1.5;        // s a shot is kept at the least before an event cuts in
-const LONG_HOLD = 20;           // s a portal/below showpiece shot may hold
+const EVENT_LEAD = 150, EVENT_LEAD_TIME = 5;   // a queued event cuts in within max(150 m, |v| * 5 s) of its `at`
+const LONG_HOLD = 20;           // s a portal/below showpiece shot, or an event's fixed shot, may hold
 const LEAD_TIME = 4;            // s ahead of a showpiece's window it starts to count
+const MIN_LEFT = 3;             // s: a showpiece with less of its window left than this, at this speed, isn't picked
 const GENERAL = ['trackside', 'chase', 'high-wide', 'heli'];
 const STILL = 0.05, TRACKSIDE_MIN_V = 3;
+const WIDE_LEAD = 20;           // m: a general high-wide stands where the front will be half way through it, and this on
+const TUNNEL_CLEAR = { before: 15, after: 30, ahead: 30 };   // m: a fixed general shot moved off a tunnel
+const FIXED = new Set(['trackside', 'below', 'wide', 'high-wide', 'portal']);
+const QUEUE = 8;
 
 // per kind: fov, height and lateral (metres; `side` = random sign, mirrored either side) used where the spec gives none
 const DEFAULTS = {
@@ -29,11 +41,30 @@ const DEFAULTS = {
   arc: { fov: 50, height: 6, lateral: 0 },
 };
 
-export function makeDirector({ rand = Math.random } = {}) {
-  let cur = null, age = 0, pending = null, recent = [], general = -1;
-  let win = null, entered = false;   // the window a long-hold showpiece shot lasts for
+// the tunnel (of `tunnels`) leg-s `s` lies in, or null
+function tunnelAt(tunnels, s) {
+  if (!tunnels) return null;
+  for (let i = 0; i < tunnels.length; i++) if (s > tunnels[i].s0 && s < tunnels[i].s1) return tunnels[i];
+  return null;
+}
+// true if a tunnel starts within `reach` m ahead of the front, or the front is in one
+function tunnelWithin(tunnels, legS, dir, reach) {
+  if (!tunnels) return false;
+  for (let i = 0; i < tunnels.length; i++) {
+    const t = tunnels[i], near = dir === 'out' ? t.s0 : t.s1, ahead = aheadOf(legS, near, dir);
+    if ((legS > t.s0 && legS < t.s1) || (ahead >= 0 && ahead <= reach)) return true;
+  }
+  return false;
+}
 
-  const reset = () => { cur = null; age = 0; pending = null; recent = []; general = -1; win = null; entered = false; };
+export function makeDirector({ rand = Math.random } = {}) {
+  let cur = null, age = 0, recent = [], general = -1;
+  let win = null, entered = false;   // the window a long-hold showpiece shot lasts for
+  let event = null;                  // the event the current shot is for, while it is one
+  const queue = [];                  // started events waiting for their cut, in order
+  const out = { shot: null, cut: false };
+
+  const reset = () => { cur = null; age = 0; recent = []; general = -1; win = null; entered = false; event = null; queue.length = 0; };
 
   const specFor = (kind, id, given, input) => {
     const d = DEFAULTS[kind] ?? DEFAULTS.chase;
@@ -49,10 +80,19 @@ export function makeDirector({ rand = Math.random } = {}) {
     return { kind, id, at, lateral, height: given?.height ?? d.height, fov: given?.fov ?? d.fov, hold: 0 };
   };
 
+  // seconds of a window left ahead of the front at this speed (Infinity standing still)
+  const leftOf = (p, input) => {
+    const v = Math.abs(input.v);
+    if (v < STILL) return Infinity;
+    return Math.max(0, input.dir === 'out' ? p.s1 - input.legS : input.legS - p.s0) / v;
+  };
+
   const pickShowpiece = (input) => {
-    const reach = Math.abs(input.v) * LEAD_TIME;
-    for (const p of input.showpieces ?? []) {
-      if (!p.shot || recent.includes(p.id)) continue;
+    const reach = Math.abs(input.v) * LEAD_TIME, list = input.showpieces;
+    if (!list) return null;
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (!p.shot || recent.includes(p.id) || leftOf(p, input) < MIN_LEFT) continue;
       const inside = input.legS >= p.s0 && input.legS <= p.s1;
       const edge = input.dir === 'out' ? p.s0 : p.s1;
       const ahead = aheadOf(input.legS, edge, input.dir);
@@ -61,53 +101,102 @@ export function makeDirector({ rand = Math.random } = {}) {
     return null;
   };
 
+  // a general kind is kept off tunnels: one riding with the front isn't used while it's in one or about to be
   const nextGeneral = (input) => {
     const still = Math.abs(input.v) < STILL;
+    const dark = tunnelWithin(input.tunnels, input.legS, input.dir, Math.abs(input.v) * HOLD_MAX);
     for (let i = 1; i <= GENERAL.length; i++) {
       const idx = (general + i) % GENERAL.length;
       const k = GENERAL[idx];
       if (k === cur?.kind) continue;
       if (k === 'trackside' && (still || Math.abs(input.v) <= TRACKSIDE_MIN_V)) continue;
+      if (dark && (k === 'chase' || k === 'heli')) continue;
       general = idx;
       return k;
     }
-    return 'chase';
+    return dark ? 'high-wide' : 'chase';
   };
 
-  const cutTo = (shot, input, longWin) => {
-    cur = shot; age = 0; pending = null;
-    recent = [...recent, shot.id].slice(-2);
-    win = longWin; entered = !!longWin && input.legS >= longWin.s0 && input.legS <= longWin.s1;
-    return { shot, cut: true };
+  // a fixed general shot standing over a tunnel moves off it: before its mouth if that's still well ahead of the
+  // front, else past its far mouth
+  const offTunnels = (s, input) => {
+    const t = tunnelAt(input.tunnels, s.at);
+    if (!t) return;
+    const sign = input.dir === 'out' ? 1 : -1, near = sign > 0 ? t.s0 : t.s1, far = sign > 0 ? t.s1 : t.s0;
+    const before = near - sign * TUNNEL_CLEAR.before;
+    s.at = aheadOf(input.legS, before, input.dir) >= TUNNEL_CLEAR.ahead ? before : far + sign * TUNNEL_CLEAR.after;
   };
+
+  const cutTo = (shot, input, longWin, ev) => {
+    cur = shot; age = 0; event = ev;
+    recent.push(shot.id);
+    if (recent.length > 2) recent.shift();
+    win = longWin; entered = !!longWin && input.legS >= longWin.s0 && input.legS <= longWin.s1;
+    out.shot = shot; out.cut = true;
+    return out;
+  };
+
+  // the lead within which a queued event's shot cuts in
+  const ready = (e, input) => {
+    const at = e.shot.at;
+    if (at === undefined || at === null) return true;
+    return aheadOf(input.legS, at, input.dir) <= Math.max(EVENT_LEAD, Math.abs(input.v) * EVENT_LEAD_TIME);
+  };
+  // an event's fixed shot holds on until the train's middle is past its `at`
+  const waiting = (input) => {
+    if (!event || !FIXED.has(cur.kind) || cur.at === null || age >= LONG_HOLD) return false;
+    return aheadOf(input.legS, cur.at, input.dir) > -(input.length ?? 0) / 2;
+  };
+  // a queued event whose window the train has left (and isn't `always`, flying on past it) no longer comes
+  const gone = (e, input) => !e.always && aheadOf(input.legS, input.dir === 'out' ? e.s1 : e.s0, input.dir) < 0;
 
   const step = (input) => {
     age += input.dt;
-    const event = (input.started ?? []).find((e) => e.shot);
-    if (event && !pending) pending = event;
+    const started = input.started;
+    if (started) {
+      for (let i = 0; i < started.length; i++) {
+        const e = started[i];
+        if (e.shot && queue.length < QUEUE && !queue.includes(e)) queue.push(e);
+      }
+    }
+    for (let i = queue.length - 1; i >= 0; i--) if (gone(queue[i], input)) { for (let j = i; j < queue.length - 1; j++) queue[j] = queue[j + 1]; queue.length--; }
 
     if (cur && win && !entered && input.legS >= win.s0 && input.legS <= win.s1) entered = true;
+    const leftWin = win && entered && !(input.legS >= win.s0 && input.legS <= win.s1);
+    const expired = cur && ((age >= cur.hold && !waiting(input)) || leftWin);
+    // what may be cut into: anything once it's expired; a general or short showpiece shot after EVENT_DELAY
+    const open = !cur || expired || (!win && !event && age >= EVENT_DELAY);
 
-    if (pending && (!cur || age >= EVENT_DELAY)) {
-      const s = specFor(pending.shot.kind, pending.id, pending.shot, input);
-      s.hold = Math.max(HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN), HOLD_MIN);
-      return cutTo(s, input, null);
+    if (open) {
+      for (let i = 0; i < queue.length; i++) {
+        const e = queue[i];
+        if (!ready(e, input)) continue;
+        for (let j = i; j < queue.length - 1; j++) queue[j] = queue[j + 1];
+        queue.length--;
+        const s = specFor(e.shot.kind, e.id, e.shot, input);
+        s.hold = Math.max(HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN), HOLD_MIN);
+        return cutTo(s, input, null, e);
+      }
     }
 
-    const expired = cur && (age >= cur.hold || (win && entered && !(input.legS >= win.s0 && input.legS <= win.s1)));
     if (!cur || expired) {
       const p = pickShowpiece(input);
       if (p) {
         const s = specFor(p.shot.kind, p.id, p.shot, input);
         const long = p.shot.kind === 'portal' || p.shot.kind === 'below';
         s.hold = long ? LONG_HOLD : HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN);
-        return cutTo(s, input, long ? { s0: p.s0, s1: p.s1 } : null);
+        return cutTo(s, input, long ? { s0: p.s0, s1: p.s1 } : null, null);
       }
       const s = specFor(nextGeneral(input), null, null, input);
       s.hold = HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN);
-      return cutTo(s, input, null);
+      if (s.kind === 'high-wide' && s.at === null) {
+        s.at = input.legS + (input.dir === 'out' ? 1 : -1) * (Math.abs(input.v) * s.hold / 2 + WIDE_LEAD);
+      }
+      if (s.at !== null) offTunnels(s, input);
+      return cutTo(s, input, null, null);
     }
-    return { shot: cur, cut: false };
+    out.shot = cur; out.cut = false;
+    return out;
   };
 
   return { step, reset };

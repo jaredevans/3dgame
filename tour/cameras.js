@@ -3,7 +3,7 @@
 // their cuts; framed here). V cycles them; 1 cab, 2 drone, 3 director, 4 nose.
 import * as THREE from 'three';
 import { makeDirector } from './director.js';
-import { clearUnder } from './structure-mesh.js';
+import { clearUnder } from './structures.js';
 
 const MODES = ['cab', 'nose', 'drone', 'director'];
 const FOV = 55;   // every view but the director's, which sets its own per shot

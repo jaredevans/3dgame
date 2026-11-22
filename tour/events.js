@@ -18,7 +18,9 @@ export const EVENTS = {
     ev('lighthouse', 0, 1927, { always: true }),
     ev('gulls', 400, 1850, { shot: { kind: 'heli', at: 1100, lateral: 60 } }),
     ev('freight', 600, 1150, { shot: { kind: 'trackside', at: 875, lateral: -8 } }),
-    ev('dolphins', 900, 1300, { shot: { kind: 'heli', at: 1100, lateral: 90 } }),
+    // (the heli low out at sea beyond the pod, which swims 95-145 m off the shore: looking back at the train on the
+    // cliffs, the dolphins leap between. Its height is from the rails, 18 m up: -8 is 10 m over the water)
+    ev('dolphins', 900, 1300, { shot: { kind: 'heli', at: 1100, lateral: 260, height: -8 } }),
     ev('boats', 0, 1927, { always: true }),
     // (at: the one stretch near the Oceanside end where both lines lie within 1.5 m of the natural ground for 15 m
     // either side; the window runs 400 m before it, for the gates closing ahead, and on to 1800 for the cars crossing
@@ -36,7 +38,8 @@ export const EVENTS = {
     ev('signal', 200, 760, {
       dirs: ['out'], always: true,
       react: { kind: 'signal', at: { out: 400 } },
-      shot: { kind: 'below', at: 771 },
+      // (by the line just past the signal, on its side: the train comes up to it and stops at its red)
+      shot: { kind: 'trackside', at: 425, lateral: 8 },
     }),
     ev('eagle', 640, 1000, { shot: { kind: 'heli', at: 820, lateral: 70 } }),
     showpiece('portal', 434, 700, { kind: 'portal', at: 642 }, { dirs: ['out'] }),
@@ -53,7 +56,8 @@ export const EVENTS = {
     // and more high 25 m out until about 1120; and no nearer the Wild West, so it's 300 m from the back run's start)
     ev('cattle', 700, 1300, {
       react: { kind: 'cattle', at: { out: 1126, back: 1126 } },
-      shot: { kind: 'trackside', at: 1126, lateral: 8 },
+      // (the shot 64 m on, looking back past the herd on the line to the train held short of it; out of the walls)
+      shot: { kind: 'trackside', at: 1190, lateral: 6 },
     }),
     ev('tumbleweeds', 1100, 1427, { shot: { kind: 'heli', at: 1260, lateral: 50 } }),
     ev('stagecoach', 1150, 1427, { shot: { kind: 'heli', at: 1290, lateral: -50 } }),
@@ -63,7 +67,9 @@ export const EVENTS = {
     ev('speed', 700, 3400, { react: { kind: 'speed', s0: 800, s1: 3300 }, shot: { kind: 'chase', at: 2050 } }),
     ev('bullet', 1500, 2300, { shot: { kind: 'trackside', at: 1900, lateral: -8 } }),
     // (always: the rocket lifts off as you enter its window and flies its whole minute, past the window's end)
-    ev('rocket', 1900, 2900, { always: true, shot: { kind: 'wide', at: 2400, lateral: 200 } }),
+    // (the long lens from behind the window's out end, a little right: looking along the line past the train, the rocket
+    // climbs from its pad 5.5 km off, 10 degrees left of ahead; on a back run the train comes at it with the rocket behind)
+    ev('rocket', 1900, 2900, { always: true, shot: { kind: 'wide', at: 1750, lateral: -20 } }),
     ev('drones', 3000, 3700, { shot: { kind: 'heli', at: 3350, lateral: 60 } }),
     showpiece('guideway', 400, 3800, { kind: 'arc' }),
   ],
@@ -79,7 +85,8 @@ export const EVENTS = {
       react: { kind: 'crossing', at: { out: 1115, back: 1115 } },
       shot: { kind: 'trackside', at: 1115, lateral: -10 },
     }),
-    showpiece('skyline', 1700, 2083, { kind: 'wide', at: 1900, lateral: 120 }),
+    // (from behind, along the line to Downtown City: the towers stand beyond the train)
+    showpiece('skyline', 1700, 2083, { kind: 'wide', at: 1600, lateral: 40 }),
   ],
 };
 

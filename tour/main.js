@@ -462,14 +462,15 @@ async function boot() {
   const eventDefs = Object.fromEntries(Object.entries(EVENTS).map(([leg, defs]) => [leg, new Map(defs.map((e) => [e.id, e]))]));
   // what the director's view is told each frame (cameras.js): this run's showpieces (a shot, no actor), the events with a
   // shot that began this frame (an actor's: a showpiece's window opening is no event), and where the front is on the
-  // leg's own route (leg-s: shots' `at` and `lateral` are the leg's)
-  const viewCtx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started: [] };
+  // leg's own route (leg-s: shots' `at` and `lateral` are the leg's), with its tunnels
+  const viewCtx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started: [], tunnels: [] };
   function startEvents() {
     const defs = eventsFor(run.leg, run.dir);
     track = makeEventTrack(defs);
     reactions = makeReactions(defs.filter((e) => e.react), run.dir, { length: train.length, spec: train.spec });
     evOn = evOut = evLegS = null;
     viewCtx.showpieces = defs.filter((e) => e.shot && !e.actor);
+    viewCtx.tunnels = (routes[run.leg].sections ?? []).filter((sec) => sec.kind === 'tunnel');   // kept clear of general shots
     views.restart();
   }
   function viewContext(dt) {

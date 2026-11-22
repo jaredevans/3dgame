@@ -52,7 +52,7 @@ test('every event that is not always carries a shot, and so does the signal', ()
     }
   }
   const signal = EVENTS['ocean-mountain'].find((e) => e.id === 'signal');
-  assert.deepEqual(signal.shot, { kind: 'below', at: 771 });
+  assert.deepEqual(signal.shot, { kind: 'trackside', at: 425, lateral: 8 });
 });
 test('aheadOf mirrors on a back run', () => {
   assert.equal(aheadOf(300, 400, 'out'), 100);

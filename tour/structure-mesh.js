@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { part } from './parts.js';
 import { KITS } from './config.js';
 import { paint } from './terrain-mesh.js';
-import { GUIDE_DECK } from './structures.js';
+import { GUIDE_DECK, supports as supportsOf } from './structures.js';
 
 const DECK = -0.07;            // a deck's top, under the ballast's foot (-0.06), relative to the formation
 const EMBED = 1;               // piers, bents and abutments run this far into the ground below its lowest point
@@ -92,7 +92,7 @@ function block(m, route, s0, s1, d0, d1, y0, y1, colour) {
 }
 
 // ---- viaduct: a stone deck with parapets on piers every ~20 m, arched between them, an abutment at each end ----
-const V = { parapet: 1.1, wall: 0.45, under: -1.3, ring: 0.9, pier: 2.6, abut: 6, bay: 20 };
+const V = { parapet: 1.1, wall: 0.45, under: -1.3, ring: 0.9, pier: 2.6 };   // (where its piers stand: structures.js supports)
 function viaduct(route, half, sec, ground) {
   const m = mesher(), st = STONES[sec.stone] ?? STONES.taupe, hw = half;
   // the deck and parapets
@@ -101,24 +101,20 @@ function viaduct(route, half, sec, ground) {
     [-hw + V.wall, V.parapet], [-hw, V.parapet], [-hw, V.under],
   ], [st.walling, st.dressings, st.walling, st.walling, st.walling, st.dressings, st.walling]);
   // abutments, and piers between them
-  const a0 = sec.s0 + V.abut, a1 = sec.s1 - V.abut, n = Math.max(1, Math.round((a1 - a0) / V.bay)), bay = (a1 - a0) / n;
+  const supports = supportsOf(sec), a0 = supports[0], a1 = supports[supports.length - 1];
   for (const [s0, s1] of [[sec.s0, a0], [a1, sec.s1]]) {
     const foot = lowest(route, ground, s0, s1, -hw - 0.3, hw + 0.3) - EMBED;
     const top = route.at((s0 + s1) / 2).y + V.under;
     block(m, route, s0, s1, -hw - 0.3, hw + 0.3, foot, top + 0.01, st.walling);
   }
-  const supports = [a0];
-  for (let i = 1; i < n; i++) {
-    const s = a0 + i * bay, foot = lowest(route, ground, s - V.pier / 2 - 0.6, s + V.pier / 2 + 0.6, -hw - 0.8, hw + 0.8) - EMBED;
+  for (let i = 1; i < supports.length - 1; i++) {
+    const s = supports[i], foot = lowest(route, ground, s - V.pier / 2 - 0.6, s + V.pier / 2 + 0.6, -hw - 0.8, hw + 0.8) - EMBED;
     const top = route.at(s).y + V.under, batter = Math.max(0, (top - foot) / 30);
     const at = framer(route);
     const ring = (y, grow) => [at(s - V.pier / 2 - grow, -hw - 0.2 - grow), at(s + V.pier / 2 + grow, -hw - 0.2 - grow),
       at(s + V.pier / 2 + grow, hw + 0.2 + grow), at(s - V.pier / 2 - grow, hw + 0.2 + grow)].map((v) => { v.y = y; return v; });
     m.hexa(ring(foot, batter), ring(top + 0.01, 0), st.walling);
-    // a dressed band where the arches spring
-    supports.push(s);
   }
-  supports.push(a1);
   // the arches: from each support's face to the next one's, the soffit an ellipse rising to the crown under the deck
   for (let i = 0; i < supports.length - 1; i++) {
     const sa = supports[i] + (i === 0 ? 0 : V.pier / 2), sb = supports[i + 1] - (i === supports.length - 2 ? 0 : V.pier / 2);
@@ -138,22 +134,8 @@ function viaduct(route, half, sec, ground) {
   return m;
 }
 
-// the leg-s midway between the supports (a viaduct's piers, a trestle's bents) nearest `s`, where one stands on them:
-// somewhere under it in the clear (the director's camera, cameras.js). `s` itself elsewhere, and under a guideway, whose
-// piers stand under each line, clear between them
-export function clearUnder(sections, s) {
-  const sec = sections?.find((x) => s >= x.s0 && s <= x.s1);
-  let first, n;
-  if (sec?.kind === 'viaduct') { first = sec.s0 + V.abut; n = Math.max(1, Math.round((sec.s1 - V.abut - first) / V.bay)); }
-  else if (sec?.kind === 'trestle') { first = sec.s0; n = Math.max(1, Math.round((sec.s1 - sec.s0) / T.bent)); }
-  else return s;
-  const last = sec.kind === 'viaduct' ? sec.s1 - V.abut : sec.s1, bay = (last - first) / n;
-  const i = Math.min(n - 1, Math.max(0, Math.floor((s - first) / bay)));
-  return first + (i + 0.5) * bay;
-}
-
 // ---- trestle: timber bents every ~6 m under a plank deck, braced, on stone footings ----
-const T = { bent: 6, cap: 0.4, post: 0.34, tier: 6, batter: 0.16 };
+const T = { cap: 0.4, post: 0.34, tier: 6, batter: 0.16 };   // (where its bents stand: structures.js supports)
 function trestle(route, half, sec, ground) {
   const m = mesher(), hw = half - 0.3, at = framer(route);
   // the deck, its edge timbers and a kerb each side
@@ -162,9 +144,8 @@ function trestle(route, half, sec, ground) {
   ], [TIMBER.deck]);
   // stringers under each line
   for (const d of [-2, 2]) sweep(m, route, steps(sec.s0, sec.s1, 2), () => [[d + 0.6, -0.75], [d + 0.6, -1.3], [d - 0.6, -1.3], [d - 0.6, -0.75]], [TIMBER.brace]);
-  const n = Math.max(1, Math.round((sec.s1 - sec.s0) / T.bent));
-  for (let i = 0; i <= n; i++) {
-    const s = sec.s0 + (sec.s1 - sec.s0) * i / n, top = route.at(s).y - 1.3;
+  for (const s of supportsOf(sec)) {
+    const top = route.at(s).y - 1.3;
     const foot = lowest(route, ground, s - 0.6, s + 0.6, -hw - 3, hw + 3) - 0.3;
     const tall = top - foot;
     // the cap across the posts' tops

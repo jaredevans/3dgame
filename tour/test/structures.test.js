@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeRoute } from '../route.js';
 import { makeTerrain, BED_DROP } from '../terrain.js';
-import { structuresFor, sectionAt, tunnelDepth, TUBE_TOP } from '../structures.js';
+import { structuresFor, sectionAt, tunnelDepth, TUBE_TOP, supports, clearUnder, SUPPORT } from '../structures.js';
 import { LEGS, legRoute, worldTerrain, platformWindow, legSections as legSectionsOf } from '../world-data.js';
 
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
@@ -233,4 +233,30 @@ test('the guideway runs through both Futuristic platforms to the buffers, at gra
   const off = Math.max(...gw.map((x) => x.s1)), viaduct = legSectionsOf('future-city').find((x) => x.kind === 'viaduct');
   assert.ok(off >= 140 && off <= viaduct.s0 - 100, `the guideway ends at s=${off.toFixed(0)}`);
   assert.ok(trackRuns(fc.length, legSectionsOf('future-city')).some(([x]) => Math.abs(x - off) < 1e-6), 'track begins where the guideway ends');
+});
+
+// a viaduct stands on its abutments' faces and evenly spaced piers between them, a trestle on bents end to end; the
+// director's camera stands midway between two of them (structure-mesh.js builds them where supports() says)
+test('supports: piers and bents, and the clear between them', () => {
+  const viaduct = { kind: 'viaduct', s0: 646, s1: 896 }, trestle = { kind: 'trestle', s0: 690, s1: 870 };
+  const piers = supports(viaduct);
+  assert.equal(piers[0], 646 + SUPPORT.abut);
+  assert.equal(piers.at(-1), 896 - SUPPORT.abut);
+  assert.equal(piers.length, 13);   // 238 m in 12 bays of 19.8 m
+  for (let i = 1; i < piers.length; i++) assert.ok(Math.abs(piers[i] - piers[i - 1] - 238 / 12) < 1e-9);
+  const bents = supports(trestle);
+  assert.equal(bents.length, 31);
+  assert.deepEqual([bents[0], bents.at(-1)], [690, 870]);
+  assert.deepEqual(supports({ kind: 'tunnel', s0: 434, s1: 642 }), []);
+  assert.deepEqual(supports(null), []);
+  const sections = [{ kind: 'tunnel', s0: 434, s1: 642 }, viaduct];
+  // 771 is a pier's own leg-s: the camera goes midway to the next
+  assert.ok(Math.abs(clearUnder(sections, 771) - (771 + 238 / 24)) < 1e-9);
+  assert.ok(Math.abs(clearUnder([trestle], 780) - 783) < 1e-9);
+  // off a bridge (or under a tunnel's hill): unchanged
+  assert.equal(clearUnder(sections, 500), 500);
+  assert.equal(clearUnder(sections, 1000), 1000);
+  // at either end, between the end support and the next
+  assert.ok(Math.abs(clearUnder(sections, 647) - (652 + 238 / 24)) < 1e-9);
+  assert.ok(Math.abs(clearUnder(sections, 895) - (890 - 238 / 24)) < 1e-9);
 });
