@@ -103,7 +103,7 @@ Track-building notes, read from the kits rather than assumed:
 
 A second mode, reached from the basement's "Scenic Tour ▸" button: a full-size ring of five themed places (Downtown City, Oceanside, Mountain, Wild West, Futuristic) joined by 90-second scenic routes, each with its own train, where you drive from the cab and walk round each place between trains. Its design is `docs/superpowers/specs/2026-11-20-scenic-tour-design.md`; it lives in `tour.html` and `tour/`, and its Polyfork kits are self-hosted (`kits/`, never committed).
 
-Status: Phase 3 done. Phase 2 built the whole ring, all five places and their five trains, driven either way, with walking across each town between its two stations, a full day of sky over one lap (night places lit), suburbs and scenery along the lines, and streaming that builds what's beyond a place while you stand at it, so nothing loads while you drive. Phase 3 added:
+Status: Phase 4 built, with one fault left from its final check (below). Phase 2 built the whole ring, all five places and their five trains, driven either way, with walking across each town between its two stations, a full day of sky over one lap (night places lit), suburbs and scenery along the lines, and streaming that builds what's beyond a place while you stand at it, so nothing loads while you drive. Phase 3 added:
 - **Events on every leg**, played by actors built while you stand at a platform: the lighthouse, boats, gulls, dolphins and a freight on the coast; deer, a shower and its rainbow, an eagle and a work train on the climb; snow, a rockfall, riders, wild horses, tumbleweeds and a stagecoach down the canyon; the wind and solar farms, a passing bullet, a rocket launch and drones on the desert; flying pods round the Futuristic place's towers, helicopters and drones over Downtown City, suburban traffic and an airliner coming in to land on the way back to the City.
 - **Four that you react to**, none of which can make you fail: a level crossing on the first and last legs (sound the horn as you come up to it; the gates close either way); a red signal on the climb (the guard stops the train at it, and it turns green once the work train has cleared the viaduct); cattle on the line at the canyon's mouth (the horn moves them on, or the guard stops for them and they wander off); and the high-speed stretch on the desert (your top speed on it, when you leave it).
 - **The director's view** (`3`): cuts between dramatic shots of the train on its own, to each leg's showpieces (the cliffs, the tunnel's portals, the viaduct, the trestle, the guideway, the bridge, the skyline) and to each event as it begins; and **the nose view** (`4`), riding just above the front of the train. `V` cycles cab, nose, drone and director.
@@ -114,7 +114,30 @@ Status: Phase 3 done. Phase 2 built the whole ring, all five places and their fi
 - **Signs to the departures**: a green board on each arrival platform names the train that leaves from the town's other station and where it goes, and on foot the HUD points to that platform from the way you're looking, with the distance.
 - **HD trains and animals** from the owner's Polyfork account, when its CDN link is set in the gitignored `tour/local.js` (`?hd=0` turns HD off), and single parts self-hosted in `kits/parts/` (copied from the catalogue download by `scripts/extract-parts.mjs`), with Polyfork's public CDN as the fallback.
 
-What couldn't be made as first planned, and why:
+Phase 4 added **a ride on every leg** (design: `docs/superpowers/specs/2026-11-21-scenic-tour-rides-design.md`): a second way onward that carries you to the next place by itself in about 90 seconds, with a set piece on the way. It waits beside each departure station's platform, `E` beside it takes it, and it can't fail:
+- **City → Oceanside, the speedboat** (Polyfork's caique fishing boat). It waits at a jetty on the City's seafront, reached by a walkway and signposted from the departure station by its own board. A giant octopus rises beside it along the coast. It lands at Oceanside's harbour jetty, beside the Highland Climber's station.
+- **Oceanside → Mountain, a jet-boosted hot-air balloon.** It is built in code, since Polyfork's only balloon is a 2.6 m miniature. Big black crows wheel round it over the forest.
+- **Mountain → Wild West, a stagecoach** on its own road, cut into the hillside as a level bench. The road is part of the world's land, so it is always there and can be seen from the canyon train. A gang of outlaws chases it early in the ride (ride-s about 200–650), firing wide.
+- **Wild West → Futuristic, Polyfork's Agile Starfighter** (`agile-starfighter-89805f`). It hovers up off its pad and down onto its apron. It buzzes the rocket launch 12–15 s into the rocket's flight. A code-built UFO with white and green lights fires bolts that pass 3–6 m off; then the starfighter fires Polyfork's missile (`missile-0717d1`) and blows the UFO up.
+- **Futuristic → City, a flying car** (the Chrome Arcology hover pod with a glass cabin), with an escort of pods and skiffs.
+
+How the rides work:
+- **Views.** `V` cycles seat, nose, drone (chase) and director, and the director cuts to each set piece.
+- **The map.** It shows you moving along the leg.
+- **What's around you.** The sky and the streaming follow the ride, and nothing loads while it moves.
+- **The leg's train events** don't play during a ride, so the signal's work train stays still.
+- **At the end** you step off on foot by the next place's station, with the trains standing at their platforms.
+- **The auto tour (`Z`)** takes the trains only.
+
+Two things came in from `main` meanwhile:
+- **Touch.** The HUD's keys can be tapped on a phone or tablet.
+- **Hiding the HUD.** `K`, or the "Hide HUD" button, hides the help panel and the title.
+
+Separately, the published site (GitHub Pages) builds its kits from the owner's Polyfork account CDN through a publishing job.
+
+Phase 4's known fault: **the stagecoach can't be reached on foot.** At the Mountain, where the stagecoach waits is 5.5 m beyond the edge of the walkable ground, but its prompt needs you within 4 m. The likely cause: the unit test checks where it waits against the kit's bounding box, while the page uses the kit's actual land. It is still to be fixed.
+
+What couldn't be made as first planned in Phase 3, and why:
 - **No eagle, wind turbine or launch rocket in Polyfork's catalogue**: the three are built in code (requests filed with Polyfork for each; they can be swapped in if they arrive).
 - **The rainbow** is placed as if the sun stood no more than 30° up: the climb is at midday, with the sun about 61° up, where a real rainbow would be below the horizon.
 - **The lighthouse's beam** never shows in play: the coast leg is in daylight both ways. Its lamp and beam light up after dark (checked with night forced).

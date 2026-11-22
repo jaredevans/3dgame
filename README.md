@@ -52,12 +52,15 @@ You start in the Seaside Excursion's cab at the City. The world streams in round
 | `H` | Horn |
 | `V` | Change view: cab, nose, drone, director |
 | `1` `2` `3` `4` | Cab, drone, director, nose (drag to look or orbit, scroll to zoom the drone) |
-| `E` | Get out when stopped at a platform; board a train when you're next to it |
+| `E` | Get out when stopped at a platform; board a train when you're next to it; at a departure station, take the ride waiting there when you're next to it (see [Rides](#rides)) |
 | On foot: `W` / `S`, `A` / `D`, `Shift` | Walk forwards and back, turn, run (the camera follows behind you) |
 | On foot: drag | Standing still, look round you; it swings back behind you when you move |
 | `M` | The map (`Esc` closes it) |
 | `Z` | Auto tour: it drives, gets out, runs across each town to the next train and boards it, round the whole ring, cycling the nose, drone and director views. `Z` again, or any driving or walking key, gives you the controls back where you are |
 | `T` | Teleport: a list of the five places (`1`–`5` picks one, `T` or `Esc` closes it). On foot, or in the cab standing still, you fizz out in a column of sparkles and fizz in on foot on that place's arrival platform, its two trains waiting; the train you leave stays where it stopped, unless its line serves the destination, where it's put at its platform (one train per line). `Esc` with the map open only closes the map; a second `Esc` takes you back, till you've been moved. Does nothing while the train moves; the auto tour carries on from where you land |
+| `K` | Hide the help panel and title (the "Hide HUD" button does the same); again to show them |
+
+On a phone or tablet, every key the help panel shows, the prompt and the teleport list's places can be tapped: a tap is that key pressed, held as long as your finger is down.
 
 **Views.** The cab is the driver's seat; the nose rides just above the front of the train; the drone orbits it. The director's view cuts between dramatic shots on its own: from the trackside, below a viaduct, a helicopter alongside, a chase, a wide or high view, round the nose, and at a tunnel's portal as you go in. It cuts to each leg's showpieces (the cliffs, the tunnel, the viaduct and trestle, the guideway, the bridge, the skyline) and to each event as it begins.
 
@@ -74,6 +77,20 @@ You start in the Seaside Excursion's cab at the City. The world streams in round
 None of them can make you fail: the guard brakes for the signal and the cattle if you don't, and a crossing you didn't sound the horn for still lets you through.
 
 **Finding your way.** Each arrival platform has a green sign saying where the next train leaves from across the town ("Departures across town: Highland Climber to Mountain"). On foot, the top of the screen points to that platform from the way you're looking, with how far it is, and the map (`M`) shows the ring, where you are and a green flag on the departure platform.
+
+### Rides
+
+Each place also has a ride onward, a second way along its leg that carries you there by itself in about 90 seconds while a set piece plays out round you. It waits beside the departure station's platform, so at every departure you can take either the train or the ride. Walk up to it and press `E` when the prompt says "Take the … (E)". The City's ride is the exception: the speedboat waits at a jetty on the City's seafront, reached by a walkway out of the town's south-east corner. The departure station has its own board pointing the way, and a sign stands where the walkway leaves the town.
+
+| From | Ride | What happens on the way | Where it sets you down |
+|---|---|---|---|
+| Downtown City | the **speedboat** (Polyfork's caique fishing boat, run flat out, its captain at the wheel) | it skims along the coast; a giant octopus rises beside it, its arms out of the water, and the boat swerves hard away | at Oceanside's harbour jetty, beside the Highland Climber's station |
+| Oceanside | a **hot-air balloon** pushed along by two jet engines on its basket, its burners roaring | it lifts off over the forest and the waterfall's valley while a flock of big black crows wheels round the envelope, one now and then swooping past the basket | beside the Mountain's arrival platform |
+| Mountain | a **stagecoach** behind two galloping horses, on its own dirt road cut into the hillside as a level bench (part of the land, so you can see it from the Canyon Express too) | early in the ride a gang of five outlaws breaks from ambush and chases it, firing wide; nobody is hit, and they fall back | on the Wild West's station pad |
+| Wild West | Polyfork's **Agile Starfighter**, hovering up off its pad | it buzzes the rocket launch 12 to 15 seconds into the rocket's flight; a UFO with flashing white and green lights drops in and fires laser bolts that pass 3 to 6 m from you; the starfighter fires a missile and blows the UFO up | it hovers down onto its apron by the Futuristic place's arrival platform |
+| Futuristic | a **flying car** (the Chrome Arcology kit's hover pod with a glass cabin, so you see all round) | other hover pods and cargo skiffs fly with it in loose formation, and one passes it over the river | beside Downtown City's arrival platform |
+
+Once you've set off, the ride goes on its own and can't fail. `V` cycles the views, as on a train: your seat, the nose (over the vehicle's front), the drone (a chase view) and the director, who cuts to the set piece as it begins. `1`–`4` pick a view directly. `M` shows the map with your dot moving along the leg. The sky and what's streamed in follow the ride along its leg. The leg's train events don't play during a ride, so the signal's work train stays where it is. At the end you step off on foot by the next place's station, with the train you didn't take back standing at its platform, so you can carry on by either. The auto tour (`Z`) takes the trains only. Pressed during a ride, it starts once you've landed (`Z` again cancels that).
 
 ### The kit files
 
@@ -93,7 +110,7 @@ If the kit server is on a different origin from the page, it must send CORS head
 
 `node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the City to Oceanside leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint, `__tour.frame(dt)` to step the tour by hand, and `__tour.jump(legS)` to put your train, stopped, that far along the leg you're driving.
 
-A few single parts aren't from those kits: the suburbs' houses along the Metro Glide's line, and the animals and props of the routes' events. They are self-hosted too, in `kits/parts/` beside the kits (so `?kits=` moves them with the kits). Copy them out of your Polyfork catalogue download with:
+A few single parts aren't from those kits: the suburbs' houses along the Metro Glide's line, the animals and props of the routes' events, and the rides' own parts: the speedboat (`caique-fishing-boat-262c24`), the giant octopus (`octopus-base`), the balloon's crows (`crow-base`), the stagecoach's and the gang's horses (`saddled-horse-da86d3`), the starfighter (`agile-starfighter-89805f`) and its missile (`missile-0717d1`). The rides' other parts come from the kits themselves: the coast kit's fisherman at the boat's wheel, the Alpine kit's mountaineer flying the balloon, the Frontier kit's stagecoach, prospector and outlaws, and the Chrome Arcology kit's hover pods and cargo skiffs. The balloon and the UFO are built in code. They are self-hosted too, in `kits/parts/` beside the kits (so `?kits=` moves them with the kits). Copy them out of your Polyfork catalogue download with:
 
 ```
 node scripts/extract-parts.mjs path/to/polyfork-catalog.zip
