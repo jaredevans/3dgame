@@ -180,3 +180,16 @@ test("the massif chunk round the Mountain keeps to its slice, however slow the k
   assert.ok(clock > 500, `the patch's land was asked about (${clock.toFixed(0)} ms of ray casts)`);
   assert.ok(worst <= 4 + 1.3 + 1e-9, `a slice took ${worst.toFixed(1)} ms of a 4 ms budget (${slices} slices)`);
 });
+
+test('coarseFirst: the same pieces, the coarse tiles within it first, then the finer ones, then the coarse beyond, each lot nearest first', () => {
+  const plain = chunksWanted(100, 100, { fine: 0, mid: 600 }), first = chunksWanted(100, 100, { fine: 0, mid: 600, coarseFirst: 3000 });
+  assert.deepEqual(new Map([...first].sort()), new Map([...plain].sort()));
+  const d = (key) => { const c = chunkOf(`${key}:16`); return Math.hypot(Math.max(0, c.i * c.size - 100, 100 - (c.i + 1) * c.size), Math.max(0, c.j * c.size - 100, 100 - (c.j + 1) * c.size)); };
+  const lot = ([key, cell]) => (cell === 16 && d(key) <= 3000 ? 0 : cell === 16 ? 2 : 1), lots = [...first].map(lot);
+  for (let k = 1; k < lots.length; k++) assert.ok(lots[k] >= lots[k - 1], 'out of its lot\'s order');
+  assert.deepEqual([...new Set(lots)], [0, 1, 2]);
+  const near = [...first].filter((e) => lot(e) === 0).map(([key]) => d(key));
+  for (let k = 1; k < near.length; k++) assert.ok(near[k] >= near[k - 1] - 1e-9, 'nearest first among the coarse');
+  // and without it, as ever: nearest first whatever the detail
+  assert.notEqual([...plain.values()][0], 16);
+});

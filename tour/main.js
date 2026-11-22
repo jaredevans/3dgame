@@ -49,7 +49,7 @@ import { makeDieselCab } from './cabs/diesel.js';
 import { makeSteamCab, STEAM_MODELS } from './cabs/steam.js';
 import { makeFutureCab } from './cabs/future.js';
 import { makeShuttleCab } from './cabs/shuttle.js';
-import { RIDE_LEGS, rideFor } from './rides.js';
+import { RIDE_LEGS, RIDE_LAND, rideFor, rideLegEvents, rideLand } from './rides.js';
 import { nearRide, makeRideRunner, parkVehicle } from './ride-run.js';
 import { RIDE_BUILDERS } from './rides/index.js';
 import { roadJob, roadMesh } from './rides/road-mesh.js';
@@ -487,11 +487,15 @@ async function boot() {
     landFrames.push(ms); if (landFrames.length > 600) landFrames.shift();
   }
   let landAt = null;
-  // ask for the pieces round (x, z); again only once you've moved a little
-  function wantLand(x, z, force = false) {
-    if (!force && landAt && Math.hypot(x - landAt.x, z - landAt.z) < 16) return null;
-    landAt = { x, z };
-    return land.want([...chunksWanted(x, z, { corridor })].map(([key, cell]) => chunkId(key, cell)));
+  // ask for the pieces round (x, z) at the detail asked for (`detail`: a fast ride's, rides.js rideLand; else as for a
+  // train or on foot); again only once you've moved a little (its `every` metres), or the detail asked for has changed
+  const AS_EVER = { fine: 700, mid: 1500, corridor: true, coarseFirst: 0, every: 16 }, NO_CORRIDOR = new Set(), rideLandAt = {};
+  function wantLand(x, z, force = false, detail = AS_EVER) {
+    const d = detail, same = landAt && landAt.fine === d.fine && landAt.mid === d.mid && landAt.corridor === d.corridor && landAt.coarseFirst === d.coarseFirst;
+    if (!force && same && Math.hypot(x - landAt.x, z - landAt.z) < d.every) return null;
+    landAt = { x, z, fine: d.fine, mid: d.mid, corridor: d.corridor, coarseFirst: d.coarseFirst };
+    const opts = { fine: d.fine, mid: d.mid, corridor: d.corridor ? corridor : NO_CORRIDOR, coarseFirst: d.coarseFirst };
+    return land.want([...chunksWanted(x, z, opts)].map(([key, cell]) => chunkId(key, cell)));
   }
   // the pieces a patch added or taken away has changed, built again at whatever detail they are (and the one being
   // built started again)
@@ -738,7 +742,8 @@ async function boot() {
     state = journey.ride(state, leg);
     player.exit();
     keys.ignoreHeld();
-    rideLeg.track = makeEventTrack(eventsFor(leg, 'out').filter((e) => e.always));
+    // (the leg's always events, as for a train; one the ride cues itself, the jet's rocket, starts where the ride says)
+    rideLeg.track = makeEventTrack(rideLegEvents(rideFor(leg), eventsFor(leg, 'out').filter((e) => e.always)));
     rideLeg.on = null; rideLeg.placed = false;
     rideKeep = null;
     runner.start(rideFor(leg), kit);
@@ -1375,7 +1380,11 @@ async function boot() {
     anchor.position.copy(here());
     look.update();
     redoDirty();
-    wantLand(anchor.position.x, anchor.position.z);
+    // (a fast ride's land round where it's going, as rides.js rideLand says)
+    if (state.mode === 'ride' && runner.ride.profile.v > RIDE_LAND.slow) {
+      rideLand(runner.ride, ridden.s, ridden.v, rideLandAt);
+      wantLand(rideLandAt.x, rideLandAt.z, false, rideLandAt);
+    } else wantLand(anchor.position.x, anchor.position.z);
     // point the key light along our sun (or, after dark, a high moon) so shadows agree with the sky
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);

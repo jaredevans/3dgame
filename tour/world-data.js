@@ -312,6 +312,26 @@ export function stationPads() {
   return pads;
 }
 
+// the jet's two pads (rides.js jet), held level in the land as a station's are, so its wheels roll on them and its
+// wings clear the ground beside them: the hardstanding beside the Wild West's departure platform, 17 m out on the town
+// side where it waits and rolls to take off (the land there rises 2-3 m within its wingspan towards the town, so the
+// pad is cut into it), level with the station's own pad; and the apron on the far side of the Futuristic place's
+// arrival platform, 45 m out (clear of its embankment's foot), where it lands and rolls to a stop, on the low land
+// there (1.0-1.2 m). Each { inn, out } in its platform's frame (stationSpot), metres
+export const JET_PADS = {
+  stand: { place: 'west', role: 'departure', inn: [48, -62], out: [10, 25], blend: 8 },
+  apron: { place: 'future', role: 'arrival', inn: [20, 170], out: [-36, -54], y: 1.05, blend: 8 },
+};
+export function ridePads() {
+  return Object.entries(JET_PADS).map(([name, p]) => {
+    const at = stationSpot(p.place, p.role), mid = at((p.inn[0] + p.inn[1]) / 2, (p.out[0] + p.out[1]) / 2);
+    return {
+      x: mid.x, z: mid.z, w: Math.abs(p.out[1] - p.out[0]), d: Math.abs(p.inn[1] - p.inn[0]), rot: mid.yaw,
+      y: p.y ?? PLACES[p.place].ground - 0.05, blend: p.blend, kind: `jet ${name}`,
+    };
+  });
+}
+
 // every place's flat footprint; a kit with its own ground (the coast) is a patch instead, added once it's built
 export function placePads() {
   return Object.values(PLACES).filter((p) => p.kit === KITS.city).map((p) => ({
@@ -437,7 +457,7 @@ export function worldTerrain({ patches = [] } = {}) {
   const routes = Object.keys(LEGS).map(legRoute);
   const legs = Object.fromEntries(Object.keys(LEGS).map((id) => [id, legRoute(id)]));
   const clearings = Object.values(PLACES).map((p) => ({ x: p.centre.x, z: p.centre.z, r: 130 }));
-  const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
+  const t = makeTerrain({ routes, legs, pads: [...placePads(), ...stationPads(), ...ridePads()], patches, coast: COAST, base: 9, seaLevel: SEA_LEVEL, seed: 7,
     features: FEATURES, biomes: BIOMES, clearings, roads: [{ pts: coachRoad().pts, ...BENCH }] });
   giveSections(t);   // the land without beds decides them, and the beds (read as the ground is asked for) follow them
   if (!patches.length) cached = t;

@@ -37,8 +37,10 @@ function around(x, z, r, size) {
   return out;
 }
 
-// the pieces to keep built round (x, z), nearest first: Map key -> cell
-export function chunksWanted(x, z, { size = CHUNK, fine = 700, mid = 1500, far = 4500, corridor = new Set() } = {}) {
+// the pieces to keep built round (x, z), nearest first: Map key -> cell. coarseFirst (metres): the coarse tiles within it
+// before the finer pieces, and those beyond after them (each lot nearest first), so the land all round is built before
+// the detail nearer (a fast ride's: what it flies into is always there, if only coarse, while its finer pieces come)
+export function chunksWanted(x, z, { size = CHUNK, fine = 700, mid = 1500, far = 4500, corridor = new Set(), coarseFirst = 0 } = {}) {
   const out = [];
   for (const [I, J, d] of around(x, z, far, 2 * size)) {
     if (d > mid) { out.push([`t:${I},${J}`, d, COARSE]); continue; }
@@ -47,7 +49,8 @@ export function chunksWanted(x, z, { size = CHUNK, fine = 700, mid = 1500, far =
       out.push([key, dc, dc <= fine || corridor.has(key) ? FINE : MID]);
     }
   }
-  return new Map(out.sort((a, b) => a[1] - b[1]).map(([key, , cell]) => [key, cell]));
+  const rank = (e) => (e[2] === COARSE && e[1] <= coarseFirst ? 0 : e[2] === COARSE && coarseFirst > 0 ? 2 : 1);
+  return new Map(out.sort((a, b) => rank(a) - rank(b) || a[1] - b[1]).map(([key, , cell]) => [key, cell]));
 }
 
 // the keys of every chunk within r of a point

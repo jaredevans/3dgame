@@ -10,6 +10,7 @@ import { makeRoute } from './route.js';
 import { PLACES, LEGS, COAST, SEA_LEVEL, FEATURES, legRoute, laneOf, legSections, worldTerrain, stationSpot, coachRoad, drawnGround } from './world-data.js';
 import { rocketPad } from './actors/paths.js';
 import { GANG, GANG_SHOTS } from './rides/coach-plan.js';
+import { ROCKET_CUE, UFO } from './rides/jet-plan.js';
 
 export const RIDE_LEGS = ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future', 'future-city'];
 export const RIDE_DT = 0.1;   // the most a ride moves on in one frame (a long frame or a hidden tab)
@@ -174,14 +175,19 @@ export const JET = { radius: 1500, cruise: 80, rest: 1.5 };
 // Its hardstanding is 35 m in from the platform's open end, not by it (owner's ruling, 2026-11-22): the Wild West's
 // town is by the buffer end, and over the last 33 m to the open end the walk is the platform alone, so this is the
 // nearest the walk comes off the platform to the open end. 17 m out, so its wings clear the platform as it rolls.
-// It rolls on the ground (JET.rest over it) along the station's level shelf, 17 m out, lifting off 50 m past the
-// platform's end before the land falls away into the dry wash; it lands on level ground and rolls to a stop there.
-// (`rolls`: the stretches of its path on its wheels.)
+// Its hardstanding and apron are level pads in the land (world-data.js JET_PADS), and it rolls on them (JET.rest over
+// them), lifting off 50 m past the platform's end; it lands 45 m out from the Futuristic line, clear of the foot of the
+// station's embankment (nearer, its wing swept over the bank), and rolls to a stop there. (`rolls`: the stretches of its
+// path on its wheels.) The rocket lifts off as it runs in (rides/jet-plan.js ROCKET_CUE: `cues`, the leg's events it
+// triggers), the UFO paces it after it's been round the rocket (UFO), and the director has the jet round the rocket from
+// out past it, the rocket beyond it, and the UFO alongside from its other side
 function jet() {
   const at = stationSpot('west', 'departure'), to = stationSpot('future', 'arrival');
   const pad = rocketPad(legRoute('west-future')), R = JET.radius;
-  // the hardstanding and runway, on the ground beside the line; then rotating and climbing away over the wash
-  const runway = [35, 15, 0, -15, -30, -50].map((inn) => onGround(at(inn, 17), JET.rest));
+  // the hardstanding and runway, on the pad beside the line (a point every 5 m, so the path lies on it); then rotating
+  // and climbing away over the wash
+  const runway = [];
+  for (let inn = 35; inn >= -50; inn -= 5) runway.push(onGround(at(inn, 17), JET.rest));
   const liftoff = runway[runway.length - 1];
   const climb = { ...at(-130, 19), y: liftoff.y + 6 };
   // out to the circle's near side and round the far side of the pad (bearings 90 to 270 degrees, through 180: west)
@@ -195,19 +201,29 @@ function jet() {
     const x = last.x + (first.x - last.x) * f, z = last.z + (first.z - last.z) * f;
     out.push({ x, z, y: over(x, z, 300, JET.cruise) });
   }
-  // the landing: down a 3.5-degree glide onto the apron (level ground, 1.0-1.2 m), touching down 110 m short of where
-  // it stops, at some 220 km/h
-  const TOUCH = 150;
-  let apron = -Infinity;
-  for (let inn = 40; inn <= 260; inn += 5) { const p = to(inn, -35); apron = Math.max(apron, ground(p.x, p.z)); }
-  const level = apron + JET.rest, glide = (inn) => ({ ...to(inn, -35), y: level + Math.max(0, inn - TOUCH) * Math.tan(3.5 * Math.PI / 180) });
-  const home = [1700, 900, 450, 260, 200, TOUCH, 100].map(glide), land = glide(40);   // (close at the touchdown: no dip)
+  // the landing: down a 3.5-degree glide onto the apron, touching down 110 m short of where it stops, at some 220 km/h
+  const TOUCH = 150, OUT = -45;
+  const level = ground(to(95, OUT).x, to(95, OUT).z) + JET.rest;
+  const glide = (inn) => ({ ...to(inn, OUT), y: level + Math.max(0, inn - TOUCH) * Math.tan(3.5 * Math.PI / 180) });
+  // (close at the touchdown, so no dip; on the apron a point every 10 m, so the roll lies on it)
+  const home = [1700, 900, 450, 260, 200, TOUCH, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50].map(glide), land = glide(40);
   const back = circle[circle.length - 1], mid = { x: (back.x + home[0].x) / 2, z: (back.z + home[0].z) / 2 };
   const inbound = { ...mid, y: over(mid.x, mid.z, 300, JET.cruise) };
   const step = onGround(to(40, 20));   // on the town-side approach, across the tracks from the apron
   return { pts: [...runway, climb, ...out, ...circle, inbound, ...home, land], step: { ...step, yaw: townward('future', 'arrival')(step.yaw) },
-    ease: [16, 16], rest: JET.rest, rolls: [[null, liftoff], [glide(TOUCH), null]] };
+    ease: [16, 16], rest: JET.rest, rolls: [[null, liftoff], [glide(TOUCH), null]],
+    cues: { rocket: ROCKET_CUE },
+    events: [{ id: 'ufo', s0: UFO.s0, s1: UFO.s1, actor: 'ufo', shot: { kind: 'heli', lateral: 45, height: 6, fov: 50 } }],
+    showpieces: JET_SHOTS };
 }
+// the director's: the lift-off from behind the jet as it runs in (a chase: the pad ahead on its right); round the rocket,
+// a wide shot from out past the circle (on the jet's left: it turns right round the pad), standing where the jet will
+// be half way through it, the jet crossing in front of the pad with the rocket climbing beyond (a wide lens, so the
+// rocket's in it as it climbs); the UFO alongside is its event's heli, from the jet's left, the saucer beyond it
+export const JET_SHOTS = [
+  { id: 'rocket-launch', s0: 4100, s1: 5600, shot: { kind: 'chase' } },
+  { id: 'rocket-circle', s0: 6800, s1: 10200, shot: { kind: 'wide', lateral: 200, fov: 55 } },
+];
 
 // The flying car (future-city): up from a pad beside the Futuristic place's departure platform, 55 m over the highest
 // of the suburbs and the river within 60 m (40-80 m up), round to the south of Downtown City and in among its towers
@@ -648,10 +664,48 @@ function legTable(path, leg) {
   return out;
 }
 
+// the leg's events as they play for a ride along it: as for a train at the ride's leg-s, but one the ride cues itself
+// (ride.cues: the jet's rocket, which lifts off as the jet runs in, wherever the leg-s it maps to then is) has its window
+// moved to start at the leg-s the ride is at as it reaches its cue, its length kept
+export function rideLegEvents(ride, defs) {
+  return defs.map((e) => {
+    const cue = ride.cues?.[e.id];
+    if (cue === undefined) return e;
+    const s0 = rideLegS(ride, cue);
+    return { ...e, s0, s1: s0 + (e.s1 - e.s0) };
+  });
+}
+
 // the leg's s for ride-s s (read between the path's metres)
 export function rideLegS(ride, s) {
   const T = ride.legS, f = Math.min(T.length - 1, Math.max(0, s)), i = Math.min(T.length - 2, Math.floor(f));
   return T[i] + (T[i + 1] - T[i]) * (f - i);
+}
+
+// ---- the land while riding ----
+// The land is built a slice a frame round where you are (main.js), a fine piece in some 55 ms of slices, a mid one in 11
+// and a coarse 512 m tile in 8: a train's pace, or a slow ride's. A fast one (the jet, at 212 m/s, crossing a 256 m
+// piece in 1.2 s) would outrun it: fine pieces under it unbuilt and those it left rebuilt coarser, the building falling
+// further behind until the land round it went missing. So while a ride goes faster than RIDE_LAND.slow the land is
+// asked for round a point `lead` seconds ahead along its path at its speed, at mid detail out to `mid` (from under it to
+// some 1.1 km ahead: from 50-150 m up the land below needs no finer; coming in to land, its landing is within that some
+// 12 s before it stops) and coarse beyond, the coarse tiles within `first` built before the rest (chunks.js coarseFirst:
+// what it flies into is then always there, if coarse at first, while the finer come; the furthest, in the haze, last),
+// the line's corridor not fine. Slower (rolling to take off, and the last seconds of its landing roll), round it as for a
+// train: the land it stops on goes fine as you step off, as after a train. Asked for again each `every` metres the point
+// moves. -> out { x, z, fine, mid, corridor, coarseFirst, every }
+export const RIDE_LAND = { slow: 60, lead: 2, mid: 700, first: 3000, every: 48 };
+const RL = {};
+export function rideLand(ride, s, v, out = {}) {
+  const fast = v > RIDE_LAND.slow;
+  ride.path.at(fast ? Math.min(ride.path.length, s + v * RIDE_LAND.lead) : s, RL);
+  out.x = RL.x; out.z = RL.z;
+  out.fine = fast ? 0 : 700;
+  out.mid = fast ? RIDE_LAND.mid : 1500;
+  out.corridor = !fast;
+  out.coarseFirst = fast ? RIDE_LAND.first : 0;
+  out.every = fast ? RIDE_LAND.every : 16;
+  return out;
 }
 
 const rides = new Map();
@@ -659,7 +713,7 @@ export function rideFor(leg) {
   if (!rides.has(leg)) {
     const b = BUILD[leg];
     if (!b) throw new Error(`no ride along ${leg}`);
-    const { pts, step, ease, rest, rolls = [], events = [], showpieces = [], burn = null } = b.make();
+    const { pts, step, ease, rest, rolls = [], events = [], showpieces = [], burn = null, cues = {} } = b.make();
     const path = makeRoute(pts);
     // a roll's ends given as points (null: the path's end) -> ride-s, the path's nearest metre to each
     const sOf = (p, fallback) => {
@@ -676,6 +730,7 @@ export function rideFor(leg) {
       path, duration: DURATION, profile: profileFor(path.length, DURATION, ease), legS: legTable(path, leg),
       events, showpieces,   // each ride's own set pieces (Tasks 4-8)
       burn,   // the balloon's burners: how hard they burn at the ride's t (0..1; its engine roars with them), or null
+      cues,   // the leg's own events the ride sets off itself, by id: the ride-s at which each starts (the jet's rocket)
     });
   }
   return rides.get(leg);

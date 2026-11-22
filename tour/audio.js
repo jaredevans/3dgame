@@ -95,6 +95,21 @@ const SOUNDS = {
     noiseBurst({ type: 'highpass', freq: 1800, to: 900, q: 0.7, peak: 0.1 * level, attack: 0.002, dur: 0.09 });
     noiseBurst({ type: 'bandpass', freq: 500, to: 220, q: 1.1, peak: 0.07 * level, attack: 0.004, dur: 0.22 });
   },
+  // the UFO's laser: a bright electronic zap, a tone sweeping fast down from high with a buzz of its octave under it,
+  // and a crackle of noise as it goes, as loud as `level` (0..1: nearer, louder)
+  zap(level = 1) {
+    const t0 = audio.currentTime, g = audio.createGain(), f = audio.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 5200;
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.06 * level, t0 + 0.006); g.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.32);
+    g.connect(f).connect(audio.destination);
+    for (const [type, mul, lvl] of [['square', 1, 0.6], ['sawtooth', 0.5, 0.4]]) {
+      const o = audio.createOscillator(), og = audio.createGain();
+      o.type = type; og.gain.value = lvl;
+      o.frequency.setValueAtTime(2400 * mul, t0); o.frequency.exponentialRampToValueAtTime(260 * mul, t0 + 0.28);
+      o.connect(og).connect(g); o.start(t0); o.stop(t0 + 0.34);
+    }
+    noiseBurst({ type: 'highpass', freq: 4000, to: 1500, q: 0.6, peak: 0.025 * level, attack: 0.003, dur: 0.18 });
+  },
   ping(level = 1) {
     const t0 = audio.currentTime + 0.12, o = audio.createOscillator(), g = audio.createGain();
     const f0 = 2300 + Math.random() * 600;
@@ -148,7 +163,9 @@ export function shimmer(rising = true, dur = 1.5) {
 // rush of their exhaust, rising with their thrust; and the burners' whoosh in bursts, a deep roar of noise, as hard as
 // set()'s `burn` says they burn (the runner gives it from the ride's own clock); under 0.07. 'coach': the stagecoach's
 // wheels rumbling, its team's hooves galloping faster with its speed, its body creaking (it ignores `burn`); under
-// 0.07. A kind with no sound of its own yet is silent
+// 0.07. 'jet': its two engines, the whine of their fans (two high tones a little apart, beating) over the low growl of
+// their cores and the broad roar of their exhaust, all rising with its speed; under 0.07 (it ignores `burn`). A kind with
+// no sound of its own is silent
 const ENGINES = {
   car: { tones: [[92, 'sine', 1], [185, 'triangle', 0.35]], cut: 700, air: { freq: 900, q: 0.8, gain: 0.25 }, gain: 0.045, pitch: [0.85, 1.15], idle: 0.45 },
   boat: { tones: [[58, 'sawtooth', 1], [61, 'sawtooth', 0.8], [117, 'square', 0.18]], cut: 650, air: { freq: 2600, q: 0.5, gain: 0.55 }, gain: 0.065, pitch: [0.7, 1.35], idle: 0.3 },
@@ -157,6 +174,7 @@ const ENGINES = {
     air: { freq: 1400, q: 0.6, gain: 0.5 }, gain: 0.04, pitch: [0.8, 1.12], idle: 0.25,
     burner: { freq: 260, to: 520, q: 0.7, gain: 0.07 },
   },
+  jet: { tones: [[3150, 'sine', 0.1], [3190, 'sine', 0.08], [1580, 'triangle', 0.05], [74, 'sawtooth', 0.35]], cut: 5200, air: { freq: 520, q: 0.45, gain: 1.1 }, gain: 0.06, pitch: [0.62, 1.12], idle: 0.4 },
   // the stagecoach: its wheels' low rumble on the dirt (no engine tones), the team's hooves in a gallop's four beats
   // (a knock of noise each, quickening with its speed) and the body creaking on its springs; under 0.07
   coach: {

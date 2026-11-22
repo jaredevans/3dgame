@@ -4,7 +4,7 @@
 // (terrain.js); scenery-mesh.js draws them, one InstancedMesh per part per chunk, with the land's chunks.
 // Each piece: { v, key, x, y, z, ry, s }: its variant (VARIANTS) and part key, where its origin stands (y: on its
 // ground), its turn about y, and s its part's own scale knob (1 for a part without one). Never rescaled otherwise.
-import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute, legSections, stationPads, placePads } from './world-data.js';
+import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute, legSections, stationPads, placePads, ridePads } from './world-data.js';
 import { KITS } from './config.js';
 import { EVENTS } from './events.js';
 import { ROAD } from './suburbs.js';
@@ -109,7 +109,7 @@ function theWorld() {
   }));
   const portals = Object.keys(LEGS).flatMap((id) => legSections(id).filter((s) => s.kind === 'tunnel')
     .flatMap((s) => [legRoute(id).at(s.s0), legRoute(id).at(s.s1)]));
-  const pads = [...stationPads(), ...placePads()].map((p) => ({ ...p, c: Math.cos(p.rot ?? 0), s: Math.sin(p.rot ?? 0) }));
+  const pads = [...stationPads(), ...placePads(), ...ridePads()].map((p) => ({ ...p, c: Math.cos(p.rot ?? 0), s: Math.sin(p.rot ?? 0) }));
   const waters = FEATURES.filter((f) => f.kind === 'valley' && f.water).map((v) => ({ half: 20, fade: 60, ...v }));
   // each line's nearest point to (x, z) within `reach`: [{ leg, s, d }]
   function near(x, z, reach) {

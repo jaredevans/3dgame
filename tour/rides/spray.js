@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 import { SEA_LEVEL } from '../world-data.js';
 
-// a soft round dot, drawn once and shared
+// a soft round dot, drawn once and shared (the spray's, and the UFO's glows)
 let dot = null;
-function dotTexture() {
+export function dotTexture() {
   if (dot) return dot;
   const c = document.createElement('canvas');
   c.width = c.height = 64;

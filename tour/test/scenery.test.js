@@ -5,7 +5,7 @@
 // open line is bare. Distances are measured by brute force against every line, every 2 m.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute, legSections, stationPads, placePads, worldTerrain } from '../world-data.js';
+import { LEGS, PLACES, FEATURES, SEA_LEVEL, legRoute, legSections, stationPads, placePads, ridePads, worldTerrain } from '../world-data.js';
 import { CHUNK } from '../chunks.js';
 import { scatter, VARIANTS, CLEAR_LINE, MAX_SLOPE } from '../scenery.js';
 
@@ -71,7 +71,7 @@ test('scatter is the same every time for a chunk', () => {
 });
 
 test('nothing grows on the line, the pads, the places or the sea', () => {
-  const pads = [...stationPads(), ...placePads()];
+  const pads = [...stationPads(), ...placePads(), ...ridePads()];
   const waters = FEATURES.filter((f) => f.kind === 'valley' && f.water);
   for (const l of lines) assert.ok(items.some((q) => near.get(q).id === l.id), `nothing along ${l.id}`);
   for (const q of items) {
