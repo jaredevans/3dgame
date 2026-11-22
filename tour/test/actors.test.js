@@ -939,15 +939,23 @@ test('standing still it comes only once you are inside its window, and once a ru
   assert.equal(again.shown, false);
 });
 
-test('the canyon\'s stagecoach stands on the land along its run, every wheel within 0.15 m of the ground (it crosses the stagecoach ride\'s road and the bench cut for it)', async () => {
+test('the canyon\'s stagecoach and its pair stand on the land along its run, every wheel and hoof within 0.15 m of the ground (it crosses the stagecoach ride\'s road and the bench cut for it)', async () => {
   const { openStretch, CANYON_COACH: C, standOnGround } = await import('../actors/paths.js');
   const { worldTerrain } = await import('../world-data.js');
   const terrain = worldTerrain(), h = terrain.heightAt, def = EVENTS['mountain-west'].find((e) => e.id === 'stagecoach');
   const side = Math.sign(def.shot?.lateral ?? -1) || -1;
   const road = openStretch(canyon, terrain, side, [C.lateral], def.s0, def.s1, C.tol);
   assert.ok(road && road.hi - road.lo > 50, 'it has a road');
-  const P = {}, st = {}, W = C.wheels;
-  let worst = 0, at = 0, flat = 0;
+  const P = {}, st = {}, sp2 = {}, W = C.wheels, PAIR = C.pair, { HORSE_HOOVES: H } = await import('../actors/paths.js');
+  let worst = 0, at = 0, flat = 0, hoof = 0, hoofAt = 0;
+  // a point (x left, z ahead, on its ground) of something stood at (ox, oz), heading yaw, by standOnGround's st: its
+  // place in the world as the rig is posed (YXZ: turned, pitched -pitch, rolled roll), and how far off the ground it is
+  const off = (ox, oz, yaw, s, x, z) => {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(s.pitch), spi = Math.sin(s.pitch), cr = Math.cos(s.roll), sr = Math.sin(s.roll);
+    const x1 = x * cr, y1 = x * sr, y2 = y1 * cp + z * spi, z2 = -y1 * spi + z * cp;
+    const wx = ox + x1 * cy + z2 * sy, wz = oz - x1 * sy + z2 * cy;
+    return Math.abs(s.y + y2 - h(wx, wz));
+  };
   for (const sgn of [1, -1]) for (let s = road.lo; s <= road.hi; s += 1) {
     herdPath(canyon, s, side, C.lateral, P);
     const yaw = P.yaw + (sgn < 0 ? Math.PI : 0);
@@ -963,7 +971,15 @@ test('the canyon\'s stagecoach stands on the land along its run, every wheel wit
       // (and as it stood before, unpitched on the ground under its middle)
       flat = Math.max(flat, Math.abs(h(P.x, P.z) - h(wx, wz)));
     }
+    // its pair, PAIR.z ahead on its way, stood on their own hooves (each horse's four, measured: HORSE_HOOVES)
+    const tx = P.x + Math.sin(yaw) * PAIR.z, tz = P.z + Math.cos(yaw) * PAIR.z;
+    standOnGround(h, tx, tz, yaw, PAIR.feet, sp2);
+    for (const sx of [-1, 1]) for (const side of [-H.side, H.side]) for (const z of [H.front, H.back]) {
+      const o = off(tx, tz, yaw, sp2, sx * PAIR.x + side, z);
+      if (o > hoof) { hoof = o; hoofAt = s * sgn; }
+    }
   }
+  assert.ok(hoof <= 0.15, `a hoof ${hoof.toFixed(2)} m off the ground at ${hoofAt} (- going back)`);
   assert.ok(worst <= 0.15, `a wheel ${worst.toFixed(2)} m off the ground at ${at}`);
   assert.ok(flat > worst, 'the land under it is not flat (the test sees something)');
 });

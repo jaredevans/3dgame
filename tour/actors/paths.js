@@ -620,17 +620,27 @@ export function openStretch(route, terrain, side, laterals, s0, s1, tol) {
   return best;
 }
 
+// a saddled horse's hooves (Polyfork's saddled-horse-da86d3, standing in its Idle clip: its foot bones, measured in the
+// page) in its own frame, +z ahead: its forefeet and hind feet, and either side of its middle
+export const HORSE_HOOVES = { front: 0.46, back: -0.6, side: 0.13 };
 // the canyon's stagecoach: its lane (lateral m out from the line, on the side of its event's shot), the land along its
-// stretch within `tol` of the line's level, and its wheels' feet in its own frame (+z ahead: the front pair, the back
-// pair, and either side), as the Frontier stagecoach's are
-export const CANYON_COACH = { lateral: 30, tol: 12, wheels: { front: 1.31, back: -1.59, half: 0.82 } };
+// stretch within `tol` of the line's level, its wheels' feet in its own frame (+z ahead: the front pair, the back pair,
+// and either side), as the Frontier stagecoach's are; and its pair abreast ahead of it (each `x` either side of their
+// middle, which is `z` ahead of the coach's: its front, 2.25 m, a pole's 0.6 and a horse's half), who stand on the land
+// on their own (the bench cut across their lane would lift or sink them, carried rigid with the coach), their footprint
+// the hooves of both
+export const CANYON_COACH = {
+  lateral: 30, tol: 12, wheels: { front: 1.31, back: -1.59, half: 0.82 },
+  pair: { x: 0.5, z: 4.15, feet: { front: HORSE_HOOVES.front, back: HORSE_HOOVES.back, half: 0.5 + HORSE_HOOVES.side } },
+};
 // a wheeled thing standing on the land at (x, z), heading yaw (wheels: { front, back, half } in its own frame): into out
 // { y (its origin's height: on the plane through its wheels' feet), pitch (+ its front up), roll (+ its left side up) },
 // for a pose in YXZ (rotation.x = -pitch, rotation.z = roll), so every wheel is on the ground however the land falls
 export function standOnGround(heightAt, x, z, yaw, wheels, out = {}) {
-  const fx = Math.sin(yaw), fz = Math.cos(yaw), lx = Math.cos(yaw), lz = -Math.sin(yaw), { front, back, half } = wheels;
-  const h = (a, l) => heightAt(x + fx * a + lx * l, z + fz * a + lz * l);
-  const fl = h(front, half), fr = h(front, -half), bl = h(back, half), br = h(back, -half);
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), lx = Math.cos(yaw) * wheels.half, lz = -Math.sin(yaw) * wheels.half;
+  const front = wheels.front, back = wheels.back, half = wheels.half;
+  const fl = heightAt(x + fx * front + lx, z + fz * front + lz), fr = heightAt(x + fx * front - lx, z + fz * front - lz);
+  const bl = heightAt(x + fx * back + lx, z + fz * back + lz), br = heightAt(x + fx * back - lx, z + fz * back - lz);
   const hf = (fl + fr) / 2, hb = (bl + br) / 2;
   out.pitch = Math.atan2(hf - hb, front - back);
   out.roll = Math.atan2((fl + bl) / 2 - (fr + br) / 2, 2 * half);

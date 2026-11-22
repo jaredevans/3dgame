@@ -18,13 +18,15 @@
 // file over GANG.funnel; and pulls up over GANG.stop metres of the coach's travel, standing there after. Its lane is a
 // function of its own `a` (a track on the ground), so a rider pulled up stays where it stopped.
 import { coachRoad, legRoute, LEGS } from '../world-data.js';
+import { HORSE_HOOVES } from '../actors/paths.js';
 
 // the coach and its team in its holder's frame (metres; +z ahead, +x its left): its body and wheels (2 m across, 4.5
 // m long, its middle on the holder) and the pair ahead of it (to 5.6 m), measured in the page
 export const COACH_FOOT = { half: 1.1, back: -2.4, front: 5.6 };
 // its team, a pair abreast ahead of it on its pole (the holder's frame): each horse's middle x either side, z ahead; its
-// hooves stand about `hooves` (z, from its hind feet to its fore) and `wide` either side of its middle
-export const COACH_TEAM = { x: 0.52, z: 4.15, hooves: [3.3, 5.0], wide: 0.15 };
+// hooves stand at `hooves` (z, its hind feet and its fore) and `wide` either side of its middle (a saddled horse's, as
+// measured: actors/paths.js HORSE_HOOVES)
+export const COACH_TEAM = { x: 0.52, z: 4.15, hooves: [4.15 + HORSE_HOOVES.back, 4.15 + HORSE_HOOVES.front], wide: HORSE_HOOVES.side };
 export const RIDER_REACH = 1.3;   // a horse and its rider reach this far from its middle (the horse 2.4 m long)
 export const GANG = {
   count: 5,

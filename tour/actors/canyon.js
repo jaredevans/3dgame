@@ -458,7 +458,7 @@ async function buildTumbleweeds({ leg, route, def, terrain, slicer, kit }) {
 // ---- the stagecoach ----
 // a frontier stagecoach drawn by two saddled horses on a dirt road 30 m out, at 9 m/s the way the train is going: set off
 // when the event starts so the train draws level with it about the road's middle; it pulls up at the road's end
-const COACH = { ...CANYON_COACH, speed: 9, road: 4, pole: 0.6, pair: 0.5, colour: '#9c7d57' };
+const COACH = { ...CANYON_COACH, speed: 9, road: 4, colour: '#9c7d57' };
 const dirtMat = new THREE.MeshStandardMaterial({ color: COACH.colour, roughness: 1, flatShading: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
 
 async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
@@ -500,31 +500,33 @@ async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
 
   await slicer.frame();
   const coach = await kit('west', 'stagecoach', { colorway: 'saloon-red', load: 'baggage' });
-  const rig = new THREE.Group();   // the coach and its pair, facing its +z
+  const rig = new THREE.Group();   // the coach, facing its +z (its pair stand on their own, ahead of it)
   rig.add(coach);
-  const box = new THREE.Box3().setFromObject(coach);
   const wheels = ['wheel-fl', 'wheel-fr', 'wheel-rl', 'wheel-rr'].map((n) => coach.getObjectByName(n)).filter(Boolean).map((w) => {
     const b = new THREE.Box3().setFromObject(w);
     return { w, r: Math.max(0.2, (b.max.y - b.min.y) / 2) };
   });
+  // its pair, abreast ahead of it (CANYON_COACH.pair), standing on the land under their own hooves
+  const team = new THREE.Group(), PAIR = COACH.pair;
+  team.rotation.order = 'YXZ';
   let pair = [];
   await slicer.frame();
   try {
     const kind = await loadAnimal('saddled-horse-da86d3');
     pair = [-1, 1].map((x) => {
       const h = kind.make();
-      h.object.position.set(x * COACH.pair, 0, box.max.z + COACH.pole + 1.3);
-      rig.add(h.object);
+      h.object.position.set(x * PAIR.x, 0, 0);
+      team.add(h.object);
       return h;
     });
   } catch (err) { warnOut('coach horses', def, leg, err); }
-  rig.visible = false;
+  rig.visible = false; team.visible = false;
   rig.rotation.order = 'YXZ';   // (turned to its way, then pitched and rolled to the land)
-  group.add(rig);
+  group.add(rig, team);
 
-  const mid = (road.lo + road.hi) / 2, ctx = { route, terrain, P }, stand = { y: 0, pitch: 0, roll: 0 };
+  const mid = (road.lo + road.hi) / 2, ctx = { route, terrain, P }, stand = { y: 0, pitch: 0, roll: 0 }, standPair = { y: 0, pitch: 0, roll: 0 };
   let s = null;
-  const hide = () => { s = null; rig.visible = false; };
+  const hide = () => { s = null; rig.visible = false; team.visible = false; };
   return {
     group,
     update(f) {
@@ -548,6 +550,12 @@ async function buildStagecoach({ leg, route, def, terrain, slicer, kit }) {
       rig.position.y = stand.y;
       rig.rotation.x = -stand.pitch;
       rig.rotation.z = stand.roll;
+      // and its pair ahead of it on its way, on the land under their hooves
+      const yaw = rig.rotation.y, tx = rig.position.x + Math.sin(yaw) * PAIR.z, tz = rig.position.z + Math.cos(yaw) * PAIR.z;
+      standOnGround(terrain.heightAt, tx, tz, yaw, PAIR.feet, standPair);
+      team.visible = true;
+      team.position.set(tx, standPair.y, tz);
+      team.rotation.set(-standPair.pitch, yaw, standPair.roll);
       for (const { w, r } of wheels) w.rotation.x += v * f.dt / r;
       const clip = clipFor(v, pair[0]?.clips ?? [], HORSE);
       for (const h of pair) { h.play(clip.name, { timeScale: clip.timeScale }); h.update(f.dt); }
