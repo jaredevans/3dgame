@@ -22,11 +22,84 @@ function place(obj, route, s, lane, side, extent = [0, PIECE]) {
   return obj;
 }
 
-// leg: the leg id; end: 'start' or 'end' of it; style: its place's station style (station-style.js). Returns the
-// platform its trains use there, in the leg's s, its walk frame, and (a kit style) the parts its place's kit lights after
-// dark: { group, platform, buffersS, walk, lit: [[object, part key]] }.
-export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120, style = 'countryside' } = {}) {
-  if (style === 'future') return futureTerminus(leg, end, { name, platformLength });
+// ---- the sign to the departures, on an arrival platform (either style) ----
+// A 2.4 x 1 m board, white text on deep green, on two posts 2.2 m high: standing across the platform's town (outer)
+// half, 6 m from its open (ramp) end, facing along it. Made in code, its canvas texture once per sign, here at build.
+export const SIGN = { w: 2.4, h: 1, posts: 2.2, post: 0.05, depth: 0.06, fromOpenEnd: 6, across: 6.6 };   // across the line's centre
+const SIGN_GREEN = '#0d4f33', SIGN_PX = 1024;
+const signPosts = new THREE.MeshStandardMaterial({ color: '#1f3a2b', roughness: 0.75, metalness: 0.2, flatShading: true });
+const signEdge = new THREE.MeshStandardMaterial({ color: SIGN_GREEN, roughness: 0.8 });
+
+function signTexture(text) {
+  const c = document.createElement('canvas'), W = SIGN_PX, H = Math.round(SIGN_PX * SIGN.h / SIGN.w);
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = SIGN_GREEN; g.fillRect(0, 0, W, H);
+  g.strokeStyle = '#ffffff'; g.lineWidth = 10; g.strokeRect(22, 22, W - 44, H - 44);
+  g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  // the largest size the words fit at, wrapped onto at most three lines inside the border, a new line after a colon
+  const font = (px) => `600 ${px}px "Avenir Next", "Trebuchet MS", system-ui, sans-serif`, maxW = W - 120, maxH = H - 100;
+  const wrap = (px) => {
+    g.font = font(px);
+    const lines = [];
+    for (const para of text.split(/(?<=:)\s+/)) {
+      let open = false;
+      for (const word of para.split(/\s+/)) {
+        const line = open ? `${lines[lines.length - 1]} ${word}` : word;
+        if (open && g.measureText(line).width <= maxW) lines[lines.length - 1] = line; else lines.push(word);
+        open = true;
+      }
+    }
+    return lines;
+  };
+  let px = 110, lines = wrap(px);
+  while (px > 30 && (lines.length > 3 || lines.length * px * 1.2 > maxH || lines.some((l) => g.measureText(l).width > maxW))) lines = wrap(px -= 4);
+  lines.forEach((l, i) => g.fillText(l, W / 2, H / 2 + (i - (lines.length - 1) / 2) * px * 1.2));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+// where the sign stands along the line, 6 m in from the platform's open end (its buffers are at the other)
+const signS = (end, p0, p1) => (end === 'end' ? p0 + SIGN.fromOpenEnd : p1 - SIGN.fromOpenEnd);
+// a platform lamp this near the sign would stand in front of its face: it's left out
+const besideSign = (s, end, p0, p1) => Math.abs(s - signS(end, p0, p1)) < 4;
+// the sign at the arrival platform of `lane` (the town-side line), at a terminus at `end` of `route`, its platform p0..p1;
+// returns it and its footprint (posts and board, one solid: you can't walk between its posts under the board)
+function signToDepartures(route, end, lane, [p0, p1], text) {
+  const side = Math.sign(lane), s = signS(end, p0, p1);
+  const sign = new THREE.Group();
+  sign.name = 'departure sign';
+  const map = signTexture(text);
+  // lit a little by its own face, so it reads at night as well (the Futuristic place is reached after dark)
+  const face = new THREE.MeshStandardMaterial({ map, emissive: '#ffffff', emissiveMap: map, emissiveIntensity: 0.3, roughness: 0.8 });
+  // a thin box with the board's face on both its ends (+z, -z): it reads the right way round from either side
+  const board = new THREE.Mesh(new THREE.BoxGeometry(SIGN.w, SIGN.h, SIGN.depth), [signEdge, signEdge, signEdge, signEdge, face, face]);
+  board.position.y = SIGN.posts - SIGN.h / 2;
+  sign.add(board);
+  for (const x of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(SIGN.post, SIGN.post, SIGN.posts, 8), signPosts);
+    post.position.set(x * (SIGN.w / 2 - SIGN.post), SIGN.posts / 2, -SIGN.depth / 2 - SIGN.post);   // behind the board
+    sign.add(post);
+  }
+  // turned with the line: its +z (the board's face) along the platform, its width across it
+  const q = route.offsetAt(s, lane + side * (SIGN.across - Math.abs(lane)));
+  sign.position.set(q.x, q.y + PLATFORM_TOP, q.z);
+  sign.rotation.y = q.yaw;
+  sign.updateMatrixWorld(true);
+  const hw = SIGN.w / 2, z0 = -SIGN.depth / 2 - 2 * SIGN.post, z1 = SIGN.depth / 2;
+  const corners = [[-hw, z0], [hw, z0], [hw, z1], [-hw, z1]]
+    .map(([x, z]) => { const v = new THREE.Vector3(x, 0, z).applyMatrix4(sign.matrixWorld); return [v.x, v.z]; });
+  return { sign, solid: { key: 'departure-sign', corners } };
+}
+
+// leg: the leg id; end: 'start' or 'end' of it; style: its place's station style (station-style.js); sign: the text of
+// the sign to the departures on its platform (an arrival station's), or null. Returns the platform its trains use there,
+// in the leg's s, its walk frame, and (a kit style) the parts its place's kit lights after dark:
+// { group, platform, buffersS, walk, lit: [[object, part key]] }.
+export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120, style = 'countryside', sign = null } = {}) {
+  if (style === 'future') return futureTerminus(leg, end, { name, platformLength, sign });
   const route = legRoute(leg);
   const group = new THREE.Group();
   group.name = `terminus ${name}`;
@@ -59,10 +132,12 @@ export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick
     group.add(atEnd ? place(tmpl.buffer.clone(), route, L - PIECE, l, 1) : place(tmpl.buffer.clone(), route, 0, l, -1));
     // lamps and benches along the platform
     for (let s = p0 + 8; s < p1 - 4; s += 16) {
-      const lamp = tmpl.lamp.clone();
-      const q = route.offsetAt(s, l + side * 4.9);
-      lamp.position.set(q.x, q.y + PLATFORM_TOP, q.z);
-      group.add(lamp);
+      if (!(sign && lane === 'town' && besideSign(s, end, p0, p1))) {
+        const lamp = tmpl.lamp.clone();
+        const q = route.offsetAt(s, l + side * 4.9);
+        lamp.position.set(q.x, q.y + PLATFORM_TOP, q.z);
+        group.add(lamp);
+      }
       if ((s - p0) % 32 === 24) {
         const bench = tmpl.bench.clone();
         const r = route.offsetAt(s + 4, l + side * 4.4);
@@ -86,11 +161,13 @@ export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick
     board.rotation.y = q.yaw + side * Math.PI / 2;   // as on the left, turned round for the right
     group.add(board);
   }
+  const departures = sign ? signToDepartures(route, end, town, [p0, p1], sign) : null;
+  if (departures) group.add(departures.sign);
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
   // for walking: solid things (not the platforms and canopies you walk on and under), and the station's own frame
   group.updateMatrixWorld(true);
-  const solid = [];
+  const solid = departures ? [departures.solid] : [];
   for (const o of group.children) {
     const key = o.userData.partKey;
     if (!key || /platform-run|canopy|buffer-stop/.test(key)) continue;   // buffers stand in the track zone, already out of bounds
@@ -141,7 +218,7 @@ function strip(route, s0, s1, section, colours, inside) {
   return g;
 }
 
-async function futureTerminus(leg, end, { name, platformLength }) {
+async function futureTerminus(leg, end, { name, platformLength, sign }) {
   const S = STATION_STYLES.future, route = legRoute(leg), group = new THREE.Group();
   group.name = `terminus ${name}`;
   const L = route.length, atEnd = end === 'end', buffersS = atEnd ? L : 0, toward = atEnd ? 1 : -1;
@@ -197,7 +274,7 @@ async function futureTerminus(leg, end, { name, platformLength }) {
     // along each platform: arc lamps at its back, their arms out over it; capsule benches between them; shelters on the
     // town side's
     for (let s = p0 + 8; s < p1 - 4; s += 16) {
-      await put('arc-street-lamp', { colorway: 'arc-cyan' }, s, lane + side * 5.3, PLATFORM_TOP, facing(side));
+      if (!(sign && lane === lanes.town && besideSign(s, end, p0, p1))) await put('arc-street-lamp', { colorway: 'arc-cyan' }, s, lane + side * 5.3, PLATFORM_TOP, facing(side));
       if ((s - p0) % 32 === 24) await put('floating-capsule-bench', { colorway: 'arc-white', length: '3.0', backrest: true }, s + 6, lane + side * 4.9, PLATFORM_TOP, facing(side));
     }
   }
@@ -215,6 +292,7 @@ async function futureTerminus(leg, end, { name, platformLength }) {
   }
   // two signs on the town-side platform, where the running-in boards would be
   for (const s of [atEnd ? p0 + 30 : p1 - 30, atEnd ? p1 - 58 : p0 + 58]) await put(S.parts.sign, { colorway: 'transit-cyan', height: 3 }, s, town + ts * 5.6, PLATFORM_TOP, facing(ts));
+  if (sign) { const d = signToDepartures(route, end, town, [p0, p1], sign); group.add(d.sign); solid.push(d.solid); }
   group.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== FUT.glow && o.material !== FUT.red; o.receiveShadow = true; } });
   group.updateMatrixWorld(true);
   const walk = stationWalk(leg, end, { platformLength, solid });

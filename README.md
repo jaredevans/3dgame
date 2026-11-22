@@ -50,9 +50,28 @@ You start in the Seaside Excursion's cab at the City. The world streams in round
 | `W` / `S` or `↑` / `↓` | Throttle up / down (below zero is reverse) |
 | `Space` (hold) | Brake |
 | `H` | Horn |
-| `V`, `1`, `2` | Change view, cab, drone (drag to look or orbit, scroll to zoom the drone) |
+| `V` | Change view: cab, nose, drone, director |
+| `1` `2` `3` `4` | Cab, drone, director, nose (drag to look or orbit, scroll to zoom the drone) |
 | `E` | Get out when stopped at a platform; board a train when you're next to it |
-| `WASD`, `Shift`, drag | On foot: walk, run, look |
+| On foot: `W` / `S`, `A` / `D`, `Shift` | Walk forwards and back, turn, run (the camera follows behind you) |
+| On foot: drag | Standing still, look round you; it swings back behind you when you move |
+| `M` | The map (`Esc` closes it) |
+
+**Views.** The cab is the driver's seat; the nose rides just above the front of the train; the drone orbits it. The director's view cuts between dramatic shots on its own: from the trackside, below a viaduct, a helicopter alongside, a chase, a wide or high view, round the nose, and at a tunnel's portal as you go in. It cuts to each leg's showpieces (the cliffs, the tunnel, the viaduct and trestle, the guideway, the bridge, the skyline) and to each event as it begins.
+
+**On the way.** Every leg has things happening along it, some of them for you to answer:
+
+| Leg | What happens | You react |
+|---|---|---|
+| City to Oceanside | a lighthouse on the cliff top, sailboats, a fishing boat and a container ship at sea, gulls flying with the train, dolphins leaping along the cliffs, a freight coming the other way | a level crossing: sound the horn as you come up to it ("Heard at the crossing"); its gates close and the cars wait |
+| Oceanside to Mountain | deer that bound off the slope, a shower that clears to a rainbow, an eagle circling over the valley | going up, a red signal before the tunnel: the train stops at it while a work train clears the viaduct, then it turns green |
+| Mountain to Wild West | snow on the pass, boulders tumbling down behind the train, riders racing it, wild horses galloping alongside, tumbleweeds, a stagecoach on its road into town | cattle on the line at the canyon's mouth: sound the horn and they move off; if you don't, the train stops for them and they wander off |
+| Wild West to Futuristic | a wind farm and a solar farm on the desert, another Silver Arrow flashing past, a rocket launch on the horizon, a formation of drones alongside | the high-speed stretch: when you leave it, it tells you your top speed |
+| Futuristic to Downtown City | hover pods and cargo skiffs flying among the towers, traffic on the suburbs' streets, an airliner coming in low over the line to land | a level crossing among the suburbs, as on the first leg |
+
+None of them can make you fail: the guard brakes for the signal and the cattle if you don't, and a crossing you didn't sound the horn for still lets you through.
+
+**Finding your way.** Each arrival platform has a green sign saying where the next train leaves from across the town ("Departures across town: Highland Climber to Mountain"). On foot, the top of the screen points to that platform from the way you're looking, with how far it is, and the map (`M`) shows the ring, where you are and a green flag on the departure platform.
 
 ### The kit files
 
@@ -70,7 +89,7 @@ If the kit server is on a different origin from the page, it must send CORS head
 
 ### Developer aids
 
-`node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the City to Oceanside leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint, and `__tour.frame(dt)` to step the tour by hand.
+`node --test tour/test/` runs the unit tests (Node 20+, nothing to install). `?free=<metres>` opens an orbit camera at that distance along the City to Oceanside leg; `?debug` adds `__tour.snap(position, target)` for stills from any viewpoint, `__tour.frame(dt)` to step the tour by hand, and `__tour.jump(legS)` to put your train, stopped, that far along the leg you're driving.
 
 A few single parts aren't from those kits: the suburbs' houses along the Metro Glide's line, and the animals and props of the routes' events. They are self-hosted too, in `kits/parts/` beside the kits (so `?kits=` moves them with the kits). Copy them out of your Polyfork catalogue download with:
 
@@ -81,6 +100,8 @@ node scripts/extract-parts.mjs path/to/polyfork-catalog.zip
 It copies every part the tour's code (or a Scenic Tour plan) names, and nothing else; run it again when the tour starts using another part. A part that isn't there yet is loaded from Polyfork's free public CDN instead, with a warning in the console.
 
 With a paid Polyfork account, the parts can come from your account's own CDN link instead: copy `tour/local.example.js` to `tour/local.js` and put your `cdn_base` in it. That file is gitignored, since the link is yours; with it the tour tries your account first, then `kits/parts/`, then the public CDN. (Without it, the browser notes one missing `tour/local.js` and carries on.) `?cdn=<base url>` loads these parts from that address only; if they can't be loaded, the tour goes on without them (the suburbs, or that event).
+
+With the account link configured, the trains and animals that have an HD edition (a high-poly model with its own materials) are loaded from your account in HD; `?hd=0` turns HD off, to compare or on a slow machine (`?cdn=` turns it off too). If an HD model doesn't arrive in time, the flat one is used. HD's animal materials use Polyfork's `materials.mjs`, which `scripts/extract-parts.mjs` copies into `kits/parts/` with the parts.
 
 ## Run it locally
 

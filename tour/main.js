@@ -4,8 +4,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
-import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL, stationFrame } from './world-data.js';
-import { TRAIN_SPECS } from './trains/specs.js';
+import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
+import { departureFor, departureSign, pointer } from './wayfinding.js';
 import { makeMap } from './map.js';
 import { wantedSet, neededToDrive, readyToLeave } from './streaming.js';
 import { makeArrival } from './arrival.js';
@@ -232,7 +232,9 @@ async function boot() {
       // the place's stations: a terminus at its end of each built leg it serves
       for (const st of PLACES[id].stations) {
         await ctx.still();
-        const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station });
+        // an arrival platform's sign says where the next train leaves from, across the town
+        const sign = st.role === 'arrival' ? departureSign(id) : null;
+        const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station, sign });
         mine[`${id}:${st.leg}`] = t;
         ctx.check();
         t.group.visible = false; shown.push(t.group);
@@ -632,9 +634,8 @@ async function boot() {
       const f = train.model.cars[0].holder, leg = run.leg;
       mapView.draw({ you: { x: f.position.x, z: f.position.z, yaw: f.rotation.y }, leg, place: null, departure: null });
     } else {
-      const d = stationFrame(state.place, 'departure'), to = LEGS[d.leg].to;
-      mapView.draw({ you: player.state, leg: null, place: state.place,
-        departure: { x: d.x, z: d.z, label: `Departures: ${TRAIN_SPECS[LEGS[d.leg].train].name} to ${PLACES[to].name}` } });
+      const d = departureFor(state.place);
+      mapView.draw({ you: player.state, leg: null, place: state.place, departure: { x: d.x, z: d.z, label: `Departures: ${d.train} to ${d.to}` } });
     }
   }
   const keys = makeKeys();
@@ -674,6 +675,7 @@ async function boot() {
   // how far: to the metre for the last 100 m, to 10 m below a kilometre, then in kilometres
   const distance = (m) => (m < 100 ? `${Math.round(m)} m` : m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
   let toastLeft = 0, eventLine = '';
+  const lookDir = new THREE.Vector3();
   function hud(dt) {
     let prompt = '', message = '';
     if (state.mode === 'drive') {
@@ -699,7 +701,12 @@ async function boot() {
           : needs(w.leg).some((id) => streamer.failed(id)) ? `The way to ${PLACES[w.to].name} couldn't be loaded`
           : `Getting ${PLACES[w.to].name} ready…`;
       }
-      $('mode').textContent = `On foot in ${PLACES[state.place].name}${busy() ? ' · getting the next towns ready' : ''}`;
+      // which way the departures are from you, relative to the way the camera looks (the way you see the town)
+      camera.getWorldDirection(lookDir);
+      const d = departureFor(state.place), to = pointer(player.state, Math.atan2(lookDir.x, lookDir.z), d);
+      // (beside its train, it's here: the arrow would point on to the platform's middle)
+      const way = w?.leg === d.leg ? 'here' : `${to.arrow} ${distance(to.metres)}`;
+      $('mode').textContent = `On foot in ${PLACES[state.place].name} · Departures ${way}${busy() ? ' · getting the next towns ready' : ''}`;
     }
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);

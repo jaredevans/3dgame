@@ -103,7 +103,22 @@ Track-building notes, read from the kits rather than assumed:
 
 A second mode, reached from the basement's "Scenic Tour ▸" button: a full-size ring of five themed places (Downtown City, Oceanside, Mountain, Wild West, Futuristic) joined by 90-second scenic routes, each with its own train, where you drive from the cab and walk round each place between trains. Its design is `docs/superpowers/specs/2026-11-20-scenic-tour-design.md`; it lives in `tour.html` and `tour/`, and its Polyfork kits are self-hosted (`kits/`, never committed).
 
-Status: phase 2 built: the whole ring, all five places and their five trains, driven either way, with walking across each town between its two stations, a full day of sky over one lap (night places lit), suburbs and scenery along the lines, and streaming that builds what's beyond a place while you stand at it, so nothing loads while you drive. Phase 3 (director camera, events, map) is to come.
+Status: Phase 3 done. Phase 2 built the whole ring, all five places and their five trains, driven either way, with walking across each town between its two stations, a full day of sky over one lap (night places lit), suburbs and scenery along the lines, and streaming that builds what's beyond a place while you stand at it, so nothing loads while you drive. Phase 3 added:
+- **Events on every leg**, played by actors built while you stand at a platform: the lighthouse, boats, gulls, dolphins and a freight on the coast; deer, a shower and its rainbow, an eagle and a work train on the climb; snow, a rockfall, riders, wild horses, tumbleweeds and a stagecoach down the canyon; the wind and solar farms, a passing bullet, a rocket launch and drones on the desert; fliers, suburban traffic and an airliner coming in to land on the way back to the City.
+- **Four that you react to**, none of which can make you fail: a level crossing on the first and last legs (sound the horn as you come up to it; the gates close either way); a red signal on the climb (the guard stops the train at it, and it turns green once the work train has cleared the viaduct); cattle on the line at the canyon's mouth (the horn moves them on, or the guard stops for them and they wander off); and the high-speed stretch on the desert (your top speed on it, when you leave it).
+- **The director's view** (`3`): cuts between dramatic shots of the train on its own, to each leg's showpieces (the cliffs, the tunnel's portals, the viaduct, the trestle, the guideway, the bridge, the skyline) and to each event as it begins; and **the nose view** (`4`), riding just above the front of the train. `V` cycles cab, nose, drone and director.
+- **The map** (`M`): the ring from above, where you are, and on foot a flag on the platform the next train leaves from.
+- **Signs to the departures**: a green board on each arrival platform names the train that leaves from the town's other station and where it goes, and on foot the HUD points to that platform from the way you're looking, with the distance.
+- **HD trains and animals** from the owner's Polyfork account, when its CDN link is set in the gitignored `tour/local.js` (`?hd=0` turns HD off), and single parts self-hosted in `kits/parts/` (copied from the catalogue download by `scripts/extract-parts.mjs`), with Polyfork's public CDN as the fallback.
+
+What couldn't be made as first planned, and why:
+- **No eagle, wind turbine or launch rocket in Polyfork's catalogue**: the three are built in code (requests filed with Polyfork for each; they can be swapped in if they arrive).
+- **The rainbow** is placed as if the sun stood no more than 30° up: the climb is at midday, with the sun about 61° up, where a real rainbow would be below the horizon.
+- **The lighthouse's beam** never shows in play: the coast leg is in daylight both ways. Its lamp and beam light up after dark (checked with night forced).
+- **The level crossings** stand where the land is level enough for a road over both lines: on the coast at 1610 m, short of Oceanside's platform rather than nearer the City; on the last leg at 1115 m, among the suburbs, about 970 m from the City's platform rather than at its edge.
+- **The riders, wild horses, tumbleweeds and stagecoach** keep to the open land past the canyon's mouth: the canyon's walls leave no ground beside the line before it, so the riders' race lasts 6 to 10 seconds. The cattle stand at the canyon's mouth (1126 m) for the same reason.
+- **The rocket** lifts off as you enter its stretch and is seen ahead going out; on a run back it is off to the side and behind (the director's wide shot shows it).
+- **The airliner** crosses the line about 350 m ahead of the train, low, so it is in the cab's view: about 6 seconds going out, 3 coming back.
 
 ## Ideas for later
 

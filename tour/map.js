@@ -26,7 +26,8 @@ export function makeMap(canvas) {
   api.draw = ({ you, leg = null, place = null, departure = null }) => {
     if (!api.open) return;
     const size = Math.round(Math.min(innerWidth, innerHeight) * 0.8), dpr = Math.min(devicePixelRatio || 1, 2);
-    if (canvas.width !== size * dpr) { canvas.width = canvas.height = size * dpr; canvas.style.width = canvas.style.height = `${size}px`; }
+    const px = Math.round(size * dpr);   // whole pixels: at a fractional ratio size * dpr never equals the width it set
+    if (canvas.width !== px || canvas.height !== px) { canvas.width = canvas.height = px; canvas.style.width = canvas.style.height = `${size}px`; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = '#141b24e6';
