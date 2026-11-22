@@ -20,7 +20,8 @@ export async function makePlayer(scene, camera, dom, look) {
   look?.shadows(figure);
   // teleporting (T), the figure dissolves from its feet up: everything of it below a level plane is cut away. Its own
   // materials (the kit's may be shared with other parts), each with the plane from the start, so its programs are the
-  // ones compiled at boot; the plane sits far below until it's wanted
+  // ones compiled at boot; the plane sits far below until it's wanted. (Local clipping must be on, as it is: the cabs'
+  // fitting, cameras.js fitCab, turns on renderer.localClippingEnabled before you're made)
   const cut = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e6);
   const meshes = [], casts = [];
   figure.traverse((o) => {
@@ -68,6 +69,7 @@ export async function makePlayer(scene, camera, dom, look) {
       for (let k = 0; k < meshes.length; k++) meshes[k].castShadow = casts[k] && gone <= 0;
     },
     height: FIGURE_HEIGHT,   // m, how tall he is
+    figure,   // (the page draws him once at boot: a compile alone leaves his clipped variant to his first frame)
     // input { fwd, right, run } (the keys); world { blocked, heightAt, inBounds }
     update(dt, input, world) {
       if (!state.on) return;

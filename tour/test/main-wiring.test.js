@@ -77,14 +77,17 @@ test('main.js: Z toggles auto mode, whose throttle, brake and walking keys go th
 // where you are and where you're going are wanted until you're moved there
 test('main.js: T teleports, and the frame holds everything else still meanwhile', () => {
   assert.match(src, /import \{[^}]*\bmakeTeleport\b[^}]*\bcanTeleport\b[^}]*\} from '\.\/teleport\.js'/);
-  assert.match(src, /e\.code === 'KeyT'\) \{ if \(tpListOpen\) closeTeleportList\(\); else if \(tpCan\(\)\) openTeleportList\(\);/);
+  assert.match(src, /e\.code === 'KeyT'\) \{ if \(tpListOpen\) closeTeleportList\(\); else if \(tp\.active\) tp\.cancel\(\); else if \(tpCan\(\)\) openTeleportList\(\);/);
+  assert.match(src, /e\.code === 'Escape'\) \{[^}]*tp\.cancel\(\);/);
   const digits = src.indexOf("pickTeleport(+e.code.slice(5))"), views = src.indexOf("'Digit1') views.set('cab')");
   assert.ok(digits > 0 && views > digits, 'the list\'s numbers come before the views\'');
   assert.match(src, /if \(tp\.active\) return;/);
   assert.match(src, /if \(tp\.active\) teleportStep\(dt\);[^\n]*\n\s*else if \(auto\.on\) autoStep\(dt\);/);
   assert.match(src, /brakeKey: [^}]*\|\| tp\.active,/);
   assert.match(src, /state\.mode === 'foot' && tp\.active\) player\.update\(dt, STILL_KEYS, walkWorld\(\)\)/);
-  assert.match(src, /if \(tp\.active && !tp\.swapped\) for \(const id of wanted\(\{ place: tp\.to \}\)\) set\.add\(id\)/);
+  // till you're moved, all that was wanted where you stood (worked out once, at the pick) and where you're going
+  assert.match(src, /if \(tp\.active && !tp\.swapped\) for \(const id of tpKeep\) set\.add\(id\)/);
+  assert.match(src, /tpKeep = new Set\(\[\.\.\.wanted\(here\), \.\.\.wanted\(\{ place: c\.id \}\)\]\)/);
   // you're moved as journey.teleport says, and its trains put at their stations
   const swap = src.match(/function teleportSwap\(\) \{[\s\S]*?\n {2}\}/);
   assert.ok(swap, 'no teleportSwap()');

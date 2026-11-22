@@ -659,6 +659,7 @@ async function boot() {
   const CAB_SHIMMER = 0.4;
   const tpSeat = new THREE.Vector3();
   let tpLegs = [], tpNear = [];   // where you land: its trains' legs, and the land under you (chunk ids), to be in first
+  let tpKeep = new Set();         // till you're moved: all that's wanted where you stand and where you're going
   let tpBeam = -1, tpListOpen = false;
   const tpLog = [];   // each teleport: { from, to, beam (s under the beam), swapAt (s of it before the place was in), back }
   // the place you're at: on foot, or stopped at one's platform (null between stations)
@@ -681,6 +682,12 @@ async function boot() {
     if (!c?.offered || !tpCan()) return;
     closeTeleportList();
     if (!tp.start(c.id, tpHere())) return;
+    streamer.retry();   // (a place that failed before is tried again: a few times at most)
+    // what's wanted where you stand (at the platform you're stopped at, from a cab: as the frame wants it) and where
+    // you're going, kept till you're moved: nothing of either is let go as you fizz, nor if you come back
+    const here = journey.where(state, run, drive.s);
+    if (state.mode === 'drive') here.at = arr.at;
+    tpKeep = new Set([...wanted(here), ...wanted({ place: c.id })]);
     // auto mode, if it's on, stands still meanwhile and carries on round the ring from where you land: its way across
     // this town (and any search for it) is let go
     auto.token++;
@@ -725,6 +732,7 @@ async function boot() {
     player.dissolve(1);
     tpLegs = t.trains.map((w) => w.leg);
     tpNear = [...chunksNear(p.x, p.z, 48)].map((k) => chunkId(k, FINE));
+    skyPos = ringPosition(journey.where(state, run, drive.s));   // the time of day there at once, under the beam
   }
   // what you land among is in: the place's two trains, and the land under you at its finest
   function tpSettled() {
@@ -739,8 +747,8 @@ async function boot() {
     const r = tp.step(dt, !!places[to], tpSettled(), streamer.failed(to));
     if (r.swap) { log.swapAt = Math.round(r.waited * 10) / 10; teleportSwap(); }
     if (r.land) {
-      log.beam = Math.round(r.waited * 10) / 10; log.back = r.back;
-      if (r.back) { $('toast').textContent = `${PLACES[to].name} couldn't be loaded`; toastLeft = 3; }
+      log.beam = Math.round(r.waited * 10) / 10; log.back = r.back; log.cancelled = r.cancelled;
+      if (r.back && !r.cancelled) { $('toast').textContent = `${PLACES[to].name} couldn't be loaded`; toastLeft = 3; }
       shimmer(false, FIZZ);
     }
     if (state.mode === 'foot') fx.at(player.state.x, player.state.y, player.state.z);
@@ -771,9 +779,10 @@ async function boot() {
     keys.down(e.code);
     if (e.code === 'Space') e.preventDefault();
     if (e.code === 'KeyM') { mapView.toggle(); drawMap(); return; }
-    if (e.code === 'Escape') { mapView.close(); closeTeleportList(); return; }
-    // T: the teleport list (on foot, or in the cab standing still), T again to close it; a number picks a place
-    if (e.code === 'KeyT') { if (tpListOpen) closeTeleportList(); else if (tpCan()) openTeleportList(); return; }
+    // T: the teleport list (on foot, or in the cab standing still), T again to close it; a number picks a place. Esc
+    // or T, till you've been moved, takes you back where you stood
+    if (e.code === 'Escape') { mapView.close(); closeTeleportList(); tp.cancel(); return; }
+    if (e.code === 'KeyT') { if (tpListOpen) closeTeleportList(); else if (tp.active) tp.cancel(); else if (tpCan()) openTeleportList(); return; }
     if (tpListOpen && /^Digit[1-5]$/.test(e.code)) { pickTeleport(+e.code.slice(5)); return; }
     if (e.code === 'KeyZ') { if (auto.on) stopAuto(); else startAuto(); return; }
     if (tp.active) return;   // fizzing out or in: nothing else does anything till you're there
@@ -987,6 +996,7 @@ async function boot() {
     // teleport: the phase it's in, where to, and each one so far (how long the beam held, and how much of that was
     // waiting for the place)
     teleport: { get: () => ({ phase: tp.phase, to: tp.to, swapped: tp.swapped, list: tpListOpen, log: tpLog }) },
+    skyPos: { get: () => skyPos },   // where on the ring the sky is (it follows where you are)
     // auto mode: on or not, how many failures at this place, and what it's done (getting out, each way found, the horn,
     // the views, boarding)
     auto: { get: () => ({ on: auto.on, failures: auto.failures, planning: !!auto.planning, path: auto.follower.path, left: auto.follower.left, log: auto.log }) },
@@ -1042,6 +1052,10 @@ async function boot() {
     fx.group.visible = true;   // (the teleport's sparkles: hidden till used)
     await renderer.compileAsync(scene, camera);
     fx.group.visible = false;
+    // you on foot: drawn once too, since compiling alone gives his materials their unclipped programs (the renderer
+    // counts a material's clipping planes only as it draws it), and his clipped ones (player.dissolve) would be made the
+    // first time you get out
+    upload(player.figure);
     if (each) upload(each);   // the shapes' geometry, shared by every chunk's pieces
     disposeScenery(each);
     const depth = depthWarmup();
@@ -1134,7 +1148,7 @@ async function boot() {
     });
     if (driving) where.at = arr.at;
     let set = wanted(where);
-    if (tp.active && !tp.swapped) for (const id of wanted({ place: tp.to })) set.add(id);   // where you're going, too
+    if (tp.active && !tp.swapped) for (const id of tpKeep) set.add(id);   // where you stood, and where you're going, too
     if (!arr.build) set = new Set([...set].filter((id) => !streamer.toBuild(id)));   // nothing new while moving
     streamer.want(set);
     // what's built may land (a kit built in one go, an upload) only on foot, or at a standstill where arrival lets it

@@ -5,7 +5,8 @@
 //
 // Phases: 'out' (FIZZ s) -> 'beam' (until the place is in, then until the rest has settled, or WAIT_MAX s of beam at
 // most) -> 'in' (FIZZ s) -> 'idle'. Nothing changes where you are until the place is in: the frame it is, `swap` says
-// so (you're moved there behind the beam). If it can't be built (failed), you fizz back in where you stood (`back`).
+// so (you're moved there behind the beam). If it can't be built (failed), or you cancel before then (cancel()), you
+// fizz back in where you stood (`back`).
 import { WAIT_MAX } from './streaming.js';
 
 export const FIZZ = 1.5;       // s, each way
@@ -36,12 +37,12 @@ export function canTeleport({ mode, v = 0, covered = false, busy = false }) {
 }
 
 export function makeTeleport({ fizz = FIZZ, beamMin = BEAM_MIN, waitMax = WAIT_MAX } = {}) {
-  let phase = 'idle', t = 0, to = null, from = null, swapped = false;
+  let phase = 'idle', t = 0, to = null, from = null, swapped = false, cancelling = false;
   // the answer, one object written each frame (no allocation in the loop): phase; gone (0..1, the figure dissolved from
   // its feet up); glow (0..1, the sparkle column); beam (0..1, its cover over the view); waited (s under the beam);
-  // back (fizzing in where you stood: the place failed); and this frame's events: swap (the place is in: move there
+  // back (fizzing in where you stood: the place failed, or you cancelled: `cancelled`); and this frame's events: swap (the place is in: move there
   // now), land (the fizz in starts), done (it's over)
-  const out = { phase, gone: 0, glow: 0, beam: 0, waited: 0, back: false, swap: false, land: false, done: false };
+  const out = { phase, gone: 0, glow: 0, beam: 0, waited: 0, back: false, cancelled: false, swap: false, land: false, done: false };
   const set = (gone, glow, beam) => { out.gone = gone; out.glow = glow; out.beam = beam; };
   return {
     get active() { return phase !== 'idle'; },
@@ -52,14 +53,26 @@ export function makeTeleport({ fizz = FIZZ, beamMin = BEAM_MIN, waitMax = WAIT_M
     // to: the place chosen; here: the place you're at (null between stations) -> whether it started
     start(place, here = null) {
       if (phase !== 'idle' || place === here) return false;
-      phase = 'out'; t = 0; to = place; from = here; swapped = false;
-      out.waited = 0; out.back = false;
+      phase = 'out'; t = 0; to = place; from = here; swapped = false; cancelling = false;
+      out.waited = 0; out.back = false; out.cancelled = false;
+      return true;
+    },
+    // go back where you stood, if you haven't been moved yet (next step) -> whether it will
+    cancel() {
+      if ((phase !== 'out' && phase !== 'beam') || swapped) return false;
+      cancelling = true;
       return true;
     },
     // a frame: placeIn (the place and its stations are built), settled (the rest you land among is in: its trains, the
     // ground under you), failed (the place couldn't be built) -> out
     step(dt, placeIn, settled, failed) {
       out.swap = out.land = out.done = false;
+      if (cancelling) {
+        // fizzing out, the fizz in starts from as far as you'd gone (its mirror); under the beam, from the start
+        t = phase === 'out' ? Math.max(0, fizz - t) : 0;
+        phase = 'in'; cancelling = false;
+        out.land = true; out.back = true; out.cancelled = true;
+      }
       if (phase === 'out') {
         t += dt;
         const u = Math.min(1, t / fizz);
@@ -72,7 +85,7 @@ export function makeTeleport({ fizz = FIZZ, beamMin = BEAM_MIN, waitMax = WAIT_M
         const land = swapped ? t >= beamMin && (settled || out.waited >= waitMax) : failed;
         if (land) {
           phase = 'in'; t = 0;
-          out.land = true; out.back = !swapped;
+          out.land = true; out.back = !swapped; out.cancelled = false;
         }
       } else if (phase === 'in') {
         t += dt;

@@ -218,3 +218,47 @@ test('journey.teleport: not to where you already stand, nor anywhere unknown', (
   // from a cab you may teleport to the place you were leaving (you may be far down the line from it)
   assert.equal(j.teleport(j.start('city-ocean', 'out'), 'city').state.place, 'city');
 });
+
+test('cancelled before the swap (Esc or T), you fizz back in where you stood, from as far as you had gone', () => {
+  // in the fizz out: the fizz in starts from how much of you had gone, and mirrors back to whole
+  const a = makeTeleport();
+  a.start('west', 'city');
+  let { r } = run(a, 60, { placeIn: false });
+  const gone = r.gone;
+  assert.ok(gone > 0.3 && gone < 1);
+  assert.equal(a.cancel(), true);
+  ({ r } = run(a, 1, { placeIn: false }));
+  assert.equal(r.phase, 'in');
+  assert.equal(r.back, true);
+  assert.equal(r.cancelled, true);
+  assert.ok(Math.abs(r.gone - gone) < 0.05, `carries on from ${gone}, got ${r.gone}`);
+  let seen;
+  ({ r, seen } = run(a, 70, { placeIn: true }));
+  assert.deepEqual(seen.swap, [], 'never moved, even once the place came in');
+  assert.equal(seen.done.length, 1);
+  assert.equal(r.gone, 0);
+  // under the beam, before the place is in: back at once
+  const b = makeTeleport();
+  b.start('west', 'city');
+  run(b, frames(FIZZ) + 30, { placeIn: false });
+  assert.equal(b.cancel(), true);
+  ({ r, seen } = run(b, 1, { placeIn: true }));
+  assert.equal(seen.land.length, 1);
+  assert.deepEqual(seen.swap, []);
+  assert.equal(r.back, true);
+  // after the swap it's too late: it carries on
+  const c = makeTeleport();
+  c.start('west', 'city');
+  run(c, frames(FIZZ) + 2, { placeIn: true, settled: false });
+  assert.equal(c.swapped, true);
+  assert.equal(c.cancel(), false);
+  // nothing to cancel
+  assert.equal(makeTeleport().cancel(), false);
+  // a failure says so; a cancel doesn't
+  const d = makeTeleport();
+  d.start('west', 'city');
+  run(d, frames(FIZZ), { placeIn: false });
+  ({ r } = run(d, 1, { placeIn: false, failed: true }));
+  assert.equal(r.back, true);
+  assert.equal(r.cancelled, false);
+});
