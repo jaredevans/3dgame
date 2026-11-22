@@ -58,14 +58,17 @@
   #beam { position: fixed; inset: 0; pointer-events: none; opacity: 0; display: flex; align-items: center; justify-content: center;
     font-size: 20px; color: #fff8e6; text-shadow: 0 0 12px #ffd98a, 0 2px 6px #000a; overflow: hidden;
     background: linear-gradient(90deg, #1b2430b0 0%, #4a3d22a8 38%, #fff1c8c0 50%, #4a3d22a8 62%, #1b2430b0 100%); }
-  #beam::before, #beam::after { content: ""; position: absolute; inset: -40% 0 0 0; opacity: .9;
+  /* the sparkles rise by moving each layer's pattern up exactly one of its own repeats a loop, so it never jumps or
+     drains; the second set is tilted a little, so the two never line up */
+  #beam::before, #beam::after { content: ""; position: absolute; inset: 0; opacity: .9;
     background-image: radial-gradient(circle, #fff 0 1px, #ffe7a8aa 1.5px, transparent 3px),
       radial-gradient(circle, #d8f0ff 0 1px, #a8d8ffaa 1.5px, transparent 3px);
-    background-size: 37px 53px, 61px 41px; background-position: 0 0, 19px 23px; animation: beam-rise 1.7s linear infinite; }
-  #beam::after { background-size: 29px 47px, 43px 67px; background-position: 11px 7px, 3px 31px; inset: -60% -20% 0 -20%;
-    animation-name: beam-rise-tilted, beam-twinkle; animation-duration: 2.3s, .45s; animation-iteration-count: infinite; animation-direction: normal, alternate; }
-  @keyframes beam-rise { to { transform: translateY(-40%); } }
-  @keyframes beam-rise-tilted { from { transform: rotate(9deg); } to { transform: rotate(9deg) translateY(-40%); } }
+    background-size: 37px 53px, 61px 41px; animation: beam-rise 1.7s linear infinite; }
+  #beam::after { background-size: 29px 47px, 43px 67px; inset: -30%; transform: rotate(9deg);
+    animation-name: beam-rise-b, beam-twinkle; animation-duration: 2.3s, .45s; animation-iteration-count: infinite;
+    animation-timing-function: linear, ease-in-out; animation-direction: normal, alternate; }
+  @keyframes beam-rise { from { background-position: 0 0, 19px 23px; } to { background-position: 0 -53px, 19px -18px; } }
+  @keyframes beam-rise-b { from { background-position: 11px 7px, 3px 31px; } to { background-position: 11px -40px, 3px -36px; } }
   @keyframes beam-twinkle { from { opacity: .25; } to { opacity: .85; } }
   #beam span { position: relative; z-index: 1; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
