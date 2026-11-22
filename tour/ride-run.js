@@ -32,7 +32,7 @@ export function vehicleCar(vehicle) {
 }
 
 // p ({ x, z }) within r metres of where the ride waits, across the ground
-export function nearRide(p, ride, r = 4) {
+export function nearRide(p, ride, r = 6) {
   if (!p || !ride) return false;
   return Math.hypot(p.x - ride.board.x, p.z - ride.board.z) <= r;
 }

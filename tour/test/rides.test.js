@@ -378,7 +378,7 @@ test('the City\'s walkway runs from its town to a jetty alongside where the boat
   const r = ride('boat'), [w] = PLACES.city.walkways, P = w.points, end = P[P.length - 1];
   assert.equal(w.width, 3);
   assert.ok(footprint(PLACES.city).outside(P[0].x, P[0].z) === 0, 'the walkway does not start in the town');
-  // its line comes within reach (main.js RIDE_REACH, 4 m: its near half nearer still) of where the boat waits, beside
+  // its line comes within reach (main.js RIDE_REACH, 6 m; held to 3.9 m here, well inside it) of where the boat waits, beside
   // it, the jetty's end past its middle (not stopping short of it, nor out in front of its bow)
   let near = Infinity;
   for (let t = 0; t <= 1; t += 0.01) near = Math.min(near, Math.hypot(P[P.length - 2].x + (end.x - P[P.length - 2].x) * t - r.board.x, P[P.length - 2].z + (end.z - P[P.length - 2].z) * t - r.board.z));

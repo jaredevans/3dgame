@@ -26,13 +26,13 @@ test('the one-car stand-in: its front is the box\'s +z face, its length the box\
   assert.ok(Math.abs(car.length - 4.5) < 1e-9);
 });
 
-test('you can board a ride within 4 m of where it waits (across the ground), not further', () => {
+test('you can board a ride within 6 m of where it waits (across the ground), not further (main.js RIDE_REACH, R22)', () => {
   const r = rideFor('future-city'), b = r.board;
-  assert.equal(nearRide({ x: b.x, z: b.z }, r, 4), true);
-  assert.equal(nearRide({ x: b.x + 3.9, z: b.z }, r, 4), true);
-  assert.equal(nearRide({ x: b.x + 2.9, z: b.z + 2.9 }, r, 4), false);
-  assert.equal(nearRide({ x: b.x, z: b.z - 4.1 }, r, 4), false);
-  assert.equal(nearRide(null, r, 4), false);
+  assert.equal(nearRide({ x: b.x, z: b.z }, r, 6), true);
+  assert.equal(nearRide({ x: b.x + 5.9, z: b.z }, r, 6), true);
+  assert.equal(nearRide({ x: b.x + 4.3, z: b.z + 4.3 }, r, 6), false);
+  assert.equal(nearRide({ x: b.x, z: b.z - 6.1 }, r, 6), false);
+  assert.equal(nearRide(null, r, 6), false);
 });
 
 // the jet moves ~21 m a frame at RIDE_DT: a set piece's window narrower than that must still start (and end) as it's

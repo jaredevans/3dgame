@@ -42,7 +42,20 @@ test("main.js tells the director this run's showpieces and events, on the leg's 
   assert.match(src, /viewCtx\.route = routes\[run\.leg\]/);
   assert.match(src, /views\.update\(dt, train\.model, viewContext\(dt\)\)/);
   assert.match(src, /'Digit3'\) views\.set\('director'\)/);
-  assert.match(src, /'Digit4'\) views\.set\('nose'\)/);
+  assert.match(src, /'Digit4' && state\.mode !== 'ride'\) views\.set\('nose'\)/);
+});
+
+// riding, the views are the seat, the chase and the director (owner's ruling R23): V cycles those three, 4 (the nose)
+// does nothing; driving, V cycles all four as before
+test('main.js: on a ride V cycles the seat, chase and director only, and 4 gives no nose; a train keeps all four', () => {
+  assert.match(src, /const RIDE_VIEWS = \['cab', 'drone', 'director'\];/);
+  const v = src.match(/if \(e\.code === 'KeyV'\) \{[\s\S]*?\n {4}\}/);
+  assert.ok(v, 'no V handler');
+  assert.match(v[0], /if \(state\.mode === 'ride'\) views\.set\(RIDE_VIEWS\[\(RIDE_VIEWS\.indexOf\(views\.mode\) \+ 1\) % RIDE_VIEWS\.length\]\);/);
+  assert.match(v[0], /else views\.cycle\(\);/);
+  // (and the cycle itself is unchanged for trains: cameras.js's four)
+  const cams = readFileSync(new URL('../cameras.js', import.meta.url), 'utf8');
+  assert.match(cams, /const MODES = \['cab', 'nose', 'drone', 'director'\];/);
 });
 
 // auto mode (Z) presses what a player would: its throttle steps join yours, its brake is stepTrain's brake key (with
@@ -113,7 +126,7 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   const near = src.match(/const rideNear = \(\) => \{[\s\S]*?\n {2}\};/);
   assert.ok(near, 'no rideNear()');
   assert.match(near[0], /nearRide\(player\.state, \w+, RIDE_REACH\)/);
-  assert.match(src, /const RIDE_REACH = 4;/);
+  assert.match(src, /const RIDE_REACH = 6;/);
   const press = src.match(/function pressE\(\) \{[\s\S]*?\n {2}\}/);
   assert.ok(press, 'no pressE()');
   assert.match(press[0], /const w = boardable\(\);/);

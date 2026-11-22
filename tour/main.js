@@ -725,7 +725,11 @@ async function boot() {
     $('driver').classList.add('on');
   }
   // ---- a ride: on foot at a place's departure station, E beside where its ride waits takes it ----
-  const RIDE_REACH = 4;
+  // (6 m: none of them waits right on the edge of where you can walk; owner's ruling R22)
+  const RIDE_REACH = 6;
+  // riding, V and 1-3 give the seat, the chase (the drone) and the director only: no nose, which would sit over the
+  // balloon's crown (owner's ruling R23); a train keeps all four
+  const RIDE_VIEWS = ['cab', 'drone', 'director'];
   // the ride you're beside, on foot: the one leaving from this place, if it's offered (it has a builder and hasn't failed)
   const rideNear = () => {
     const leg = departureFor(state.place).leg, id = `ride:${leg}`;
@@ -939,11 +943,14 @@ async function boot() {
       if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
       if (e.code === 'KeyH') pressH();
     }
-    if (e.code === 'KeyV') views.cycle();
+    if (e.code === 'KeyV') {
+      if (state.mode === 'ride') views.set(RIDE_VIEWS[(RIDE_VIEWS.indexOf(views.mode) + 1) % RIDE_VIEWS.length]);
+      else views.cycle();
+    }
     if (e.code === 'Digit1') views.set('cab');
     if (e.code === 'Digit2') views.set('drone');
     if (e.code === 'Digit3') views.set('director');
-    if (e.code === 'Digit4') views.set('nose');
+    if (e.code === 'Digit4' && state.mode !== 'ride') views.set('nose');
   });
   addEventListener('keyup', (e) => keys.up(e.code));
   addEventListener('blur', () => keys.clear());
