@@ -11,7 +11,8 @@ teleportation system".
 - **`T` opens a small "Teleport to…" list** of the five places, numbered 1–5 (the place you're at shown but not
   offered). A number picks one; `T` again or `Esc` cancels.
 - **When:** on foot, or in the cab while the train stands still (|v| < 0.05). While the train moves, `T` does nothing.
-  The train you leave stays where it stopped (as after getting out).
+  The train you leave stays where it stopped (as after getting out), unless its line serves the destination, where it's
+  put at its platform (one train per line).
 - **Fizz out** (~1.5 s): a column of shimmering sparkles rises round the conductor (or round the cab's seat when you
   teleport from a train) while the figure dissolves from the feet up; a rising, shimmering tone (WebAudio).
 - **In between:** if the destination's place and stations aren't built yet, the view holds on a sparkle-filled beam
