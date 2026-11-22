@@ -83,3 +83,31 @@ export function sound(name) {
   audio ||= new AudioContext();
   SOUNDS[name]?.();
 }
+
+// teleporting (T): a shimmering tone, rising as you fizz out (falling as you fizz in), `dur` s long. Two soft sines a
+// fifth apart, beating against a third detuned a little, trembling quickly, with a breath of high noise sparkling over
+// them; it stays under 0.08 gain
+export function shimmer(rising = true, dur = 1.5) {
+  audio ||= new AudioContext();
+  const t0 = audio.currentTime, out = audio.createGain(), wobble = audio.createGain();
+  out.gain.setValueAtTime(0, t0);
+  out.gain.linearRampToValueAtTime(0.06, t0 + 0.25);
+  out.gain.setValueAtTime(0.06, t0 + dur - 0.35);
+  out.gain.linearRampToValueAtTime(0, t0 + dur);
+  wobble.gain.value = 0.6;
+  out.connect(wobble).connect(audio.destination);
+  // the tremble: the level swung by a fast low oscillator
+  const lfo = audio.createOscillator(), depth = audio.createGain();
+  lfo.frequency.setValueAtTime(11, t0); lfo.frequency.linearRampToValueAtTime(rising ? 19 : 7, t0 + dur);
+  depth.gain.value = 0.4;
+  lfo.connect(depth).connect(wobble.gain);
+  lfo.start(t0); lfo.stop(t0 + dur + 0.05);
+  const [lo, hi] = rising ? [1, 2.6] : [2.6, 1];
+  for (const [f, type] of [[330, 'sine'], [495, 'sine'], [333, 'triangle']]) {
+    const o = audio.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f * lo, t0); o.frequency.exponentialRampToValueAtTime(f * hi, t0 + dur);
+    o.connect(out); o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+  noiseBurst({ type: 'bandpass', freq: rising ? 5000 : 9000, to: rising ? 9000 : 5000, q: 2.5, peak: 0.03, attack: 0.3, dur });
+}

@@ -42,6 +42,32 @@
     background: #1b2430; font-size: 20px; gap: 8px; opacity: 0; transition: opacity .25s; pointer-events: none; }
   #arrive.on { opacity: 1; }
   #arrive small { opacity: .7; font-size: 14px; }
+  /* teleport (T): the list of places, as the map's panel; and the beam that holds the view between fizzing out and in */
+  #teleport { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; min-width: 260px;
+    background: #141b24e6; border: 2px solid #3d4b5c; border-radius: 16px; box-shadow: 0 8px 32px #000a; padding: 14px 20px;
+    font-size: 15px; z-index: 5; }
+  #teleport.on { display: block; }
+  #teleport h2 { margin: 0 0 8px; font-size: 17px; color: #ffd98a; letter-spacing: .5px; }
+  #teleport ol { list-style: none; margin: 0; padding: 0; line-height: 1.9; }
+  #teleport li.here { opacity: .45; }
+  #teleport li.here::after { content: " · you're here"; font-size: 13px; }
+  #teleport kbd, #teleport small kbd { background: #fff2; border: 1px solid #fff4; border-radius: 4px; padding: 0 6px;
+    font-family: inherit; font-size: 13px; margin-right: 8px; }
+  #teleport small { display: block; margin-top: 8px; font-size: 12px; opacity: .7; }
+  #teleport small kbd { font-size: 11px; margin: 0 2px; }
+  #beam { position: fixed; inset: 0; pointer-events: none; opacity: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: #fff8e6; text-shadow: 0 0 12px #ffd98a, 0 2px 6px #000a; overflow: hidden;
+    background: linear-gradient(90deg, #1b2430b0 0%, #4a3d22a8 38%, #fff1c8c0 50%, #4a3d22a8 62%, #1b2430b0 100%); }
+  #beam::before, #beam::after { content: ""; position: absolute; inset: -40% 0 0 0; opacity: .9;
+    background-image: radial-gradient(circle, #fff 0 1px, #ffe7a8aa 1.5px, transparent 3px),
+      radial-gradient(circle, #d8f0ff 0 1px, #a8d8ffaa 1.5px, transparent 3px);
+    background-size: 37px 53px, 61px 41px; background-position: 0 0, 19px 23px; animation: beam-rise 1.7s linear infinite; }
+  #beam::after { background-size: 29px 47px, 43px 67px; background-position: 11px 7px, 3px 31px; inset: -60% -20% 0 -20%;
+    animation-name: beam-rise-tilted, beam-twinkle; animation-duration: 2.3s, .45s; animation-iteration-count: infinite; animation-direction: normal, alternate; }
+  @keyframes beam-rise { to { transform: translateY(-40%); } }
+  @keyframes beam-rise-tilted { from { transform: rotate(9deg); } to { transform: rotate(9deg) translateY(-40%); } }
+  @keyframes beam-twinkle { from { opacity: .25; } to { opacity: .85; } }
+  #beam span { position: relative; z-index: 1; }
   #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column;
     background: #1b2430; font-size: 20px; gap: 8px; padding: 0 16px; text-align: center; }
   #loading small { opacity: .7; font-size: 14px; max-width: 720px; }
@@ -62,13 +88,15 @@
   <kbd>V</kbd> change view: cab, nose, drone, director · <kbd>1</kbd> cab · <kbd>2</kbd> drone · <kbd>3</kbd> director · <kbd>4</kbd> nose<br>
   <kbd>E</kbd> get out / board · on foot <kbd>W</kbd> <kbd>S</kbd> walk, <kbd>A</kbd> <kbd>D</kbd> turn, <kbd>Shift</kbd> run<br>
   <kbd>M</kbd> map · standing still, drag the mouse to look round<br>
-  <kbd>Z</kbd> auto tour
+  <kbd>Z</kbd> auto tour · <kbd>T</kbd> teleport
 </div>
 <canvas id="map"></canvas>
 <div id="driver"><b id="spd">0</b><span>km/h</span><span id="thr">throttle 0%</span><span id="dist"></span></div>
 <div id="prompt"></div>
 <div id="toast"></div>
 <div id="event"></div>
+<div id="teleport"><h2>Teleport to…</h2><ol id="teleportList"></ol><small><kbd>T</kbd> or <kbd>Esc</kbd> to cancel</small></div>
+<div id="beam"><span id="beamTo"></span></div>
 <div id="arrive"><span id="arriveAt"></span><small>getting the next towns ready</small></div>
 <div id="loading">Getting the tour ready…<small id="loadStep"></small></div>
 <script type="module" src="tour/main.js"></script>

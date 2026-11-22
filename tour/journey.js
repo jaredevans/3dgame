@@ -70,6 +70,16 @@ export function makeJourney({ legs, places }) {
       const mine = here.find((t) => t.leg === state.leg);
       return { turn: mine && mine.dir !== state.dir ? mine : null, wait: here.filter((t) => t.leg !== state.leg) };
     },
+    // teleporting (T) to a place, from on foot or a standing train: you're on foot there as if you'd just come in at its
+    // arrival station (leg, dir: that train's run), standing where you'd step off it (at: { leg, dir, s, lateral }, as
+    // stepOut's). trains: its two trains, each to be put at its own station (entries as trainsAt's)
+    teleport(state, placeId) {
+      if (!places[placeId]) throw new Error(`no place ${placeId}`);
+      if (state.mode === 'foot' && state.place === placeId) throw new Error(`already in ${placeId}`);
+      const leg = station(placeId, 'arrival').leg, run = runRoute(leg, 'out');
+      const next = { mode: 'foot', leg, dir: 'out', place: placeId };
+      return { state: next, trains: trainsAt(next, placeId), at: { leg, dir: 'out', ...this.stepOut(run, run.stopS) } };
+    },
     board(state, leg, dir) {
       if (state.mode !== 'foot') throw new Error('not on foot');
       if (!trainsAt(state, state.place).some((t) => t.leg === leg && t.dir === dir)) throw new Error(`no ${leg} ${dir} train waits at ${state.place}`);

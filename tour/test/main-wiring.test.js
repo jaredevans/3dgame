@@ -71,3 +71,24 @@ test('main.js: Z toggles auto mode, whose throttle, brake and walking keys go th
   // its search for the way runs on a slicer of its own, ticked each frame
   assert.match(src, /autoSlicer\.tick\(AUTO_SLICE\)/);
 });
+
+// teleport (T): the list opens only when T may work (canTeleport), its numbers are taken before the views' 1-4, and
+// nothing else answers a key while you fizz; meanwhile auto mode waits, the train is braked, you stand still, and both
+// where you are and where you're going are wanted until you're moved there
+test('main.js: T teleports, and the frame holds everything else still meanwhile', () => {
+  assert.match(src, /import \{[^}]*\bmakeTeleport\b[^}]*\bcanTeleport\b[^}]*\} from '\.\/teleport\.js'/);
+  assert.match(src, /e\.code === 'KeyT'\) \{ if \(tpListOpen\) closeTeleportList\(\); else if \(tpCan\(\)\) openTeleportList\(\);/);
+  const digits = src.indexOf("pickTeleport(+e.code.slice(5))"), views = src.indexOf("'Digit1') views.set('cab')");
+  assert.ok(digits > 0 && views > digits, 'the list\'s numbers come before the views\'');
+  assert.match(src, /if \(tp\.active\) return;/);
+  assert.match(src, /if \(tp\.active\) teleportStep\(dt\);[^\n]*\n\s*else if \(auto\.on\) autoStep\(dt\);/);
+  assert.match(src, /brakeKey: [^}]*\|\| tp\.active,/);
+  assert.match(src, /state\.mode === 'foot' && tp\.active\) player\.update\(dt, STILL_KEYS, walkWorld\(\)\)/);
+  assert.match(src, /if \(tp\.active && !tp\.swapped\) for \(const id of wanted\(\{ place: tp\.to \}\)\) set\.add\(id\)/);
+  // you're moved as journey.teleport says, and its trains put at their stations
+  const swap = src.match(/function teleportSwap\(\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(swap, 'no teleportSwap()');
+  assert.match(swap[0], /journey\.teleport\(state, tp\.to\)/);
+  assert.match(swap[0], /fleet\.wait\(w\.leg, w\.dir\)/);
+  assert.match(swap[0], /turnPending\(\)/);
+});

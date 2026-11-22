@@ -11,7 +11,7 @@ import { wantedSet, neededToDrive, readyToLeave } from './streaming.js';
 import { makeArrival } from './arrival.js';
 import { makeStreamer, STALL, own, disown } from './streamer.js';
 import { terrainChunkJob, terrainChunkMesh, buildSea } from './terrain-mesh.js';
-import { chunksWanted, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK, FINE, COARSE } from './chunks.js';
+import { chunksWanted, chunksNear, chunkOf, chunkId, chunkKey, corridorKeys, runFor, CHUNK, FINE, COARSE } from './chunks.js';
 import { scatterJob } from './scenery.js';
 import { loadScenery, sceneryGroup, sceneryWarmup, disposeScenery } from './scenery-mesh.js';
 import { buildTrack } from './track-mesh.js';
@@ -28,7 +28,9 @@ import { makeDimmer } from './dimmer.js';
 import { makeHdEnvironment, updateHdLight, prepareHdAnimals } from './hd.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
-import { horn } from './audio.js';
+import { horn, shimmer } from './audio.js';
+import { makeTeleport, teleportChoices, canTeleport, FIZZ } from './teleport.js';
+import { makeTeleportFx } from './teleport-fx.js';
 import { buildPlace, fetchPlace, seamCheck } from './places.js';
 import { release, makeUnloader } from './dispose.js';
 import { buildTerminus, PLATFORM_TOP } from './stations.js';
@@ -356,6 +358,7 @@ async function boot() {
   // whose detail changes is built again; a tile's new pieces show together once all are in, as the old ones go. After
   // boot a piece is built a slice a frame (LAND_SLICE ms, run inside frame()), so no frame waits on a whole one. ----
   const LAND_SLICE = 4;
+  const BEAM_SLICE = 12;   // ms a frame under the teleport's beam, where nothing moves
   // the line's corridor: chunks within 300 m of a built route or a built place's footprint
   const corridor = corridorKeys([
     ...Object.values(routes).flatMap((r) => Array.from({ length: Math.ceil(r.length / 32) + 1 }, (_, k) => r.at(Math.min(r.length, k * 32), {}))),
@@ -407,13 +410,13 @@ async function boot() {
     };
   }, { onError: fail, standIn: (id) => chunkOf(id).tile });   // no stall time: built by frames, none while hidden
   // one frame's slice of the piece being built
-  function landSlice() {
+  function landSlice(slice = LAND_SLICE) {
     let ms = 0;
     if (active) {
       const t0 = performance.now();
       let out;
       // a piece whose job throws fails (the land's streamer reports it) rather than stopping the frame
-      try { out = runFor(active.job, LAND_SLICE); } catch (err) { const a = active; active = null; a.fail(err); }
+      try { out = runFor(active.job, slice); } catch (err) { const a = active; active = null; a.fail(err); }
       ms = performance.now() - t0;
       if (active) { active.ms += ms; active.frames++; }
       if (out) { const a = active; active = null; landTimes.push({ id: a.id, ms: a.ms, frames: a.frames }); a.done(out); }
@@ -560,20 +563,24 @@ async function boot() {
   });
   // where you can get out: the platform you're heading for, or the one you haven't left yet
   const stopHere = () => journey.stopAt(run, drive);
+  // where you step down beside a run's line, at `out` ({ s, lateral }: journey.stepOut's) in the place you're in: stopped
+  // past the mark, the cab is beside the station building, so further from the buffers, clear of it
+  function stepDown(r, out) {
+    const w = walkWorld(), away = out.s > r.route.length / 2 ? -1 : 1;
+    let s = out.s;
+    for (let k = 0; k < 40; k++) {
+      const q = r.route.offsetAt(s, out.lateral);
+      if (!w.blocked(q.x, q.z, BODY)) break;
+      s += away;
+    }
+    return r.route.offsetAt(s, out.lateral);
+  }
   function getOut() {
     const here = stopHere();
     endEvents();   // no reactions on foot
     state = journey.getOut(state, here);
     // step out onto the platform beside the line, a little behind the cab
-    const out = journey.stepOut(run, drive.s);
-    // stopped past the mark, the cab is beside the station building: step down further from the buffers, clear of it
-    const w = walkWorld(), away = out.s > run.route.length / 2 ? -1 : 1;
-    for (let k = 0; k < 40; k++) {
-      const q = run.route.offsetAt(out.s, out.lateral);
-      if (!w.blocked(q.x, q.z, BODY)) break;
-      out.s += away;
-    }
-    const p = run.route.offsetAt(out.s, out.lateral);
+    const p = stepDown(run, journey.stepOut(run, drive.s));
     player.enter(p.x, p.z, p.yaw, p.y + PLATFORM_TOP);
     Object.assign(drive, leaveCab(drive));
     train.s = drive.s;
@@ -640,6 +647,111 @@ async function boot() {
       mapView.draw({ you: player.state, leg: null, place: state.place, departure: { x: d.x, z: d.z, label: `Departures: ${d.train} to ${d.to}` } });
     }
   }
+  // ---- teleport (T): a list of the places; pick one and you fizz out where you stand (on foot, or in a cab standing
+  // still), a beam holds the view while it's built, and you fizz in on its arrival platform, on foot, its two trains at
+  // their platforms. teleport.js is the timing (the beam's wait bounded by WAIT_MAX, as the arrival cover's),
+  // teleport-fx.js the sparkles; the figure dissolves through player.dissolve. You're moved only once the place is in,
+  // behind the beam (`swap`); until then both where you are and where you're going are wanted ----
+  const tp = makeTeleport();
+  const fx = makeTeleportFx(scene);
+  const STILL_KEYS = { fwd: 0, right: 0, run: false };   // what you walk with meanwhile
+  const LANDING_PITCH = -0.06;
+  const CAB_SHIMMER = 0.4;
+  const tpSeat = new THREE.Vector3();
+  let tpLegs = [], tpNear = [];   // where you land: its trains' legs, and the land under you (chunk ids), to be in first
+  let tpBeam = -1, tpListOpen = false;
+  const tpLog = [];   // each teleport: { from, to, beam (s under the beam), swapAt (s of it before the place was in), back }
+  // the place you're at: on foot, or stopped at one's platform (null between stations)
+  const tpHere = () => (state.mode === 'foot' ? state.place : stopHere());
+  const tpCan = () => !controls && canTeleport({ mode: state.mode, v: drive.v, covered: state.mode === 'drive' && !arr.getOut, busy: tp.active });
+  function openTeleportList() {
+    $('teleportList').replaceChildren(...teleportChoices(RING.places, tpHere()).map((c) => {
+      const li = document.createElement('li'), k = document.createElement('kbd');
+      k.textContent = c.n;
+      li.append(k, PLACES[c.id].name);
+      if (!c.offered) li.className = 'here';
+      return li;
+    }));
+    tpListOpen = true;
+    $('teleport').classList.add('on');
+  }
+  function closeTeleportList() { tpListOpen = false; $('teleport').classList.remove('on'); }
+  function pickTeleport(n) {
+    const c = teleportChoices(RING.places, tpHere())[n - 1];
+    if (!c?.offered || !tpCan()) return;
+    closeTeleportList();
+    if (!tp.start(c.id, tpHere())) return;
+    // auto mode, if it's on, stands still meanwhile and carries on round the ring from where you land: its way across
+    // this town (and any search for it) is let go
+    auto.token++;
+    auto.planning?.job.return();
+    auto.planning = null;
+    auto.follower.clear();
+    Object.assign(auto.out, { throttleSteps: 0, brake: false });
+    Object.assign(auto.keys, { fwd: 0, right: 0, run: false });
+    Object.assign(auto, { still: 0, failures: 0 });
+    if (auto.on) autoLog('teleport', { from: state.place, to: c.id });
+    drive.throttle = 0; throttleSteps = 0;
+    tpLog.push({ from: tpHere(), to: c.id, beam: 0, swapAt: null, back: false });
+    if (tpLog.length > 50) tpLog.shift();
+    // the column round you, or round the driver's seat (seen from the seat itself you're inside it, and the beam's
+    // shimmer comes up over the view as it glows: teleportStep)
+    if (state.mode === 'drive') {
+      train.cab.holder.updateMatrixWorld();
+      tpSeat.copy(train.cab.seat).applyMatrix4(train.cab.holder.matrixWorld);
+      fx.at(tpSeat.x, tpSeat.y - 1.65, tpSeat.z);
+    }
+    $('beamTo').textContent = `Teleporting to ${PLACES[c.id].name}…`;
+    shimmer(true, FIZZ);
+  }
+  // the place is in: you're moved there behind the beam, as if you'd stepped off its arrival train
+  function teleportSwap() {
+    if (state.mode === 'drive') {   // out of the cab as getting out does: the train left standing where it is
+      endEvents();
+      Object.assign(drive, leaveCab(drive));
+      train.s = drive.s;
+      views.setDriving(false);
+      $('driver').classList.remove('on');
+    }
+    turnPending();   // the train you came on here turns round for the trip back, as once you'd walked away from it
+    const t = journey.teleport(state, tp.to);
+    state = t.state;
+    for (const w of t.trains) fleet.wait(w.leg, w.dir);   // (one not loaded yet stands there when it is)
+    if (fleet.trains[train.leg] === train) { run = train.run; Object.assign(drive, { s: train.s, v: 0, throttle: 0 }); }
+    const p = stepDown(journey.runRoute(t.at.leg, t.at.dir), t.at);
+    // seen from just above head height, under the platform's canopy (the usual view, higher, is in its roof there), so
+    // you see yourself fizz in; it rises to the usual one as you set off
+    player.enter(p.x, p.z, p.yaw, p.y + PLATFORM_TOP, LANDING_PITCH);
+    player.dissolve(1);
+    tpLegs = t.trains.map((w) => w.leg);
+    tpNear = [...chunksNear(p.x, p.z, 48)].map((k) => chunkId(k, FINE));
+  }
+  // what you land among is in: the place's two trains, and the land under you at its finest
+  function tpSettled() {
+    if (!tp.swapped) return false;
+    for (let k = 0; k < tpLegs.length; k++) if (!fleet.trains[tpLegs[k]]) return false;
+    for (let k = 0; k < tpNear.length; k++) if (!land.shown(tpNear[k])) return false;
+    return true;
+  }
+  // a frame of it, before the frame's driving or walking
+  function teleportStep(dt) {
+    const to = tp.to, log = tpLog[tpLog.length - 1];
+    const r = tp.step(dt, !!places[to], tpSettled(), streamer.failed(to));
+    if (r.swap) { log.swapAt = Math.round(r.waited * 10) / 10; teleportSwap(); }
+    if (r.land) {
+      log.beam = Math.round(r.waited * 10) / 10; log.back = r.back;
+      if (r.back) { $('toast').textContent = `${PLACES[to].name} couldn't be loaded`; toastLeft = 3; }
+      shimmer(false, FIZZ);
+    }
+    if (state.mode === 'foot') fx.at(player.state.x, player.state.y, player.state.z);
+    player.dissolve(state.mode === 'foot' ? r.gone : 0);
+    fx.update(clock.elapsedTime, r.glow, r.gone * player.height / fx.height, renderer.domElement.height);
+    // (in the cab's own view you're inside the column: its shimmer is shown over the view, faintly, as it glows)
+    const beam = state.mode === 'drive' && views.mode === 'cab' ? Math.max(r.beam, r.glow * CAB_SHIMMER) : r.beam;
+    if (Math.abs(beam - tpBeam) > 0.01 || (beam === 0) !== (tpBeam === 0)) { tpBeam = beam; $('beam').style.opacity = beam; }
+    if (r.done && auto.on) autoLog('landed', { place: state.place });
+  }
+
   const keys = makeKeys();
   let throttleSteps = 0;
   // E: get out at a platform you've stopped at, or board the train you're beside; H: the horn. Auto mode presses them
@@ -659,8 +771,12 @@ async function boot() {
     keys.down(e.code);
     if (e.code === 'Space') e.preventDefault();
     if (e.code === 'KeyM') { mapView.toggle(); drawMap(); return; }
-    if (e.code === 'Escape') { mapView.close(); return; }
+    if (e.code === 'Escape') { mapView.close(); closeTeleportList(); return; }
+    // T: the teleport list (on foot, or in the cab standing still), T again to close it; a number picks a place
+    if (e.code === 'KeyT') { if (tpListOpen) closeTeleportList(); else if (tpCan()) openTeleportList(); return; }
+    if (tpListOpen && /^Digit[1-5]$/.test(e.code)) { pickTeleport(+e.code.slice(5)); return; }
     if (e.code === 'KeyZ') { if (auto.on) stopAuto(); else startAuto(); return; }
+    if (tp.active) return;   // fizzing out or in: nothing else does anything till you're there
     if (auto.on && TAKE_OVER[state.mode].has(e.code)) stopAuto();   // you have the controls (and this key does its job)
     if (keys.ignored(e.code)) return;   // still held from before you boarded
     if (e.code === 'KeyE') { pressE(); return; }
@@ -838,6 +954,7 @@ async function boot() {
       const way = w?.leg === d.leg ? 'here' : `${to.arrow} ${distance(to.metres)}`;
       $('mode').textContent = `On foot in ${PLACES[state.place].name} · Departures ${way}${busy() ? ' · getting the next towns ready' : ''}`;
     }
+    if (tp.active) prompt = '';   // (teleporting: nothing to do meanwhile)
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
     auto.messageLeft = Math.max(0, auto.messageLeft - dt);
@@ -867,6 +984,9 @@ async function boot() {
     // the run you're on, with Phase 1's limits and originPlatform alongside it
     run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
     pendingTurn: { get: () => pendingTurn }, arr: { get: () => arr }, mayLand: { get: () => mayLand },
+    // teleport: the phase it's in, where to, and each one so far (how long the beam held, and how much of that was
+    // waiting for the place)
+    teleport: { get: () => ({ phase: tp.phase, to: tp.to, swapped: tp.swapped, list: tpListOpen, log: tpLog }) },
     // auto mode: on or not, how many failures at this place, and what it's done (getting out, each way found, the horn,
     // the views, boarding)
     auto: { get: () => ({ on: auto.on, failures: auto.failures, planning: !!auto.planning, path: auto.follower.path, left: auto.follower.left, log: auto.log }) },
@@ -919,7 +1039,9 @@ async function boot() {
   {
     const each = sceneryWarmup();
     if (each) scene.add(each);
+    fx.group.visible = true;   // (the teleport's sparkles: hidden till used)
     await renderer.compileAsync(scene, camera);
+    fx.group.visible = false;
     if (each) upload(each);   // the shapes' geometry, shared by every chunk's pieces
     disposeScenery(each);
     const depth = depthWarmup();
@@ -971,7 +1093,9 @@ async function boot() {
     // walker clamp to that too, so the train never jumps further than v x 0.1 s
     dt = Math.min(dt, 0.1);
     fit();
-    if (auto.on) autoStep(dt);
+    if (tp.active) teleportStep(dt);   // (auto mode waits meanwhile)
+    else if (auto.on) autoStep(dt);
+    if (tpListOpen && !tpCan()) closeTeleportList();   // (the train moved off)
     if (state.mode === 'drive') {
       if (auto.on) throttleSteps += auto.out.throttleSteps;   // its key presses, with any of yours
       const before = drive.s;
@@ -983,7 +1107,7 @@ async function boot() {
       const guard = evOut.brakeTo !== null && (mustBrake(evOut.brakeTo, drive.v, train.spec) || evOut.brakeTo <= 0);
       // held at a platform (or by the guard): the brake on and the throttle shut, so the train sets off only when you
       // open it again
-      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || (auto.on && auto.out.brake) || arr.hold || guard, throttleSteps: arr.hold || guard ? 0 : throttleSteps }), dt, train.spec, train.limits));
+      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || (auto.on && auto.out.brake) || arr.hold || guard || tp.active, throttleSteps: arr.hold || guard || tp.active ? 0 : throttleSteps }), dt, train.spec, train.limits));
       if (arr.hold || guard) drive.throttle = 0;
       train.s = drive.s;
       poseTrain(train.model, run.route, drive.s, drive.s - before, run.lane);
@@ -994,11 +1118,13 @@ async function boot() {
     if (state.mode === 'foot' && pendingTurn && Math.hypot(player.state.x - front.x, player.state.z - front.z) > 30) turnPending();
     hud(dt);
     if (controls) controls.update();
+    else if (state.mode === 'foot' && tp.active) player.update(dt, STILL_KEYS, walkWorld());   // standing still while you fizz
     else if (state.mode === 'foot') player.update(dt, auto.on ? auto.keys : footInput(), walkWorld());
     else views.update(dt, train.model, viewContext(dt));
     // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
     const where = journey.where(state, run, drive.s);
-    const driving = state.mode === 'drive', stopped = Math.abs(drive.v) < 0.05;
+    // (teleporting from a cab you're getting out, standing still: as on foot)
+    const driving = state.mode === 'drive' && !tp.active, stopped = Math.abs(drive.v) < 0.05;
     // arriving at a platform, what failed is tried again (a few times at most), before the cover is decided so it's
     // built behind it. Not on foot, nor setting off: boarding and leaving wait on nothing that long anyway
     arr = arrival.step({
@@ -1008,12 +1134,14 @@ async function boot() {
     });
     if (driving) where.at = arr.at;
     let set = wanted(where);
+    if (tp.active && !tp.swapped) for (const id of wanted({ place: tp.to })) set.add(id);   // where you're going, too
     if (!arr.build) set = new Set([...set].filter((id) => !streamer.toBuild(id)));   // nothing new while moving
     streamer.want(set);
     // what's built may land (a kit built in one go, an upload) only on foot, or at a standstill where arrival lets it
     // be built (behind the cover, once it's up): never on a moving frame. A build waiting for that isn't stalled, nor
     // is one whose upload waits for it
-    mayLand = !driving || (stopped && arr.build);
+    // (teleporting, only under the beam: the fizz out and in never wait on a kit built in one go)
+    mayLand = tp.active ? tp.phase === 'beam' : !driving || (stopped && arr.build);
     streamer.landing = mayLand;
     const waitDt = toDraw.length && !mayLand ? 0 : dt;
     streamer.tick(waitDt);
@@ -1025,7 +1153,8 @@ async function boot() {
       $('arrive').classList.toggle('on', !!label);
     }
     // what was let go is freed at a standstill (the scene walked once), never on a moving frame
-    if (state.mode === 'foot' || Math.abs(drive.v) < 0.05) unload.flush(scene);
+    // (teleporting, only under the beam)
+    if ((state.mode === 'foot' || Math.abs(drive.v) < 0.05) && (!tp.active || tp.phase === 'beam')) unload.flush(scene);
     const want = ringPosition(where);
     skyPos = skyPos === null ? want : towards(skyPos, want, Math.min(1, dt * 1.5));   // the short way round the ring
     const sky = skyAt(skyPos);
@@ -1051,7 +1180,7 @@ async function boot() {
     if (mayLand) drawWaiting();
     drawMap();
     renderer.render(scene, camera);
-    landSlice();   // a slice of the land being built, after this frame's work
+    landSlice(tp.phase === 'beam' ? BEAM_SLICE : LAND_SLICE);   // a slice of the land being built, after this frame's work (more under the beam)
     slicer.tick(SCENERY_SLICE);   // and a slice of any scenery being built
     autoSlicer.tick(AUTO_SLICE);  // and of auto's search for the way across a town
   }

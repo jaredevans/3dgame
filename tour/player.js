@@ -18,6 +18,18 @@ export async function makePlayer(scene, camera, dom, look) {
   figure.visible = false;
   scene.add(figure);
   look?.shadows(figure);
+  // teleporting (T), the figure dissolves from its feet up: everything of it below a level plane is cut away. Its own
+  // materials (the kit's may be shared with other parts), each with the plane from the start, so its programs are the
+  // ones compiled at boot; the plane sits far below until it's wanted
+  const cut = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e6);
+  const meshes = [], casts = [];
+  figure.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+    for (const m of [].concat(o.material)) m.clippingPlanes = [cut];
+    meshes.push(o); casts.push(o.castShadow);
+  });
+  const FIGURE_HEIGHT = 1.9;   // m, feet to the top of his cap, and a little over
 
   // state.yaw is the way you face (and walk); view is where the camera looks from, relative to that
   const state = { x: 0, z: 0, yaw: 0, y: 0, on: false };
@@ -39,9 +51,10 @@ export async function makePlayer(scene, camera, dom, look) {
   };
   return {
     state,
-    enter(x, z, yaw, y) {
+    // (pitch: the view's to begin with; it swings back to the usual one as soon as you move)
+    enter(x, z, yaw, y, pitch = FOOT_VIEW.pitch) {
       Object.assign(state, { x, z, yaw, y, on: true });
-      view = { yaw: 0, pitch: FOOT_VIEW.pitch };
+      view = { yaw: 0, pitch };
       Object.assign(drag, { dx: 0, dy: 0 });
       figure.visible = true;
       figure.position.set(x, y, z);
@@ -49,6 +62,12 @@ export async function makePlayer(scene, camera, dom, look) {
       place(null);
     },
     exit() { state.on = false; figure.visible = false; },
+    // gone: 0 (whole) .. 1 (none of him left), dissolved from his feet up; his shadow goes while any of him is gone
+    dissolve(gone) {
+      cut.constant = gone <= 0 ? 1e6 : -(figure.position.y + gone * (FIGURE_HEIGHT + 0.05) - 0.02);
+      for (let k = 0; k < meshes.length; k++) meshes[k].castShadow = casts[k] && gone <= 0;
+    },
+    height: FIGURE_HEIGHT,   // m, how tall he is
     // input { fwd, right, run } (the keys); world { blocked, heightAt, inBounds }
     update(dt, input, world) {
       if (!state.on) return;
