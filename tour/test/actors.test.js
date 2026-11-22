@@ -587,3 +587,249 @@ test('zoneOfTriangles finds a zone\'s triangles by all three of their vertex col
   const rgba = new Float32Array([glass.r, glass.g, glass.b, 1, glass.r, glass.g, glass.b, 1, glass.r, glass.g, glass.b, 1]);
   assert.deepEqual([...zoneOfTriangles(rgba, 4, [win, glass])], [1]);
 });
+
+// ---- the Metro Glide's leg (actors/metro.js) ----
+import {
+  PLATFORM, LANES, GLIDE, laneAt, TRAFFIC, laneLateral, streetRuns, streetPath, laneCars, carAlong, PLANE, planeAt, planeStep, soonest,
+} from '../actors/paths.js';
+import { PLACES, LEGS } from '../world-data.js';
+import { LAYOUT, clearGround } from '../suburbs.js';
+
+const FC = legRoute('future-city');
+
+test('one platform window\'s length, shared: paceBounds keeps that far off both ends unless told otherwise', () => {
+  assert.equal(PLATFORM, 122);
+  const { lo, hi } = paceBounds({ s0: 0, s1: 5000 }, 2000, 10);
+  assert.equal(lo, PLATFORM + 10);
+  assert.equal(hi, 2000 - PLATFORM - 10);
+});
+
+// the towers and the kit's own parked fliers in each town, in its kit's frame (measured in the page): x, z, r (how far
+// out from its middle it reaches), from and top (metres over the town's ground)
+const TOWERS = {
+  future: [
+    { x: -2, z: -52, r: 11.3, from: 0, top: 41 },                                            // the monolith tower
+    { x: -56, z: -8, r: 5.7, from: 0, top: 31 }, { x: -48, z: -8, r: 5.7, from: 0, top: 31 },   // the capsule towers
+    { x: -40, z: -30, r: 8.5, from: 0, top: 25 }, { x: -40, z: -18, r: 8.5, from: 0, top: 25 }, // the slab blocks
+    { x: 0, z: 46, r: 5.7, from: 0, top: 21 }, { x: -23, z: 45, r: 5.7, from: 0, top: 21 },    // the vertical farms
+    { x: -12, z: 46, r: 9, from: 25, top: 29 },                                               // the sky bridges
+    { x: 40, z: -24, r: 11.3, from: 0, top: 14 },                                             // the depot
+    { x: 26, z: -40, r: 2.7, from: 53, top: 55 }, { x: -24, z: -30, r: 3.4, from: 47, top: 49 }, // parked up high
+    { x: -24, z: 38, r: 2.7, from: 40, top: 41 }, { x: 14, z: 44, r: 6, from: 44, top: 45 },
+    { x: -24, z: 0, r: 2.7, from: 16, top: 17 }, { x: -24, z: 26, r: 2.7, from: 16, top: 18 },
+    { x: 38, z: 50, r: 2.7, from: 13, top: 15 }, { x: 38, z: 32, r: 2.7, from: 15, top: 17 },
+  ],
+  city: [-36, -20, 12].map((z) => ({ x: -52, z, r: 5.7, from: 0, top: 32 })).concat(
+    [[-12, 12], [-28, 36], [24, -36], [44, -36], [44, 36]].map(([x, z]) => ({ x, z, r: 5.7, from: 0, top: 32 }))),
+};
+const toKit = (place, x, z) => {
+  const c = Math.cos(place.rot), s = Math.sin(place.rot), dx = x - place.centre.x, dz = z - place.centre.z;
+  return [dx * c - dz * s, dx * s + dz * c];
+};
+const lines = Object.keys(LEGS).map((id) => { const r = legRoute(id), pts = []; for (let s = 0; s <= r.length; s += 2) pts.push(r.at(s)); return pts; });
+const toLines = (x, z) => Math.min(...lines.map((pts) => Math.min(...pts.map((q) => Math.hypot(x - q.x, z - q.z)))));
+
+test('six fliers over each town: 30-60 m over the Futuristic place, 40-90 m over Downtown City', () => {
+  assert.equal(LANES.future.length, 6);
+  assert.equal(LANES.city.length, 6);
+  const o = {};
+  for (const [town, [lo, hi]] of [['future', [30, 60]], ['city', [40, 90]]]) {
+    const P = PLACES[town];
+    for (const lane of LANES[town]) for (let t = 0; t < 120; t += 0.5) {
+      laneAt(t, lane, P, o);
+      const up = o.y - P.y;
+      assert.ok(up >= lo && up <= hi, `${town} lane at ${up.toFixed(1)} m`);
+    }
+  }
+});
+
+test('each glides round its lane at about 15 m/s, facing the way it goes, banked into the turn', () => {
+  assert.equal(GLIDE.speed, 15);
+  const a = {}, b = {};
+  for (const town of ['future', 'city']) for (const lane of LANES[town]) for (let t = 0; t < 60; t += 1.3) {
+    laneAt(t, lane, PLACES[town], a);
+    laneAt(t + 0.05, lane, PLACES[town], b);
+    const v = Math.hypot(b.x - a.x, b.z - a.z) / 0.05;
+    assert.ok(v > 13 && v < 17, `${town}: ${v.toFixed(1)} m/s`);
+    const way = Math.atan2(b.x - a.x, b.z - a.z), off = Math.atan2(Math.sin(way - a.yaw), Math.cos(way - a.yaw));
+    assert.ok(Math.abs(off) < 0.05, `${town}: facing ${off.toFixed(3)} off its way`);
+    // turning left (its yaw growing) it rolls left wing (+x) down, as tan(bank) = v x turn rate / g
+    const turn = Math.atan2(Math.sin(b.yaw - a.yaw), Math.cos(b.yaw - a.yaw)) / 0.05;
+    assert.ok(Math.abs(Math.tan(-a.roll) - v * turn / GLIDE.g) < 0.06, `${town}: roll ${a.roll.toFixed(3)} for a turn of ${turn.toFixed(3)}`);
+    assert.ok(Math.abs(a.roll) > 0.15, 'a visible bank');
+  }
+  assert.ok(LANES.future.some((l) => l.dir > 0) && LANES.future.some((l) => l.dir < 0), 'both ways round');
+});
+
+test('their lanes stay over their towns, clear of every line (so out of the platform windows), and of the towers', () => {
+  const o = {};
+  for (const town of ['future', 'city']) {
+    const P = PLACES[town], [ox, oz] = P.offset ?? [0, 0];
+    for (const [i, lane] of LANES[town].entries()) for (let t = 0; t < 2 * Math.PI * 60 / GLIDE.speed; t += 0.25) {
+      laneAt(t, lane, P, o);
+      const [lx, lz] = toKit(P, o.x, o.z);
+      assert.ok(Math.abs(lx - ox) <= P.size[0] / 2 - 5 && Math.abs(lz - oz) <= P.size[1] / 2 - 5, `${town} lane ${i} leaves the town at ${lx.toFixed(0)}, ${lz.toFixed(0)}`);
+      const up = o.y - P.y;
+      for (const w of TOWERS[town]) {
+        if (Math.hypot(lx - w.x, lz - w.z) > w.r + 6) continue;
+        assert.ok(up >= w.top + 3 || up + 2.5 <= w.from - 3, `${town} lane ${i} through the ${w.x}, ${w.z} at ${up.toFixed(1)} m`);
+      }
+    }
+    for (const [i, lane] of LANES[town].entries()) for (let t = 0; t < 30; t += 1) {
+      laneAt(t, lane, P, o);
+      assert.ok(toLines(o.x, o.z) >= 15, `${town} lane ${i} over a line`);
+    }
+  }
+});
+
+test('the street\'s lanes keep right: each way 1 m to its own right of the street\'s middle', () => {
+  const S = LAYOUT.street;
+  assert.equal(laneLateral(1, 1, S), S - 1);    // going out on the left street: its right is towards the line
+  assert.equal(laneLateral(1, -1, S), S + 1);
+  assert.equal(laneLateral(-1, 1, S), -S - 1);
+  assert.equal(laneLateral(-1, -1, S), -S + 1);
+  assert.deepEqual(TRAFFIC.speeds, [10, 14]);
+  assert.deepEqual(TRAFFIC.gap, [40, 80]);
+});
+
+test('streetRuns: the stretches where the street stands, clear of the river and the towns, out of the platform windows', () => {
+  const ok = (x, z) => clearGround(x, z, LAND);
+  const [s0, s1] = LEGS['future-city'].suburbs[1];
+  for (const side of [1, -1]) {
+    const runs = streetRuns(FC, ok, side * LAYOUT.street, s0, s1);
+    assert.ok(runs.length >= 1, 'some street');
+    const P = {};
+    for (const [a, b] of runs) {
+      assert.ok(b - a >= 60 && a >= s0 && b <= s1, `${a}..${b}`);
+      assert.ok(a >= PLATFORM && b <= FC.length - PLATFORM);
+      for (let s = a; s <= b; s += 3) for (const d of [-2, 0, 2]) {
+        FC.offsetAt(s, side * LAYOUT.street + d, P);
+        assert.ok(ok(P.x, P.z), `side ${side} at ${s} isn't clear`);
+      }
+    }
+    assert.ok(runs.reduce((n, [a, b]) => n + b - a, 0) > 600, 'most of the stretch');
+  }
+  // where it isn't clear it stops
+  const none = streetRuns(FC, () => false, 54, s0, s1);
+  assert.deepEqual(none, []);
+  const gap = streetRuns(FC, (x, z) => { FC.offsetAt(1000, 54, P0); return Math.hypot(x - P0.x, z - P0.z) > 30; }, 54, 800, 1200);
+  assert.equal(gap.length, 2, 'split round what is in its way');
+  assert.ok(gap[0][1] < 975 && gap[1][0] > 1025);
+});
+const P0 = {};
+
+test('streetPath follows the street over the land, in metres along the street itself', () => {
+  const path = streetPath(FC, LAND.heightAt, 54, 1300, 1700);
+  const P = {}, a = {}, b = {};
+  assert.ok(path.length > 400, `round the outside of the curve: ${path.length}`);   // the line bends right: the left street is longer
+  path.at(0, a);
+  FC.offsetAt(1300, 54, P);
+  assert.ok(Math.hypot(a.x - P.x, a.z - P.z) < 0.01);
+  assert.ok(Math.abs(a.y - LAND.heightAt(a.x, a.z)) < 0.3);
+  path.at(path.length, b);
+  FC.offsetAt(1700, 54, P);
+  assert.ok(Math.hypot(b.x - P.x, b.z - P.z) < 0.5);
+  for (let u = 10; u < path.length; u += 37) {
+    path.at(u, a); path.at(u + 1, b);
+    assert.ok(Math.abs(Math.hypot(b.x - a.x, b.z - a.z) - 1) < 0.05, `1 m along at ${u}`);
+    const way = Math.atan2(b.x - a.x, b.z - a.z);
+    assert.ok(Math.abs(Math.atan2(Math.sin(way - a.yaw), Math.cos(way - a.yaw))) < 0.05, 'facing along it');
+    assert.ok(Math.abs(Math.tan(a.pitch) - (b.y - a.y)) < 0.05, 'pitched up its slope');
+  }
+  assert.equal(path.at(5, a), a);
+});
+
+test('laneCars: 40-80 m apart round a loop at least the street\'s length, and each moves along at its speed', () => {
+  let seed = 3;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const { at, period } = laneCars(1000, rnd);
+  assert.ok(period >= 1000 && period < 1080);
+  for (let i = 1; i < at.length; i++) { const g = at[i] - at[i - 1]; assert.ok(g >= 40 && g <= 80, `gap ${g}`); }
+  const wrap = period - at[at.length - 1] + at[0];
+  assert.ok(wrap >= 40 && wrap <= 80, `round the back ${wrap}`);
+  assert.equal(carAlong(100, period, 12, 0, 1000), 100);
+  assert.ok(Math.abs(carAlong(100, period, 12, 5, 1000) - 160) < 1e-9);
+  assert.equal(carAlong(990, 1050, 12, 1, 1000), -1, 'off the end of the street, round the back');
+  assert.ok(Math.abs(carAlong(990, 1050, 12, 6, 1000) - 12) < 1e-9, 'and back at its start');
+});
+
+const OVER = FC.at(1300);
+test('the plane: 120 m over the line at the window\'s middle, coming down at 3 degrees towards the north-east', () => {
+  const o = {};
+  assert.deepEqual(planeAt(OVER, 0, o), o);
+  close(o.x, OVER.x); close(o.z, OVER.z); close(o.y, OVER.y + 120);
+  close(PLANE.yaw, 3 * Math.PI / 4);   // north-east: +x east, -z north
+  planeAt(OVER, 1000, o);
+  close(o.y, OVER.y + 120 + 1000 * Math.tan(3 * Math.PI / 180), 1e-6);
+  assert.ok(o.x < OVER.x && o.z > OVER.z, 'south-west of the line before it gets there');
+  close(Math.hypot(o.x - OVER.x, o.z - OVER.z), 1000, 1e-6);
+  planeAt(OVER, -500, o);
+  assert.ok(o.x > OVER.x && o.z < OVER.z && o.y < OVER.y + 120, 'and on down to the north-east past it');
+  assert.ok(PLANE.speed >= 60 && PLANE.speed <= 80, 'an airliner\'s approach speed');
+  planeAt(OVER, -PLANE.past, o);
+  assert.ok(o.y - OVER.y >= 20, `still only ${(o.y - OVER.y).toFixed(0)} m up when it's gone`);
+  planeAt(OVER, -PLANE.past, o);
+  assert.ok(o.y - OVER.y >= 20, `still ${(o.y - OVER.y).toFixed(0)} m up when it's gone`);
+});
+
+// a run at a steady speed through the window: when the plane is over the line, and where the front is then
+// (from a standstill, gathering speed at the Metro Glide's 1 m/s/s, as it leaves a platform)
+function planeRun({ dir, v, legS, secs = 200, dt = 1 / 30, meet = 1300, s0 = 1100, s1 = 1500, here = () => true, vAt = (t) => Math.min(v, t) }) {
+  let st = null, overAt = null, roars = 0, first = null, t = 0;
+  const sgn = dir === 'back' ? -1 : 1;
+  for (; t < secs; t += dt) {
+    const sp = vAt(t);
+    const was = st ? st.d : null;
+    st = planeStep(st, { here: here(t), legS, v: sp, top: 120 / 3.6, accel: 1, dir, dt, meet, s0, s1 });
+    if (st.roar) roars++;
+    if (st.shown && first === null) first = { t, d: st.d, legS };
+    if (was !== null && was > 0 && st.d <= 0 && overAt === null) overAt = legS;
+    legS += sgn * sp * dt;
+  }
+  return { st, overAt, roars, first };
+}
+
+test('it comes in from far off and is over the line as your front is, either way, at a good speed', () => {
+  for (const v of [120 / 3.6, 100 / 3.6, 80 / 3.6]) for (const [dir, legS] of [['out', 0], ['back', FC.length]]) {
+    const r = planeRun({ dir, v, legS });
+    assert.ok(r.overAt !== null && Math.abs(r.overAt - 1300) < 20, `${dir} at ${v.toFixed(1)}: over the line as the front is at ${r.overAt}`);
+    assert.ok(r.first.d >= 2500, `${dir} at ${v.toFixed(1)}: first seen only ${r.first.d.toFixed(0)} m off`);
+    assert.equal(r.roars, 1);
+    assert.equal(r.st.mode, 'gone', 'and away');
+  }
+});
+
+test('crawling along it can\'t wait for you (an airliner can\'t slow enough), but it still comes over the line ahead of you', () => {
+  for (const v of [16, 12, 8]) for (const [dir, legS] of [['out', 0], ['back', FC.length]]) {
+    const r = planeRun({ dir, v, legS, secs: 400 });
+    assert.ok(r.overAt !== null && Math.abs(r.overAt - 1300) < 400, `${dir} at ${v}: over the line as the front is at ${r.overAt}`);
+    assert.ok((1300 - r.overAt) * (dir === 'back' ? -1 : 1) >= -20, `${dir} at ${v}: not behind you`);
+  }
+});
+
+test('soonest: how long the train takes to go so far at full throttle from its speed now', () => {
+  close(soonest(100, 10, 10, 1), 10);
+  close(soonest(50, 0, 30, 1), 10);                       // 1/2 a t^2
+  close(soonest(1000, 0, 20, 1), 20 + (1000 - 200) / 20);  // 20 s gathering speed over 200 m, then at 20 m/s
+  assert.equal(soonest(-5, 10, 20, 1), 0);
+  close(soonest(100, 0, 20, 0), 5, 1e-9);                  // (no accel given: at its top speed)
+});
+
+test('re-timed as you slow or speed up, so it still comes over you', () => {
+  for (const [a, b] of [[30, 24], [24, 30]]) {
+    const r = planeRun({ dir: 'out', legS: 0, v: 0, vAt: (t) => Math.min(t, t < 30 ? a : b) });
+    assert.ok(Math.abs(r.overAt - 1300) < 15, `${a} then ${b}: over at ${r.overAt}`);
+  }
+});
+
+test('standing still it comes only once you are inside its window, and once a run', () => {
+  let r = planeRun({ dir: 'out', v: 0, legS: 900, secs: 20, vAt: () => 0 });
+  assert.equal(r.first, null, 'not while you wait short of the window');
+  r = planeRun({ dir: 'out', v: 0, legS: 1200, secs: 120, vAt: () => 0 });
+  assert.ok(r.first && r.first.d >= PLANE.far - 1, 'from far off');
+  assert.equal(r.st.mode, 'gone');
+  assert.equal(planeStep(r.st, { here: true, legS: 1200, v: 0, dir: 'out', dt: 0.1, meet: 1300, s0: 1100, s1: 1500 }).shown, false, 'not again');
+  const again = planeStep(r.st, { here: false, legS: null, v: 0, dir: null, dt: 0.1, meet: 1300, s0: 1100, s1: 1500 });
+  assert.equal(again.mode, 'wait', 'until the next run');
+  assert.equal(again.shown, false);
+});

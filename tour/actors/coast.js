@@ -44,7 +44,7 @@ function glowTexture() {
 // a part's JSON beside its module (its -params.json), from the same bases as cdnPart, each given `wait` seconds (fetch
 // doesn't throw on a 404: an answer that isn't ok counts as a failure, and the next base is tried)
 const JSON_WAIT = 8;
-function partJson(id, suffix = '-params.json') {
+export function partJson(id, suffix = '-params.json') {
   return firstOf(partBases(), `${id}${suffix}`, async (url) => {
     const r = await fetch(url, { signal: AbortSignal.timeout(JSON_WAIT * 1000) });
     if (!r.ok) { const e = new Error(`${r.status} from ${url}`); e.url = url; throw e; }
@@ -64,8 +64,8 @@ const LAMP = { y: 11.6, beam: 160, radius: 6, spin: 0.55, from: 0.2, full: 0.5, 
 
 // carve each night zone's triangles out of the meshes under root into a lit twin of its own (as Polyfork's kits light
 // theirs); -> { mats: the twins' materials, counts and names: triangles found per zone, lamp: the glass zone's middle
-// in world space (the actors' groups stand at the origin), or null }
-function lightZones(root, night) {
+// in world space (the actors' groups stand at the origin), or null }. (metro.js lights its fliers and the airliner so)
+export function lightZones(root, night) {
   const zones = Object.entries(night ?? {}).filter(([, z]) => z?.albedo && z.findable !== false);
   const targets = zones.map(([, z]) => new THREE.Color(z.albedo));   // (in the working colour space, as the vertex colours are)
   const counts = zones.map(() => 0), mats = [], meshes = [];

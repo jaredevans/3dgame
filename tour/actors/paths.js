@@ -315,9 +315,13 @@ export function shoreTable(route, heightAt, side, s0, s1, { step = 5, march = 2,
   };
 }
 
+// a platform window's length: the first and last this many metres of every leg are its platforms (and the train's
+// room to stop), and nothing that moves comes into one
+export const PLATFORM = 122;
+
 // the stretch of leg-s something keeping pace with the train keeps to: its event's window, less `spread` (how far its
 // members reach either way of its middle) clear of each platform window (`platform` metres at either end of the leg)
-export function paceBounds(def, length, spread, platform = 122) {
+export function paceBounds(def, length, spread, platform = PLATFORM) {
   return { lo: Math.max(def.s0, platform + spread), hi: Math.min(def.s1, length - platform - spread) };
 }
 
@@ -372,4 +376,203 @@ export function zoneOfTriangles(colors, itemSize, targets, tol = 0.004) {
     }
   }
   return which;
+}
+
+// ---- the Metro Glide's leg (metro.js) ----
+
+// the fliers: hover pods and cargo skiffs on lanes among the towers of both towns, gliding at `speed` and banked into
+// their turns as a plane is (tan bank = speed x turn rate / g), rising and falling `bob` metres every `period` seconds.
+// (loopAt goes round an ellipse at about `speed`: a little faster along its ends, as its a and b differ)
+export const GLIDE = { speed: 15, g: 9.81, bob: 1, period: 11 };
+
+// each lane an ellipse (paths' loopAt) in its town's own frame (its kit's: x, z about the place's centre, as places.js
+// turns it), `a` along x and `b` along z either way of (x, z), `up` metres over the town's ground, `dir` +1 one way
+// round and -1 the other, from `phase`. Over the Futuristic place the low ones keep inside the ring of towers (the
+// monolith, the capsule towers, the slabs), under the kit's own fliers parked up high; the higher ones clear the
+// monolith and keep wide of those parked fliers, the highest over all of it. Over Downtown City every lane is over its
+// towers (32 m). (The tests hold them to it, and to their towns and heights.)
+export const LANES = {
+  future: [
+    { x: 4, z: -4, a: 30, b: 26, up: 33, dir: 1, phase: 0 },
+    { x: 6, z: 2, a: 26, b: 30, up: 36, dir: -1, phase: 2.2 },
+    { x: 2, z: -2, a: 32, b: 28, up: 39, dir: 1, phase: 4.1 },
+    { x: 10, z: -8, a: 28, b: 28, up: 46, dir: -1, phase: 1.0 },
+    { x: 4, z: 12, a: 40, b: 34, up: 52, dir: 1, phase: 3.3 },
+    { x: -2, z: 2, a: 52, b: 60, up: 59, dir: -1, phase: 5.2 },
+  ],
+  city: [
+    { x: 0, z: 0, a: 44, b: 36, up: 42, dir: 1, phase: 0 },
+    { x: -8, z: 4, a: 52, b: 42, up: 52, dir: -1, phase: 1.7 },
+    { x: 6, z: -4, a: 38, b: 32, up: 61, dir: 1, phase: 3.4 },
+    { x: 0, z: 2, a: 58, b: 46, up: 70, dir: -1, phase: 5.0 },
+    { x: -4, z: -2, a: 48, b: 40, up: 79, dir: 1, phase: 2.6 },
+    { x: 4, z: 0, a: 56, b: 44, up: 88, dir: -1, phase: 4.4 },
+  ],
+};
+
+const lp = {}, loop = {};
+// where a flier on `lane` is at time u, and its heading there: round its ellipse (dir -1: the other way), turned by its
+// town (c, s: the cos and sin of its rot) -> lp, filled ({ x, z, yaw })
+function laneSpot(u, lane, place, c, s) {
+  loop.a = lane.a; loop.b = lane.b; loop.speed = GLIDE.speed; loop.phase = lane.phase;
+  loopAt(lane.dir * u, loop, lp);
+  const lx = lane.x + lp.along, lz = lane.z + lp.across;
+  const vx = lane.dir * Math.sin(lp.heading), vz = lane.dir * Math.cos(lp.heading);   // (along x, along z: loopAt's)
+  lp.x = place.centre.x + lx * c + lz * s; lp.z = place.centre.z - lx * s + lz * c;
+  lp.yaw = Math.atan2(vx * c + vz * s, -vx * s + vz * c);
+  return lp;
+}
+// a lane's place in the world at time t (place: its town's PLACES entry): -> out, filled ({ x, y, z, yaw, roll: its bank,
+// as the rotation about its nose: - rolls its left (+x) side down, into a left-hand turn })
+export function laneAt(t, lane, place, out = {}) {
+  const c = Math.cos(place.rot), s = Math.sin(place.rot), h = 0.05;
+  const x0 = laneSpot(t - h, lane, place, c, s).x, z0 = lp.z, yaw0 = lp.yaw;
+  const x1 = laneSpot(t + h, lane, place, c, s).x, z1 = lp.z, yaw1 = lp.yaw;
+  const v = Math.hypot(x1 - x0, z1 - z0) / (2 * h), turn = Math.atan2(Math.sin(yaw1 - yaw0), Math.cos(yaw1 - yaw0)) / (2 * h);
+  laneSpot(t, lane, place, c, s);
+  out.x = lp.x; out.z = lp.z; out.yaw = lp.yaw;
+  out.y = place.y + lane.up + GLIDE.bob * Math.sin(2 * Math.PI * t / GLIDE.period + lane.phase);
+  out.roll = -Math.atan(v * turn / GLIDE.g);
+  return out;
+}
+
+// the road traffic on the suburbs' street (suburbs.js LAYOUT.street out on either side): each way keeping `keep` metres
+// to its own right of the street's middle, at one speed a lane of speeds[0]..speeds[1] m/s (so none runs into the one
+// ahead), `gap` metres apart
+export const TRAFFIC = { keep: 1, speeds: [10, 14], gap: [40, 80] };
+
+// the lateral (+ left of the leg's out direction) of the lane going `way` (+1 out along the leg, -1 back) on the street
+// `street` metres out on `side`
+export const laneLateral = (side, way, street) => side * street - way * TRAFFIC.keep;
+
+// the stretches of s0..s1 (kept out of the platform windows) where the street `lateral` metres out stands: where ok(x, z)
+// holds across its `width` every `step` metres; each at least `min` long, trimmed `edge` metres at its ends (a car's
+// half-length) -> [[a, b]]
+export function streetRuns(route, ok, lateral, s0, s1, { step = 2, width = 4, min = 60, edge = 3 } = {}) {
+  const lo = Math.max(s0, PLATFORM), hi = Math.min(s1, route.length - PLATFORM), P = {}, runs = [];
+  const clear = (s) => [-width / 2, 0, width / 2].every((d) => { route.offsetAt(s, lateral + d, P); return ok(P.x, P.z); });
+  let start = null, last = null;
+  const close = () => { if (start !== null && last - start - 2 * edge >= min) runs.push([start + edge, last - edge]); start = null; };
+  for (let s = lo; s <= hi + 1e-9; s += step) {
+    if (clear(s)) { if (start === null) start = s; last = s; } else close();
+  }
+  close();
+  return runs;
+}
+
+// the street's path `lateral` metres out over s0..s1, on the land (heightAt: the world terrain's), every `step` metres
+// along the street itself (longer than along the line round the outside of a curve): -> { length, at(u, out) -> out,
+// filled ({ x, y, z, yaw: along it, pitch: up its slope }) for u metres along it (held at its ends) }
+export function streetPath(route, heightAt, lateral, s0, s1, step = 2) {
+  const P = {}, fine = [];
+  for (let s = s0; s <= s1 + 1e-9; s += 0.5) { route.offsetAt(Math.min(s, s1), lateral, P); fine.push(P.x, P.z); }
+  if (fine.length < 4) { route.offsetAt(s1, lateral, P); fine.push(P.x, P.z); }
+  // metres along it to each fine point, then resampled every `step` of those
+  const m = fine.length / 2, acc = new Float64Array(m);
+  for (let i = 1; i < m; i++) acc[i] = acc[i - 1] + Math.hypot(fine[2 * i] - fine[2 * i - 2], fine[2 * i + 1] - fine[2 * i - 1]);
+  const length = acc[m - 1], n = Math.max(1, Math.ceil(length / step));
+  const x = new Float64Array(n + 1), y = new Float64Array(n + 1), z = new Float64Array(n + 1);
+  for (let k = 0, j = 0; k <= n; k++) {
+    const u = length * k / n;
+    while (j < m - 2 && acc[j + 1] < u) j++;
+    const f = acc[j + 1] > acc[j] ? (u - acc[j]) / (acc[j + 1] - acc[j]) : 0;
+    x[k] = fine[2 * j] + (fine[2 * j + 2] - fine[2 * j]) * f;
+    z[k] = fine[2 * j + 1] + (fine[2 * j + 3] - fine[2 * j + 1]) * f;
+    y[k] = heightAt(x[k], z[k]);
+  }
+  const du = length / n;
+  return {
+    length,
+    at(u, out = {}) {
+      const c = Math.min(n, Math.max(0, u / du)), k = Math.min(n - 1, Math.floor(c)), f = c - k;
+      out.x = x[k] + (x[k + 1] - x[k]) * f;
+      out.y = y[k] + (y[k + 1] - y[k]) * f;
+      out.z = z[k] + (z[k + 1] - z[k]) * f;
+      out.yaw = Math.atan2(x[k + 1] - x[k], z[k + 1] - z[k]);
+      out.pitch = Math.atan2(y[k + 1] - y[k], du);
+      return out;
+    },
+  };
+}
+
+// a lane's cars: gaps of gap[0]..gap[1] metres (rnd(): 0..1) one after another round a loop at least `length` long (the
+// street, then round the back of it, unseen, to its start): -> { at: each car's metres round the loop at time 0, period:
+// the loop's length }
+export function laneCars(length, rnd, gap = TRAFFIC.gap) {
+  const at = [0];
+  for (;;) {
+    const g = gap[0] + rnd() * (gap[1] - gap[0]), next = at[at.length - 1] + g;
+    if (next >= length) return { at, period: next };   // (that gap the one round the back, to the first car)
+    at.push(next);
+  }
+}
+
+// how far along its street (`length` long) a car is at time t, from `at0` round its loop at `speed` m/s: -> metres along
+// it, or -1 while it's round the back
+export function carAlong(at0, period, speed, t, length) {
+  const u = (((at0 + speed * t) % period) + period) % period;
+  return u <= length ? u : -1;
+}
+
+// the airliner coming in to land: `up` metres over the line at its window's middle (its event's), coming down at
+// `glide` towards the north-east (yaw: +x is east, -z north), its nose `nose` up. It comes in at `speed` m/s, made
+// `slow`..`fast` as it goes so it's over the line as your front is (planeStep); it sets off `far` metres short of it (out of
+// sight in the haze), and is gone `past` metres beyond, still well up (its runway is out to sea, past the City). It roars
+// as it comes within `roar` of the line
+export const PLANE = {
+  up: 120, glide: 3 * Math.PI / 180, yaw: 3 * Math.PI / 4, nose: 2 * Math.PI / 180,
+  speed: 70, slow: 50, fast: 90, far: 3000, past: 1800, roar: 250,
+};
+
+// over: the line at the window's middle ({ x, y, z }); d: metres short of being over it along its way (negative past it)
+// -> out, filled ({ x, y, z, yaw, pitch: nose up })
+export function planeAt(over, d, out = {}) {
+  out.x = over.x - Math.sin(PLANE.yaw) * d;
+  out.z = over.z - Math.cos(PLANE.yaw) * d;
+  out.y = over.y + PLANE.up + d * Math.tan(PLANE.glide);
+  out.yaw = PLANE.yaw;
+  out.pitch = PLANE.nose;
+  return out;
+}
+
+// seconds for the train to go `gap` metres from v m/s, gathering speed at `accel` up to `top` (the soonest it can be there,
+// at full throttle)
+export function soonest(gap, v, top, accel) {
+  if (!(gap > 0)) return 0;
+  v = Math.max(0, v);
+  if (v >= top || !(accel > 0)) return gap / Math.max(v, top, 1e-6);
+  const t1 = (top - v) / accel, d1 = (v + top) / 2 * t1;
+  if (d1 >= gap) return (Math.sqrt(v * v + 2 * accel * gap) - v) / accel;
+  return t1 + (gap - d1) / top;
+}
+
+// st: null at first, then what it returned (moved on in place); { here: you're driving a run on the leg, legS, v: the
+// train's speed (+ forwards), top, accel: its top speed and how fast it gathers speed, dir, dt, meet: the leg-s it's
+// over the line at, s0, s1: its window } -> { mode: 'wait'|'fly'|'gone', d (as planeAt's), speed, shown, roar: true the
+// frame it comes within `roar` }. While you're coming it waits until it would be no more than `far` off at its speed,
+// reckoning that while you gather speed you'll be at `meet` as soon as the train can get there (so a train leaving a
+// platform close by doesn't beat it), and at the speed you hold once you hold one; it keeps its time to what you do; standing (or past `meet`) it comes from `far` off once you're inside its
+// window. Once a run: it's put back only once you've left the leg
+export function planeStep(st, { here, legS, v, top = v, accel = 0, dir, dt, meet, s0, s1 }) {
+  st ??= { mode: 'wait', d: PLANE.far, speed: PLANE.speed, shown: false, roar: false };
+  st.roar = false;
+  if (!here) { Object.assign(st, { mode: 'wait', d: PLANE.far, speed: PLANE.speed, shown: false }); return st; }
+  const sgn = dir === 'back' ? -1 : 1, gap = (meet - legS) * sgn, coming = v > 0.5 && gap > 0;
+  // gathering speed, you'll be there as soon as the train can be; holding it, at the speed you're going
+  const gaining = st.v !== undefined && v > st.v + 0.02 * dt;
+  st.v = v;
+  const eta = !coming ? 0 : gaining ? soonest(gap, v, Math.max(top, v), accel) : gap / v;
+  if (st.mode === 'wait') {
+    const want = coming ? PLANE.speed * eta : PLANE.far;
+    if (coming ? want > PLANE.far : !(legS >= s0 && legS <= s1)) { st.shown = false; return st; }
+    Object.assign(st, { mode: 'fly', d: want, speed: PLANE.speed });
+  } else if (st.mode === 'fly') {
+    if (st.d > 0 && coming) st.speed = Math.min(PLANE.fast, Math.max(PLANE.slow, st.d / eta));
+    const was = st.d;
+    st.d -= st.speed * dt;
+    if (was > PLANE.roar && st.d <= PLANE.roar) st.roar = true;
+    if (st.d < -PLANE.past) st.mode = 'gone';
+  }
+  st.shown = st.mode === 'fly';
+  return st;
 }
