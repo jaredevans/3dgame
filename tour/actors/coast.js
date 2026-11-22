@@ -440,7 +440,8 @@ async function buildGulls({ leg, route, def, terrain, slicer }) {
 
 // ---- the dolphins ----
 // a pod of four, 80-150 m offshore along the cliffs, swimming fast with the train (at its pace, up to a dolphin's 11 m/s:
-// faster than that the train draws ahead of them), leaping in arcs in turn, each leap 1.2 s and pitched along its arc
+// faster than that the train draws ahead of them, so they join far enough ahead that it draws level about the window's
+// middle), leaping in arcs in turn, each leap 1.2 s and pitched along its arc
 // (paths.js leapAt), each ending in a splash: a short burst of white spray. Below 3 m/s they turn away out to sea
 const POD = [{ ds: 0, out: 95 }, { ds: -7, out: 112 }, { ds: 5, out: 128 }, { ds: -3, out: 143 }];
 const DOLPHIN = { top: 11, ahead: 40, weave: 2, offFor: 10, swim: 8 };
@@ -450,7 +451,7 @@ async function buildDolphins({ leg, route, def, terrain, slicer }) {
   const group = new THREE.Group();
   group.name = `dolphins ${leg}`;
   const side = sideOf(def, SEA);
-  const { lo, hi } = paceBounds(def, route.length, 10);
+  const { lo, hi } = paceBounds(def, route.length, 10), mid = (lo + hi) / 2;
   const shore = shoreTable(route, terrain.heightAt, side, lo - 20, hi + 20);
   await slicer.frame();
   const kind = await loadAnimal('dolphin-base');
@@ -515,11 +516,13 @@ async function buildDolphins({ leg, route, def, terrain, slicer }) {
     update(f) {
       if (!f.on || f.legS === null) { hide(); return; }
       const sgn = sgnOf(f.dir), v = Math.max(0, f.train.v);
-      st = paceStep(st, { legS: f.legS, dir: f.dir, v, dt: f.dt, lag: Math.max(0, v - DOLPHIN.top), ahead: DOLPHIN.ahead, lo, hi });
+      const lag = Math.max(0, v - DOLPHIN.top), ahead = Math.max(DOLPHIN.ahead, lag * Math.max(0, (mid - f.legS) * sgn) / Math.max(v, 1));
+      st = paceStep(st, { legS: f.legS, dir: f.dir, v, dt: f.dt, lag, ahead, lo, hi });
       const shown = st.mode === 'pace' || (st.mode === 'off' && st.t < DOLPHIN.offFor);
       if (st.mode !== 'wait') t += f.dt;
       const scale = Math.min(1.5, Math.max(0.7, st.speed / DOLPHIN.swim));
-      for (const [k, d] of pod.entries()) {
+      for (let k = 0; k < pod.length; k++) {
+        const d = pod[k];
         d.a.object.visible = shown;
         if (!shown) { d.air = false; continue; }
         const s = st.s + sgn * d.ds;
@@ -574,7 +577,7 @@ async function buildFreight({ leg, route, def, slicer }) {
   // its front's leg-s bounds: on an out run it heads down the leg (its wagons behind it, up the leg), on a back run up it
   const bounds = { out: { lo: PLATFORM, hi: L - PLATFORM - length }, back: { lo: PLATFORM + length, hi: L - PLATFORM } };
   const how = { speed: FREIGHT.speed, near: FREIGHT.near, behind: FREIGHT.behind };
-  let st = null, night = -1;
+  let st = null;
   const hide = () => { st = null; train.group.visible = false; };
   return {
     group,
@@ -585,7 +588,6 @@ async function buildFreight({ leg, route, def, slicer }) {
       if (st.whoosh) sound('rumble');
       train.group.visible = st.shown;
       if (!st.shown) return;
-      if (f.night !== night) { night = f.night; train.night?.(night); }
       // the other line is the leg's right-hand one (-lane): on an out run it runs the reversed route, where that's +lane
       const ds = FREIGHT.speed * f.dt;
       if (f.dir === 'out') poseTrain(train, rev, L - st.s, ds, lane);
