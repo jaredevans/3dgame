@@ -12,12 +12,14 @@ const FOV = 55;   // every view but the director's, which sets its own per shot
 const NOSE = { up: 0.9, back: 0.4, pitch: -0.05 };
 const CAB_YAW = THREE.MathUtils.degToRad(150), CAB_PITCH = THREE.MathUtils.degToRad(35);
 // the director's framing (metres, seconds). Fixed kinds stand where the shot puts them and turn to follow the train's
-// middle; moving kinds ride along with the front, where they stand and what they look at eased as offsets from it. Both
-// ease at EASE (1 - exp(-dt * EASE)) within a shot (a fixed one faster for a thing faster than SHOT.quick) and snap on a
-// cut
+// middle; moving kinds ride along with the front, eased as an offset from it. Both ease at EASE (1 - exp(-dt * EASE))
+// within a shot and snap on a cut. Something faster than any train (SHOT.quick: the jet, at 212 m/s) would leave what
+// they look at behind it, eased in the world (by its speed over the ease: some 55 m for the jet, behind a chase's own
+// place, so it looked back; the drone's 37 m): for that, a fixed shot turns faster as it goes faster, and a moving shot
+// and the drone look at it as an offset from it, all blended in over SHOT.quick to twice that, so a train is as ever
 const SHOT = {
   ease: 4,
-  quick: 90,                               // m/s: a fixed shot turns to follow a thing faster than this (no train is) faster
+  quick: 90,                               // m/s: faster than any train (the Silver Arrow's top is 83)
   ground: 1.2, sea: 1,                     // the camera keeps this high over the ground, and over the sea
   aim: 2,                                  // looking this far above the rails at the train
   lead: 20,                                // a fixed shot with no place of its own stands where the front will be
@@ -85,7 +87,9 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
   // ---- the director: the planner's shot, framed. `fresh`: the next frame snaps to its shot, cut or not ----
   const director = makeDirector();
   const shotCam = { shot: null, fresh: true, age: 0, spin: 1, reach: 0, recheck: 0, pos: new THREE.Vector3(), target: new THREE.Vector3(), off: new THREE.Vector3(), aimOff: new THREE.Vector3() };
-  const rp = {}, want = new THREE.Vector3(), aim = new THREE.Vector3(), front = new THREE.Vector3();
+  const rp = {}, want = new THREE.Vector3(), aim = new THREE.Vector3(), front = new THREE.Vector3(), seen = new THREE.Vector3();
+  // 0 at a train's speeds, rising to 1 at twice SHOT.quick: how far a view follows as for something faster than any train
+  const quick = (v) => Math.min(1, Math.max(0, (Math.abs(v) - SHOT.quick) / SHOT.quick));
   function restart() { director.reset(); shotCam.shot = null; shotCam.fresh = true; }
   const lift = (x, z, y) => {
     const h = heightAt(x, z);
@@ -212,25 +216,23 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
       if (camera.fov !== shot.fov) { camera.fov = shot.fov; camera.updateProjectionMatrix(); }
       if (FIXED.has(shot.kind)) placeFixed(shot, ctx, sign, train);
     } else { shotCam.age += dt; shotCam.recheck -= dt; }
-    const k = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease);
+    const k = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease), w = quick(ctx.v);
     if (FIXED.has(shot.kind)) {
-      // (turning to follow a faster thing than any train more quickly, as fast as it goes: eased at a train's rate the
-      // jet's middle, at 212 m/s, was looked for some 55 m behind it)
-      const kf = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease * Math.max(1, Math.abs(ctx.v) / SHOT.quick));
+      const kf = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease * (1 + w * (Math.abs(ctx.v) / SHOT.quick - 1)));
       shotCam.target.lerp(aimFixed(shot, ctx, sign, train), kf);
+      seen.copy(shotCam.target);
     } else {
-      // eased as an offset from the front, so a fast train doesn't leave it behind: where it stands, and what it looks
-      // at (eased in the world, the look fell behind the front by its speed over the ease: some 55 m for the jet, behind
-      // a chase's own place, so it looked back)
+      // eased as an offset from the front, so a fast train doesn't leave it behind
       placeMoving(shot, ctx, sign, train);
       shotCam.off.lerp(want.sub(front), k);
       shotCam.pos.copy(front).add(shotCam.off);
       shotCam.pos.y = lift(shotCam.pos.x, shotCam.pos.z, shotCam.pos.y);
+      shotCam.target.lerp(aim, k);
       shotCam.aimOff.lerp(aim.sub(front), k);
-      shotCam.target.copy(front).add(shotCam.aimOff);
+      seen.copy(front).add(shotCam.aimOff).sub(shotCam.target).multiplyScalar(w).add(shotCam.target);
     }
     camera.position.copy(shotCam.pos);
-    camera.lookAt(shotCam.target);
+    camera.lookAt(seen);
   }
 
   const q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ'), v = new THREE.Vector3(), mid = new THREE.Vector3();
@@ -269,13 +271,15 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     mid.copy(cars[0].holder.position).add(cars[cars.length - 1].holder.position).multiplyScalar(0.5);
     if (!drone.ready) { drone.target.copy(mid); drone.ready = true; }
     drone.target.lerp(mid, 1 - Math.exp(-dt * 6));
+    // (something faster than any train: about its middle itself, else it orbits a point left behind it)
+    seen.copy(mid).sub(drone.target).multiplyScalar(quick(ctx?.v ?? 0)).add(drone.target);
     const yawTrain = cars[0].holder.rotation.y;
     const az = yawTrain + drone.az;
     v.set(Math.sin(az) * Math.cos(drone.el), Math.sin(drone.el), Math.cos(az) * Math.cos(drone.el)).multiplyScalar(drone.dist * k);
-    drone.pos.copy(drone.target).add(v);
+    drone.pos.copy(seen).add(v);
     drone.pos.y = Math.max(drone.pos.y, heightAt(drone.pos.x, drone.pos.z) + 3);
     camera.position.copy(drone.pos);
-    camera.lookAt(drone.target.x, drone.target.y + 2 * k, drone.target.z);
+    camera.lookAt(seen.x, seen.y + 2 * k, seen.z);
   }
 
   return {
