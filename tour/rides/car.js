@@ -8,13 +8,16 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { kitNight } from '../actors/metro.js';
 import { lightZones } from '../actors/coast.js';
+import { buildEscort } from './escort.js';
 
 const POD = { key: 'commuter-hover-pod', params: { colorway: 'arcology-white', glazing: 'canopy', roofHatch: false } };
 // the pod, measured (2 x 2.12 x 4.52 m, +z forward, its floor 0.5 m up, its windows from 0.98 to 1.92 m): cut at its
-// waist, just over the window sills and the dash; the cabin's foot and top rings in the pod's own frame (x half-width,
-// z front and back, the corners cut off `cut`): its foot on the door tops, where the pod's own windows stood, its
-// windscreen raked back over the bonnet, a little taller than the pod's roof so you sit with your head clear of the frame
-const BELT = 1.02;
+// waist, below the bonnet's top (0.86-0.9 m): cut higher, the flat of the bonnet filled over a third of the seat's view
+// and the door panels stood out past the hull, and now the ground ahead and below shows through the glass. The cabin's
+// foot and top rings in the pod's own frame (x half-width, z front and back, the corners cut off `cut`): its foot on the
+// cut hull, its windscreen raked back over the bonnet, a little taller than the pod's roof so you sit with your head
+// clear of the frame
+const BELT = 0.8;
 const FOOT = { y: BELT, w: 0.8, front: 1.65, back: -2.0, cut: 0.3 };
 const TOP = { y: 2.06, w: 0.7, front: 0.7, back: -1.6, cut: 0.25 };
 const BAR = 0.03;   // the frame's bars, square, metres across
@@ -144,7 +147,7 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
   await slicer.frame();
   await still();
   let lit = [];
-  try { lit = lightZones(pod, await kitNight('future', POD.key, POD.params)).mats; } catch (err) { warn('its lights', err); }
+  try { lit = lightZones(pod, await kitNight('future', POD.key, POD.params)).mats; } catch (err) { warn('lights', err); }
   const holder = new THREE.Group();
   holder.name = 'flying car';
   pod.position.y = -ride.rest;   // the path is ride.rest over its pad
@@ -160,6 +163,9 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
   const boardMarker = pad('flying car pad', ...at(ride.board), ringMat);
   const landPad = pad('flying car landing pad', ...at(ride.land), ringMat);
   const glow = [...lit, ringMat];
+  // its escort: left out, the ride going on, if its parts can't be had
+  const actors = new Map();
+  try { actors.set('escort', await buildEscort({ ride, slicer, still, kit, warn })); } catch (err) { if (err?.dropped) throw err; warn('escort', err); }
   let night = -1;
   return {
     vehicle: {
@@ -169,7 +175,7 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
       attitude: { pitch: 0.35, bank: 0.3, level: 8 },
     },
     crew: [],
-    actors: new Map(),   // (its escort: Task 4)
+    actors,
     boardMarker, landPad,
     update(f) {
       const k = Math.min(1, Math.max(0, f.night));

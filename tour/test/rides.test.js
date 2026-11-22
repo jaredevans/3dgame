@@ -3,7 +3,7 @@
 // place's arrival station, its progress mapped onto the leg. Pure, no three.js.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RIDE_LEGS, RIDE_DT, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET } from '../rides.js';
+import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET } from '../rides.js';
 import { LEGS, PLACES, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { rocketPad } from '../actors/paths.js';
@@ -52,8 +52,8 @@ test('five rides, one per leg, onward', () => {
     assert.equal(r.from, LEGS[r.leg].from);
     assert.equal(r.to, LEGS[r.leg].to);
     assert.equal(rideFor(r.leg), r, 'memoised');
-    assert.deepEqual(r.events, []);
-    assert.deepEqual(r.showpieces, []);
+    // (each ride's set pieces are its own tasks': so far the car's escort and its two shots)
+    if (r.id !== 'car') { assert.deepEqual(r.events, []); assert.deepEqual(r.showpieces, []); }
   }
   assert.throws(() => rideFor('nowhere'));
 });
@@ -277,4 +277,76 @@ test('you step off on the walk by the landing, and every vehicle stands on open 
       assert.ok(n.d >= 9, `the ${r.id} stands ${n.d.toFixed(1)} m from ${leg}'s line`);
     }
   }
+});
+
+// ---- the flying car's escort ----
+
+test('the escort: five to seven slots, some ahead and some behind, 8 m from the car and each other at every moment, and no jump of 2 m in 0.1 s', () => {
+  const a = formationOffsets(0);
+  assert.ok(a.length >= 5 && a.length <= 7, `${a.length} slots`);
+  let ahead = false, behind = false;
+  const dist = (p, q) => Math.hypot(p.along - q.along, p.side - q.side, p.up - q.up);
+  for (let k = 0; k < 200; k++) {
+    const t = k * 0.5, o = formationOffsets(t).map((p) => ({ ...p })), n = formationOffsets(t + 0.1);
+    for (let i = 0; i < o.length; i++) {
+      if (o[i].along > 20) ahead = true;
+      if (o[i].along < -20) behind = true;
+      assert.ok(dist(o[i], { along: 0, side: 0, up: 0 }) >= 8, `slot ${i} ${dist(o[i], { along: 0, side: 0, up: 0 }).toFixed(1)} m from the car at ${t}`);
+      assert.ok(dist(o[i], n[i]) <= 2, `slot ${i} jumps ${dist(o[i], n[i]).toFixed(2)} m at ${t}`);
+      for (let j = i + 1; j < o.length; j++) assert.ok(dist(o[i], o[j]) >= 8, `slots ${i} and ${j} ${dist(o[i], o[j]).toFixed(1)} m apart at ${t}`);
+    }
+  }
+  assert.ok(ahead && behind, 'the formation is not both ahead and behind');
+});
+
+test('the escort swaps places (a slot weaves from one side of the car to the other) and one passes the car, from behind to ahead', () => {
+  const side = [], pass = [];
+  for (let t = 0; t < 120; t += 0.5) { const o = formationOffsets(t); side.push(o[0].side); pass.push(o[o.length - 1].along); }
+  assert.ok(Math.min(...side) < -5 && Math.max(...side) > 5);
+  assert.ok(pass[0] < -50 && pass[pass.length - 1] > 50, 'it does not pass');
+});
+
+test('the escort reuses the offsets it is handed (no allocation in the ride loop)', () => {
+  const out = formationOffsets(0);
+  assert.equal(formationOffsets(7, out), out);
+});
+
+test('the escort stays on the path\'s line over its flight, clear of the towers and the land, and is gone at the ends', () => {
+  const r = ride('car'), L = r.path.length, offs = formationOffsets(0), slot = {}, o = {};
+  const [ev] = r.events;
+  assert.equal(ev.id, 'escort');
+  assert.ok(ev.s0 >= 50 && ev.s1 <= L - 50, 'the escort flies over take-off or the landing');
+  const towers = ['city', 'future'].flatMap((town) => {
+    const P = PLACES[town], c = Math.cos(P.rot), s = Math.sin(P.rot);
+    return TOWERS[town].map((w) => ({ ...w, P, wx: P.centre.x + w.x * c + w.z * s, wz: P.centre.z - w.x * s + w.z * c }));
+  });
+  let seen = 0;
+  for (let s = ev.s0; s <= ev.s1; s += 4) {
+    formationOffsets((s - ev.s0) / r.profile.v, offs);
+    for (let i = 0; i < offs.length; i++) {
+      Object.assign(slot, offs[i]);
+      placeEscort(r, s, slot, o);
+      if (!o.visible) continue;
+      seen++;
+      assert.ok(o.y - ground(o.x, o.z) >= 8, `an escort ${(o.y - ground(o.x, o.z)).toFixed(1)} m over the land at ${s}`);
+      for (const w of towers) {
+        const dh = Math.max(0, Math.hypot(o.x - w.wx, o.z - w.wz) - w.r), up = o.y - w.P.y, dv = Math.max(0, w.from - up, up - w.top);
+        assert.ok(Math.hypot(dh, dv) >= 5, `an escort ${Math.hypot(dh, dv).toFixed(1)} m from a tower at ${s}`);
+      }
+    }
+  }
+  assert.ok(seen > 400, `${seen} escort moments in sight`);
+  // it joins from behind (none in sight at first) and peels off (all gone by the window's end)
+  formationOffsets(0, offs);
+  for (let i = 0; i < offs.length; i++) { placeEscort(r, ev.s0, offs[i], o); assert.ok(!o.visible || o.scale < 1, 'the escort stands in at the start'); }
+  placeEscort(r, ev.s1, offs[0], o);
+  assert.ok(!o.visible, 'the escort is still there at the end of its window');
+});
+
+test('the car has its two showpieces over the river and among the towers, within its path', () => {
+  const r = ride('car');
+  const ids = r.showpieces.map((p) => p.id);
+  assert.deepEqual(ids, ['formation', 'tower-chase']);
+  for (const p of r.showpieces) assert.ok(p.s0 >= 0 && p.s1 <= r.path.length && p.shot.kind);
+  assert.equal(ESCORT.count, 7);
 });

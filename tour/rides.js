@@ -229,7 +229,78 @@ function car() {
   const pts = [board, rise, ...[300, 600, 1000, 1400].map((s) => high(r.offsetAt(s, town * 60))), high(r.offsetAt(1700, town * 80)),
     kit(12, 110, 30), kit(12, 60, 26), kit(12, 20, 26), kit(10, -16, 24), kit(-10, -48, 16), { ...to(32, 12), y: land.y + 5 }, land];
   const step = onGround(to(34, 9.5));
-  return { pts, step: { ...step, yaw: townward('city', 'arrival')(step.yaw) }, ease: [10, 12], rest: REST };
+  // the escort over the whole flight but its ends; a wide shot of the formation over the river (the path is over it from
+  // some 400 m to 900 m, the camera 90 m out and 60 m up), and a chase among the towers
+  const len = makeRoute(pts).length;
+  return {
+    pts, step: { ...step, yaw: townward('city', 'arrival')(step.yaw) }, ease: [10, 12], rest: REST,
+    events: [{ id: 'escort', s0: ESCORT.from, s1: len - ESCORT.away, actor: 'escort' }],
+    showpieces: [
+      { id: 'formation', s0: 450, s1: 850, shot: { kind: 'high-wide', at: 650, lateral: 90, height: 60 } },
+      { id: 'tower-chase', s0: 1760, s1: 1960, shot: { kind: 'chase', at: 1860 } },
+    ],
+  };
+}
+
+// ---- the flying car's escort ----
+// Other flying cars fly with the car in loose formation, some ahead, some behind and beside, over its whole flight bar
+// its take-off and landing: they join from behind as it climbs away and peel off upward before it lands. Each keeps a
+// slot, an offset from the car's place on its path (metres along it, out to its left, up), that eases about a little and
+// weaves side to side, so they swap places now and then; one (the last) sweeps from far behind to far ahead over the
+// river, high over the rest (its pass). Pure: formationOffsets is in the formation's own seconds, placeEscort puts a slot
+// on the ride's path.
+export const ESCORT = {
+  count: 7,
+  from: 60, away: 70,          // the escort flies from this ride-s to this far from the path's end
+  join: 300, joinBehind: 260,  // joining over this many metres, from this far back
+  leaveOver: 120,              // peeling off upward over the last this many metres of its flight (past the last of the towers)
+  town: [150, 150],            // over the City's towers its sides are drawn in to a fifth: inside 150 m of its middle, opening out over the next 150
+  pass: [10, 20],              // the pass: from this many seconds, and for this long
+  passUp: 16,
+};
+const SLOT = [
+  // along, side (its weave's reach), up, the weave's rate (1/s) and phase
+  [30, 12, 3, 0.20, 0.0], [55, 12, -2, 0.17, 2.1], [80, 10, 4, 0.23, 4.0],
+  [-28, 12, -1, 0.19, 1.0], [-52, 12, 2, 0.16, 3.0], [-76, 10, -3, 0.21, 5.0],
+];
+const smooth = (u) => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
+
+// where each of the escort's slots is about the car, t seconds into its flight: out[i] = { along, side, up } (metres:
+// ahead along the path, to the car's left, up), filled and returned. No two within 8 m of each other or the car.
+export function formationOffsets(t, out = Array.from({ length: ESCORT.count }, () => ({ along: 0, side: 0, up: 0 }))) {
+  for (let i = 0; i < SLOT.length; i++) {
+    const [along, reach, up, w, ph] = SLOT[i], o = out[i];
+    o.along = along + 5 * Math.sin(0.35 * t + ph);
+    o.side = reach * Math.cos(w * t + ph);
+    o.up = up + 1.5 * Math.sin(0.5 * t + 2 * ph);
+  }
+  const u = (t - ESCORT.pass[0]) / ESCORT.pass[1], o = out[SLOT.length];
+  o.along = -110 + 230 * smooth(u);
+  o.side = 0;
+  o.up = ESCORT.passUp * smooth(u / 0.25) * smooth((1 - u) / 0.25);
+  return out;
+}
+
+// a slot on the ride's path when the car is at ride-s s: into out { x, y, z, yaw, pitch, scale (0 while it isn't in),
+// visible }. It follows the path's own line ahead and behind (so it keeps to the path's clearances), its side drawn in
+// over the City's towers, joining from behind and peeling off upward at the end
+const EP = {}, EQ = {};
+export function placeEscort(ride, s, slot, out) {
+  const L = ride.path.length, C = PLACES.city.centre;
+  const j = smooth((s - ESCORT.from) / ESCORT.join), k = smooth((s - (L - ESCORT.away - ESCORT.leaveOver)) / ESCORT.leaveOver);
+  const se = Math.min(L, Math.max(0, s + slot.along - (1 - j) * ESCORT.joinBehind));
+  const p = ride.path.at(se, EP), car = ride.path.at(s, EQ);
+  const d = Math.hypot(car.x - C.x, car.z - C.z);
+  const spread = 0.2 + 0.8 * smooth((d - ESCORT.town[0]) / ESCORT.town[1]);
+  const side = slot.side * spread * (1 + 2 * k);
+  out.x = p.x + Math.cos(p.yaw) * side;
+  out.z = p.z - Math.sin(p.yaw) * side;
+  out.y = p.y + slot.up + 90 * k;
+  out.yaw = p.yaw;
+  out.pitch = -p.pitch * 0.35;
+  out.scale = smooth((se - 60) / 30) * (1 - smooth((k - 0.8) / 0.2));
+  out.visible = out.scale > 0;
+  return out;
 }
 
 const BUILD = {
@@ -309,7 +380,7 @@ export function rideFor(leg) {
   if (!rides.has(leg)) {
     const b = BUILD[leg];
     if (!b) throw new Error(`no ride along ${leg}`);
-    const { pts, step, ease, rest, rolls = [] } = b.make();
+    const { pts, step, ease, rest, rolls = [], events = [], showpieces = [] } = b.make();
     const path = makeRoute(pts);
     // a roll's ends given as points (null: the path's end) -> ride-s, the path's nearest metre to each
     const sOf = (p, fallback) => {
@@ -324,7 +395,7 @@ export function rideFor(leg) {
       rolls: rolls.map(([a, z]) => [sOf(a, 0), sOf(z, path.length)]),
       board: end(0), land: end(path.length), step: { x: step.x, z: step.z, y: step.y, yaw: step.yaw },
       path, duration: DURATION, profile: profileFor(path.length, DURATION, ease), legS: legTable(path, leg),
-      events: [], showpieces: [],   // each ride's own set pieces (Tasks 4-8)
+      events, showpieces,   // each ride's own set pieces (Tasks 4-8)
     });
   }
   return rides.get(leg);
