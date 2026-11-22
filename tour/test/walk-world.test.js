@@ -5,6 +5,8 @@ import { PLACES, SEA_LEVEL, legRoute, laneOf, platformWindow, worldTerrain } fro
 import { stationWalk } from '../station-walk.js';
 import { findPath, PATH } from '../autopath.js';
 import { footprint } from './fixtures.js';
+import { rideSign, RIDE_SIGN } from '../wayfinding.js';
+import { BODY } from '../walk.js';
 
 // A place whose kit box (|x| < 20) is bigger than its land (|x| < 10): past its land, inside its box, the kit's
 // ground is its island's underside at -10.5 — the Oceanside case.
@@ -96,10 +98,14 @@ test('a walkway is in bounds along its strip, over the sea too (on its deck), an
   assert.equal(w.heightAt(0, 0), 1.2, 'in the town, its own ground');
 });
 
+// the City's stations as the page builds them for walking: each one's building, and the departure's board pointing the
+// way to the speedboat (wayfinding.js rideSign), solid
+const cityTermini = () => PLACES.city.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true,
+  solid: st.role === 'departure' ? [{ key: 'ride-sign', corners: rideSign('city').corners }] : [] }) }));
 test('the City\'s arrival platform, and its departure across the town, to the speedboat\'s jetty are walks (the auto tour\'s planner, on its 0.5 m grid)', () => {
   const def = PLACES.city, f = footprint(def), terrainW = worldTerrain();
   const stub = { def, blocked: () => null, onLand: (x, z) => f.outside(x, z) === 0, groundAt: (x, z) => terrainW.heightAt(x, z) };
-  const termini = def.stations.map((st) => ({ walk: stationWalk(st.leg, st.end, { platformLength: st.platformLength, building: true }) }));
+  const termini = cityTermini();
   const w = makeWalkWorld({ place: stub, termini, terrain: terrainW, seaLevel: SEA_LEVEL });
   const P = def.walkways[0].points, to = P[P.length - 1];
   for (const role of ['arrival', 'departure']) {
@@ -128,4 +134,37 @@ test('at Oceanside, from where the speedboat sets you down to the end of its jet
   assert.ok(res.value, 'no way along the jetty');
   for (const c of res.value.cells) assert.ok(w.heightAt(c.x, c.z) >= SEA_LEVEL + 1, `under the sea at ${c.x}, ${c.z}`);
   assert.equal(w.heightAt(to.x, to.z), WALKWAY_DECK, 'its end is not on the deck');
+});
+
+test('the City\'s departure station signposts the speedboat: a board within 25 m of its platform\'s open end, on the approach off the platform, clear of the line and off the walk across the town', () => {
+  const def = PLACES.city, sign = rideSign('city'), st = def.stations.find((x) => x.role === 'departure');
+  assert.match(sign.text, /^Speedboat to Oceanside [↑↗→↘↓↙←↖]$/);
+  for (const id of ['ocean', 'mountain', 'west', 'future']) assert.equal(rideSign(id), null, `${id} has a ride sign`);
+  const r = legRoute(st.leg), win = platformWindow(r.length, st.end, st.platformLength), open = r.at(st.end === 'start' ? win.sTo : win.sFrom);
+  assert.ok(Math.hypot(sign.x - open.x, sign.z - open.z) <= 25, 'the board is not by the platform\'s open end');
+  // on the town-side approach, past the platform's edge (8 m out), and no nearer any line's centre than 9 m
+  const f = footprint(def), inTown = (x, z) => f.outside(x, z) === 0;
+  const walk = stationWalk(st.leg, st.end, { platformLength: st.platformLength });
+  for (const [x, z] of sign.corners) {
+    assert.ok(walk.townSide(x, z, walk.rays(inTown)), 'the board is off the approach');
+    assert.equal(walk.platformY(x, z), null, 'the board is on the platform');
+    for (const leg of ['city-ocean', 'future-city']) {
+      const lr = legRoute(leg);
+      let d = Infinity;
+      for (let s = 0; s <= lr.length; s += 1) { const q = lr.at(s); d = Math.min(d, Math.hypot(q.x - x, q.z - z)); }
+      assert.ok(d >= 9, `the board is ${d.toFixed(1)} m from ${leg}`);
+    }
+  }
+  // the walk across the town (the auto tour's, arrival to departure) goes round it, and so does the way to the jetty
+  const terrainW = worldTerrain();
+  const stub = { def, blocked: () => null, onLand: inTown, groundAt: (x, z) => terrainW.heightAt(x, z) };
+  const w = makeWalkWorld({ place: stub, termini: cityTermini(), terrain: terrainW, seaLevel: SEA_LEVEL });
+  assert.ok(w.blocked(sign.x, sign.z, BODY), 'the board is not solid');
+  const mid = (role) => { const s2 = def.stations.find((x) => x.role === role), r2 = legRoute(s2.leg), w2 = platformWindow(r2.length, s2.end, s2.platformLength);
+    return r2.offsetAt((w2.sFrom + w2.sTo) / 2, Math.sign(laneOf(s2.leg)) * 5.75); };
+  const it = findPath(w, mid('arrival'), mid('departure'));
+  let res;
+  do res = it.next(); while (!res.done);
+  assert.ok(res.value, 'no way across the town past the board');
+  assert.ok(RIDE_SIGN.out > 8.5);
 });

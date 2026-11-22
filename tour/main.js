@@ -6,7 +6,7 @@ import { quietToNonIndexed } from './three-guards.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, part, cdnPart, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
 import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
-import { departureFor, departureSign, pointer } from './wayfinding.js';
+import { departureFor, departureSign, rideSign, pointer } from './wayfinding.js';
 import { makeMap } from './map.js';
 import { wantedSet, neededToDrive, readyToLeave, readyToRide } from './streaming.js';
 import { makeArrival } from './arrival.js';
@@ -248,7 +248,9 @@ async function boot() {
         await ctx.still();
         // an arrival platform's sign says where the next train leaves from, across the town
         const sign = st.role === 'arrival' ? departureSign(id) : null;
-        const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station, sign });
+        // and a departure station's board, where its ride boards away from it (the City's speedboat, at its jetty)
+        const waySign = st.role === 'departure' ? rideSign(id) : null;
+        const t = await buildTerminus(st.leg, st.end, { name: PLACES[id].name, platformLength: st.platformLength, style: PLACES[id].station, waySign, sign });
         mine[`${id}:${st.leg}`] = t;
         ctx.check();
         t.group.visible = false; shown.push(t.group);

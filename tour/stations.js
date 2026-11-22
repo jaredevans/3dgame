@@ -81,6 +81,15 @@ function signToDepartures(route, end, lane, [p0, p1], text) {
     .map(([x, z]) => { const v = new THREE.Vector3(x, 0, z).applyMatrix4(sign.matrixWorld); return [v.x, v.z]; });
   return { sign, solid: { key: 'departure-sign', corners } };
 }
+// the board on a departure station's approach to a ride boarding away from it, where wayfinding.js rideSign puts it,
+// on the ground there (the station's formation), and its footprint
+function wayBoard({ text, x, y, z, yaw, corners }) {
+  const sign = signBoard(text);
+  sign.name = 'ride sign';
+  sign.position.set(x, y, z);
+  sign.rotation.y = yaw;
+  return { sign, solid: { key: 'ride-sign', corners } };
+}
 // the board on its two posts, standing on its own origin, its face to +z (and -z): the departure signs' and the
 // walkways' (walkways.js)
 export function signBoard(text) {
@@ -101,11 +110,12 @@ export function signBoard(text) {
 }
 
 // leg: the leg id; end: 'start' or 'end' of it; style: its place's station style (station-style.js); sign: the text of
-// the sign to the departures on its platform (an arrival station's), or null. Returns the platform its trains use there,
+// the sign to the departures on its platform (an arrival station's), or null; waySign: the board on a departure
+// station's approach pointing the way to a ride that boards away from it (wayfinding.js rideSign), or null. Returns the platform its trains use there,
 // in the leg's s, its walk frame, and (a kit style) the parts its place's kit lights after dark:
 // { group, platform, buffersS, walk, lit: [[object, part key]] }.
-export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120, style = 'countryside', sign = null } = {}) {
-  if (style === 'future') return futureTerminus(leg, end, { name, platformLength, sign });
+export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick', platformLength = 120, style = 'countryside', waySign = null, sign = null } = {}) {
+  if (style === 'future') return futureTerminus(leg, end, { name, platformLength, waySign, sign });
   const route = legRoute(leg);
   const group = new THREE.Group();
   group.name = `terminus ${name}`;
@@ -169,11 +179,13 @@ export async function buildTerminus(leg, end, { name = '', colorway = 'red-brick
   }
   const departures = sign ? signToDepartures(route, end, town, [p0, p1], sign) : null;
   if (departures) group.add(departures.sign);
+  const way = waySign ? wayBoard(waySign) : null;
+  if (way) group.add(way.sign);
   group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 
   // for walking: solid things (not the platforms and canopies you walk on and under), and the station's own frame
   group.updateMatrixWorld(true);
-  const solid = departures ? [departures.solid] : [];
+  const solid = [...(departures ? [departures.solid] : []), ...(way ? [way.solid] : [])];
   for (const o of group.children) {
     const key = o.userData.partKey;
     if (!key || /platform-run|canopy|buffer-stop/.test(key)) continue;   // buffers stand in the track zone, already out of bounds
@@ -224,7 +236,7 @@ function strip(route, s0, s1, section, colours, inside) {
   return g;
 }
 
-async function futureTerminus(leg, end, { name, platformLength, sign }) {
+async function futureTerminus(leg, end, { name, platformLength, waySign, sign }) {
   const S = STATION_STYLES.future, route = legRoute(leg), group = new THREE.Group();
   group.name = `terminus ${name}`;
   const L = route.length, atEnd = end === 'end', buffersS = atEnd ? L : 0, toward = atEnd ? 1 : -1;
@@ -299,6 +311,7 @@ async function futureTerminus(leg, end, { name, platformLength, sign }) {
   // two signs on the town-side platform, where the running-in boards would be
   for (const s of [atEnd ? p0 + 30 : p1 - 30, atEnd ? p1 - 58 : p0 + 58]) await put(S.parts.sign, { colorway: 'transit-cyan', height: 3 }, s, town + ts * 5.6, PLATFORM_TOP, facing(ts));
   if (sign) { const d = signToDepartures(route, end, town, [p0, p1], sign); group.add(d.sign); solid.push(d.solid); }
+  if (waySign) { const w = wayBoard(waySign); group.add(w.sign); solid.push(w.solid); }
   group.traverse((o) => { if (o.isMesh) { o.castShadow = o.material !== FUT.glow && o.material !== FUT.red; o.receiveShadow = true; } });
   group.updateMatrixWorld(true);
   const walk = stationWalk(leg, end, { platformLength, solid });

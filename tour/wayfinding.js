@@ -35,3 +35,28 @@ export function pointer(from, viewYaw, target) {
   const k = Math.round(-Math.atan2(Math.sin(rel), Math.cos(rel)) / (Math.PI / 4));
   return { arrow: ARROWS[((k % 8) + 8) % 8], metres: Math.hypot(dx, dz) };
 }
+
+// ---- the way to a ride that boards away from its station (the City's speedboat, from its jetty on the seafront) ----
+// A board of its own on the departure station's town-side approach, RIDE_SIGN.inn m in from the platform's open end and
+// RIDE_SIGN.out m out from the line (just past the platform's edge, at the foot of its ramp side, where you walk past it
+// leaving the platform), its face to the platform. It names the ride as its walkway's sign does, with an arrow, as you
+// read it from the platform, the way to where the walkway leaves the town. Solid, as the departure signs are: corners
+// is its footprint (posts and board). -> { text, x, y (its foot), z, yaw (its face's heading), corners: [[x, z] x 4] } or null
+// (its posts sunk `sink` m into the ground there: the land beside the formation lies a little under it)
+export const RIDE_SIGN = { inn: 14, out: 10.5, w: 2.4, back: 0.16, front: 0.03, sink: 0.15 };
+export function rideSign(placeId) {
+  const way = (PLACES[placeId].walkways ?? []).find((w) => w.sign);
+  if (!way) return null;
+  const st = PLACES[placeId].stations.find((s) => s.role === 'departure'), r = legRoute(st.leg);
+  const { sFrom, sTo } = platformWindow(r.length, st.end, st.platformLength), town = Math.sign(laneOf(st.leg));
+  const s = st.end === 'start' ? sTo - RIDE_SIGN.inn : sFrom + RIDE_SIGN.inn;
+  const p = r.offsetAt(s, town * RIDE_SIGN.out);
+  // facing back across to the line (its left, scaled by the town's side, turned round)
+  const lx = Math.cos(p.yaw) * town, lz = -Math.sin(p.yaw) * town, yaw = Math.atan2(-lx, -lz);
+  const to = way.points[0], { arrow } = pointer(p, Math.atan2(lx, lz), to);   // (read from the platform, looking at it)
+  const text = `${way.sign.replace(/\s*[↑↗→↘↓↙←↖]\s*$/, '')} ${arrow}`;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw), hw = RIDE_SIGN.w / 2;
+  const corners = [[-hw, -RIDE_SIGN.back], [hw, -RIDE_SIGN.back], [hw, RIDE_SIGN.front], [-hw, RIDE_SIGN.front]]
+    .map(([a, b]) => [p.x + rx * a + fx * b, p.z + rz * a + fz * b]);
+  return { text, x: p.x, z: p.z, y: p.y - RIDE_SIGN.sink, yaw, corners };
+}
