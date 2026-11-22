@@ -655,6 +655,8 @@ test('the crows come in from far off and leave far off, within the balloon\'s cr
     // past the basket: low, near and ahead of the seat (its right, front corner), each crow once at most
     if (o.up < 3 && rho < 12 && o.along > 0) swoops.add(i);
     if (on.t < 0.2) assert.ok(o.scale < 0.2, 'a crow pops in');
+    // far out as they come and go, still well over the land (the mountain's shoulder, as it leaves)
+    if (w.visible) assert.ok(w.y - CROWS.reach - Math.max(SEA_LEVEL, ground(w.x, w.z)) >= 20, `crow ${i} near the land at ${st.s.toFixed(0)}`);
   });
   assert.ok(first > 60 && lastSeen > 60, `they come in from ${first?.toFixed(0)} m and leave at ${lastSeen?.toFixed(0)} m`);
   assert.ok(swoops.size >= 2, `only ${swoops.size} swoop past the basket`);
