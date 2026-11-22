@@ -18,8 +18,9 @@ import { EVENTS } from '../events.js';
 import { crossings } from './crossing.js';
 import { climb } from './climb.js';
 import { canyon } from './canyon.js';
+import { desert } from './desert.js';
 
-export const ACTORS = { ...crossings, ...climb, ...canyon };
+export const ACTORS = { ...crossings, ...climb, ...canyon, ...desert };
 
 // -> { group, actors: Map<id, Actor>, dispose() }: the actors of a leg's events, built one after another a frame apart
 // (slicer.frame()). One whose build fails is warned about and left out; one not yet written (a later task's) is skipped.

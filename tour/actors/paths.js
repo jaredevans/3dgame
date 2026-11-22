@@ -79,3 +79,157 @@ export function paceStep(st, { legS, dir, v, dt, lag = 0, ahead = 0, lo, hi }) {
   st.t += dt;
   return st;
 }
+
+// ---- the Silver Arrow's leg (desert.js) ----
+
+// the other Silver Arrow, passing on the other line the other way at 280 km/h: it whooshes as the fronts come within
+// `near`, and hides once more than `behind` metres behind you
+export const BULLET = { speed: 280 / 3.6, near: 60, behind: 600 };
+
+// where its front starts (leg-s) so the two fronts meet at leg-s `meet`, given your front's leg-s and speed now (m/s,
+// + forwards) and the way you're going; held within [lo, hi] (its whole length clear of the platform windows). Wanted
+// further off than the line allows, it starts at the end of it after `wait` seconds; standing, or already past `meet`
+// (a jump), it comes from the line's far end at once: -> { s, wait }
+export function bulletStart({ legS, v, dir, meet, speed = BULLET.speed, lo, hi }) {
+  const sgn = dir === 'back' ? -1 : 1, gap = (meet - legS) * sgn, far = sgn > 0 ? hi : lo;
+  if (gap <= 0 || !(v > 0.5)) return { s: far, wait: 0 };
+  const want = meet + sgn * speed * (gap / v), s = Math.min(hi, Math.max(lo, want));
+  return { s, wait: Math.max(0, (want - s) * sgn / speed) };
+}
+
+// st: null at first, then what it returned (moved on in place); input as bulletStart's, plus dt -> { mode: 'wait'|'run'|
+// 'gone', s, shown, whoosh: true on the frame the fronts come within `near`, passed }. While it waits (unseen) its start
+// is worked out afresh each frame from your speed then, so it keeps its time if you speed up
+export function bulletStep(st, { legS, v, dir, dt, meet, speed = BULLET.speed, lo, hi, near = BULLET.near, behind = BULLET.behind }) {
+  const sgn = dir === 'back' ? -1 : 1;
+  st ??= { mode: 'wait', s: sgn > 0 ? hi : lo, shown: false, whoosh: false, passed: false };
+  st.whoosh = false;
+  if (st.mode === 'wait') {
+    const start = bulletStart({ legS, v, dir, meet, speed, lo, hi });
+    if (start.wait > 0) { st.shown = false; return st; }
+    st.s = start.s;
+    st.mode = 'run';
+  } else if (st.mode === 'run') st.s = Math.min(hi, Math.max(lo, st.s - sgn * speed * dt));
+  const ahead = (st.s - legS) * sgn;   // its front ahead of yours (negative once it's by)
+  if (st.mode === 'run' && !st.passed && ahead <= near) { st.passed = true; st.whoosh = true; }
+  if (-ahead > behind) st.mode = 'gone';
+  st.shown = st.mode === 'run';
+  return st;
+}
+
+// true unless (x, z) is within a mesa's radius plus `margin` (features: world-data FEATURES; only mesas count)
+export function clearOfMesas(x, z, features, margin) {
+  return features.every((f) => f.kind !== 'mesa' || Math.hypot(x - f.x, z - f.z) >= f.r + margin);
+}
+
+// the wind farm's turbines: rows `rows` metres out on `side` (+1 left of the leg's out direction), `perRow` each along
+// s0..s1, each where ok(x, z) holds and at least `minGap` from the others; spread evenly over each row's stretch that's
+// ok (every other row half a pitch on), each the nearest to its mark that fits; what can't fit is left out:
+// -> [{ x, z, s, out }]
+export function turbineSpots(route, { s0, s1, rows, perRow, side, ok, minGap, step = 10 }) {
+  const spots = [], P = {};
+  for (const [k, out] of rows.entries()) {
+    const cands = [];
+    for (let s = s0; s <= s1 + 1e-9; s += step) {
+      herdPath(route, s, side, out, P);
+      if (ok(P.x, P.z)) cands.push({ x: P.x, z: P.z, s, out });
+    }
+    if (!cands.length) continue;
+    const a = cands[0].s, b = cands[cands.length - 1].s, pitch = perRow > 1 ? (b - a) / (perRow - 0.5) : 0;
+    for (let i = 0; i < perRow; i++) {
+      const mark = perRow > 1 ? a + (i + (k % 2 ? 0.5 : 0)) * pitch : (a + b) / 2;
+      const fits = cands.filter((c) => spots.every((o) => Math.hypot(c.x - o.x, c.z - o.z) >= minGap));
+      if (!fits.length) break;
+      spots.push(fits.reduce((best, c) => (Math.abs(c.s - mark) < Math.abs(best.s - mark) ? c : best)));
+    }
+  }
+  return spots;
+}
+
+// the solar farm's racks: `rows` rows along the line evenly from out[0] to out[1] metres out, `perRow` racks a row
+// `pitch` metres apart centred on leg-s s: -> [{ s, out }]
+export function solarGrid({ s, rows, perRow, pitch, out: [a, b] }) {
+  const grid = [];
+  for (let k = 0; k < rows; k++) for (let j = 0; j < perRow; j++) {
+    grid.push({ s: s + (j - (perRow - 1) / 2) * pitch, out: rows > 1 ? a + (b - a) * k / (rows - 1) : a });
+  }
+  return grid;
+}
+
+// the nearest leg-s to s, in steps of `step` either way out to `reach`, where fits(s) holds: -> s or null
+export function nearestFit(s, fits, step, reach) {
+  for (let d = 0; d <= reach + 1e-9; d += step) {
+    if (fits(s + d)) return s + d;
+    if (d > 0 && fits(s - d)) return s - d;
+  }
+  return null;
+}
+
+// the drones' formations, in the upright plane along the line: `along` metres along the way you're going and `up`
+// metres up from the formation's middle. They hold each shape `hold` seconds, the first `morph` of them easing out of the
+// one before
+export const FORMATION = { shapes: ['ring', 'line', 'arrow'], hold: 6, morph: 2, ring: 18, gap: 4, tip: 20, back: 3.2, rise: 1.6 };
+
+// drone i of n's place in a shape: -> out, filled ({ along, up })
+export function formationSpot(shape, i, n, out = {}) {
+  const F = FORMATION;
+  if (shape === 'ring') {
+    const a = 2 * Math.PI * i / n;
+    out.along = F.ring * Math.cos(a); out.up = F.ring * Math.sin(a);
+  } else if (shape === 'line') {
+    out.along = (i - (n - 1) / 2) * F.gap; out.up = 0;
+  } else {   // an arrow pointing the way you're going: two arms back from its tip, one above, one below
+    const k = Math.floor(i / 2), arm = i % 2 ? 1 : -1;
+    out.along = F.tip - k * F.back; out.up = arm * (k * F.rise + F.rise);
+  }
+  return out;
+}
+
+const was = {};
+// drone i of n's place t seconds into the flight: -> out, filled ({ along, up })
+export function formationAt(t, i, n, out = {}) {
+  const F = FORMATION, k = Math.max(0, Math.floor(t / F.hold)), local = t - k * F.hold;
+  formationSpot(F.shapes[k % F.shapes.length], i, n, out);
+  if (k === 0 || local >= F.morph) return out;
+  formationSpot(F.shapes[(k - 1) % F.shapes.length], i, n, was);
+  const x = local / F.morph, w = x * x * (3 - 2 * x);
+  out.along = was.along + (out.along - was.along) * w;
+  out.up = was.up + (out.up - was.up) * w;
+  return out;
+}
+
+// the rocket: its pad `dist` metres south-west of the line at leg-s `at`; off the pad it climbs straight up for
+// `upright` seconds, then pitches over east, `tilt` from upright by the end of its `secs`, gathering speed at `accel`
+export const ROCKET = { at: 2400, dist: 6000, secs: 60, upright: 6, accel: 3.2, tilt: 50 * Math.PI / 180 };
+
+// -> { x, z } of the pad (the land there is the actor's): south-west is -x, +z
+export function rocketPad(route) {
+  const P = route.at(ROCKET.at), d = ROCKET.dist / Math.SQRT2;
+  return { x: P.x - d, z: P.z + d };
+}
+
+const pitchAt = (t) => {
+  if (t <= ROCKET.upright) return 0;
+  const x = Math.min(1, (t - ROCKET.upright) / (ROCKET.secs - ROCKET.upright));
+  return ROCKET.tilt * x * x * (3 - 2 * x);
+};
+// its flight worked out once, every 1/20 s
+const FLIGHT = (() => {
+  const h = 0.05, n = Math.round(ROCKET.secs / h), east = new Float64Array(n + 1), up = new Float64Array(n + 1);
+  for (let k = 0; k < n; k++) {
+    const t = (k + 0.5) * h, v = ROCKET.accel * t, p = pitchAt(t);
+    east[k + 1] = east[k] + v * Math.sin(p) * h;
+    up[k + 1] = up[k] + v * Math.cos(p) * h;
+  }
+  return { h, n, east, up };
+})();
+
+// t seconds after lift-off (held at its last point past `secs`): -> out, filled ({ east, up: metres from the pad,
+// pitch: radians over from upright, towards the east })
+export function rocketAt(t, out = {}) {
+  const c = Math.min(ROCKET.secs, Math.max(0, t)) / FLIGHT.h, k = Math.min(FLIGHT.n - 1, Math.floor(c)), u = c - k;
+  out.east = FLIGHT.east[k] + (FLIGHT.east[k + 1] - FLIGHT.east[k]) * u;
+  out.up = FLIGHT.up[k] + (FLIGHT.up[k + 1] - FLIGHT.up[k]) * u;
+  out.pitch = pitchAt(Math.min(ROCKET.secs, Math.max(0, t)));
+  return out;
+}
