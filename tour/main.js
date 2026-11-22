@@ -4,7 +4,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { KITS, loadError } from './config.js';
 import { kitModule, setLoading, showLoadError, hideLoading, forgetPending } from './parts.js';
-import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL } from './world-data.js';
+import { LEGS, PLACES, RING, FEATURES, worldTerrain, legRoute, laneOf, SEA_LEVEL, stationFrame } from './world-data.js';
+import { TRAIN_SPECS } from './trains/specs.js';
+import { makeMap } from './map.js';
 import { wantedSet, neededToDrive, readyToLeave } from './streaming.js';
 import { makeArrival } from './arrival.js';
 import { makeStreamer, STALL, own, disown } from './streamer.js';
@@ -621,12 +623,27 @@ async function boot() {
     $('driver').classList.add('on');
   }
 
+  // the map: M toggles it, Escape closes it; drawn only while open
+  const mapView = makeMap(document.getElementById('map'));
+  function drawMap() {
+    if (!mapView.open) return;
+    if (state.mode === 'drive') {
+      const f = train.model.cars[0].holder, leg = run.leg;
+      mapView.draw({ you: { x: f.position.x, z: f.position.z, yaw: f.rotation.y }, leg, place: null, departure: null });
+    } else {
+      const d = stationFrame(state.place, 'departure'), to = LEGS[d.leg].to;
+      mapView.draw({ you: player.state, leg: null, place: state.place,
+        departure: { x: d.x, z: d.z, label: `Departures: ${TRAIN_SPECS[LEGS[d.leg].train].name} to ${PLACES[to].name}` } });
+    }
+  }
   const keys = makeKeys();
   let throttleSteps = 0;
   addEventListener('keydown', (e) => {
     if (e.repeat && !/Arrow|Key[WS]/.test(e.code)) return;
     keys.down(e.code);
     if (e.code === 'Space') e.preventDefault();
+    if (e.code === 'KeyM') { mapView.toggle(); drawMap(); return; }
+    if (e.code === 'Escape') { mapView.close(); return; }
     if (keys.ignored(e.code)) return;   // still held from before you boarded
     if (e.code === 'KeyE') {
       if (state.mode === 'drive' && stopHere() && arr.getOut) getOut();
@@ -886,6 +903,7 @@ async function boot() {
     lightDir.copy(sky.sunElevationDeg > 2 ? sunDir : moonDir.set(-sunDir.x, 0, -sunDir.z).normalize().setY(0.75).normalize());
     look.key.position.copy(look.key.target.position).addScaledVector(lightDir, 160);
     if (mayLand) drawWaiting();
+    drawMap();
     renderer.render(scene, camera);
     landSlice();   // a slice of the land being built, after this frame's work
     slicer.tick(SCENERY_SLICE);   // and a slice of any scenery being built

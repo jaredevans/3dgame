@@ -18,6 +18,9 @@
   #help { position: fixed; top: 50px; right: 18px; font-size: 13px; line-height: 1.55; text-align: right;
     background: #0008; padding: 8px 12px; border-radius: 8px; }
   #help kbd { background: #fff2; border: 1px solid #fff4; border-radius: 4px; padding: 0 5px; font-family: inherit; font-size: 12px; }
+  #map { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; pointer-events: none;
+    border: 2px solid #3d4b5c; border-radius: 16px; box-shadow: 0 8px 32px #000a; }
+  #map.on { display: block; }
   #driver { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: none; gap: 18px; align-items: baseline;
     background: #141b24d9; border: 2px solid #3d4b5c; border-radius: 10px; padding: 8px 16px; font-variant-numeric: tabular-nums; }
   #driver.on { display: flex; }
@@ -55,8 +58,9 @@
   <kbd>W</kbd> <kbd>S</kbd> / <kbd>↑</kbd> <kbd>↓</kbd> throttle · <kbd>Space</kbd> brake · <kbd>H</kbd> horn<br>
   <kbd>V</kbd> change view: cab, nose, drone, director · <kbd>1</kbd> cab · <kbd>2</kbd> drone · <kbd>3</kbd> director · <kbd>4</kbd> nose<br>
   <kbd>E</kbd> get out / board · on foot <kbd>W</kbd> <kbd>S</kbd> walk, <kbd>A</kbd> <kbd>D</kbd> turn, <kbd>Shift</kbd> run<br>
-  standing still, drag the mouse to look round
+  <kbd>M</kbd> map · standing still, drag the mouse to look round
 </div>
+<canvas id="map"></canvas>
 <div id="driver"><b id="spd">0</b><span>km/h</span><span id="thr">throttle 0%</span><span id="dist"></span></div>
 <div id="prompt"></div>
 <div id="toast"></div>
