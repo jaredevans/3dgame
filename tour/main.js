@@ -531,22 +531,26 @@ async function boot() {
   // frustum and nearer than the fog's far end. Scratch three.js objects, made once
   const farView = { frustum: new THREE.Frustum(), m: new THREE.Matrix4(), sphere: new THREE.Sphere() };
   const FAR_CAR = 15;   // m round a car's middle a sphere takes in the rest of it
+  // (the scratch sphere in view: in the frustum, and nearer than the fog's far end)
+  function farInView() {
+    const S = farView.sphere;
+    return S.center.distanceTo(camera.position) - S.radius < (scene.fog?.far ?? Infinity) && farView.frustum.intersectsSphere(S);
+  }
   function farTrainsSeen() {
     camera.updateMatrixWorld();
     farView.m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     farView.frustum.setFromProjectionMatrix(farView.m);
-    const fog = scene.fog?.far ?? Infinity, cam = camera.position, S = farView.sphere;
-    const inView = () => S.center.distanceTo(cam) - S.radius < fog && farView.frustum.intersectsSphere(S);
+    const S = farView.sphere;
     for (let i = 0; i < rideLeg.far.length; i++) {
       const w = rideLeg.far[i];
       S.center.copy(w.platform.center); S.radius = w.platform.radius;
-      if (inView()) return true;
+      if (farInView()) return true;
       const cars = fleet.trains[w.leg]?.model.cars;
       if (!cars?.length) continue;
       const a = cars[0].holder.position, b = cars[cars.length - 1].holder.position;
       S.center.copy(a).add(b).multiplyScalar(0.5);
       S.radius = a.distanceTo(b) / 2 + FAR_CAR;
-      if (inView()) return true;
+      if (farInView()) return true;
     }
     return false;
   }
