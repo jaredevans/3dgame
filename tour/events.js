@@ -49,7 +49,10 @@ export const EVENTS = {
   'mountain-west': [
     ev('snow', 250, 750, { shot: { kind: 'high-wide', at: 500, lateral: 80 } }),
     ev('rockfall', 450, 650, { shot: { kind: 'chase', at: 550 } }),
-    showpiece('trestle', 690, 870, { kind: 'below', at: 780 }),
+    // the trestle spans a slot canyon whose walls stand ~65 m over the rails within 25–40 m of the line, so a camera beside
+    // it sees rock (owner, 2026-11-21): looking along the slot from its floor beyond the bridge instead, on a long lens
+    // (clear sight to all of the trestle, measured on the terrain)
+    showpiece('trestle', 690, 870, { kind: 'wide', at: 960, lateral: -10, height: 6, fov: 30 }),
     ev('riders', 950, 1300, { shot: { kind: 'heli', at: 1125, lateral: 60 } }),
     ev('horses', 1100, 1400, { shot: { kind: 'heli', at: 1250, lateral: -60 } }),
     // (at: the canyon's mouth, the one place in the window with open land beside the line, its walls still standing 20 m

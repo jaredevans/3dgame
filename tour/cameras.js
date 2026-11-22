@@ -30,7 +30,9 @@ const SHOT = {
   trackside: { drop: 1.5, clear: 9 },
   chase: { back: 30 },                     // behind the front, looking at it
   heli: { ahead: 25 },                     // abreast of the front, a little ahead
-  arc: { radius: 16, sweep: 1.25 },        // round the nose, from this far either side of dead ahead (radians)
+  // round the nose, from this far either side of dead ahead (radians): wide and low, the whole train sweeping past
+  // against the desert (owner, 2026-11-21: 16 m out and 6 m up looked down on it, too close)
+  arc: { radius: 55, sweep: 0.8 },
   // where the land stands between a shot and the line (a canyon's wall, a hill), it's drawn in towards the line, to
   // these parts of its lateral, until it sees the train; a moving shot looks again every `recheck` s
   reach: [1, 0.7, 0.45, 0.25, 0.1], sight: 10, recheck: 0.25,

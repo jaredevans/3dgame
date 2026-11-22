@@ -38,7 +38,7 @@ const DEFAULTS = {
   wide: { fov: 28, height: 10, lateral: 100, side: true },
   below: { fov: 50, height: 1.5, lateral: 0 },
   portal: { fov: 45, height: 2.5, lateral: 12, side: true },
-  arc: { fov: 50, height: 6, lateral: 0 },
+  arc: { fov: 42, height: 1.5, lateral: 0 },   // about level with the nose, not looking down on it
 };
 
 // the tunnel (of `tunnels`) leg-s `s` lies in, or null
