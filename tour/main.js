@@ -21,6 +21,8 @@ import { buildEventActors } from './actors/index.js';
 import { EVENTS, eventsFor, makeEventTrack } from './events.js';
 import { makeReactions, mustBrake } from './react.js';
 import { makeSlicer, scenery } from './slicer.js';
+import { autoThrottle, autoMark, makeViewCycle, makeHornCue } from './autopilot.js';
+import { findPath, makeFollower } from './autopath.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
 import { makeHdEnvironment, updateHdLight, prepareHdAnimals } from './hd.js';
@@ -640,22 +642,32 @@ async function boot() {
   }
   const keys = makeKeys();
   let throttleSteps = 0;
+  // E: get out at a platform you've stopped at, or board the train you're beside; H: the horn. Auto mode presses them
+  // too
+  function pressE() {
+    if (state.mode === 'drive' && stopHere() && arr.getOut) getOut();
+    else if (state.mode === 'foot') { const w = boardable(); if (w && ready(w.leg)) board(w); }
+  }
+  function pressH() { horn(train.spec.sound); hornPressed = true; }
+  // the keys that take the controls back from auto mode, driving and on foot
+  const TAKE_OVER = {
+    drive: new Set(['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Space', 'KeyH', 'KeyE']),
+    foot: new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE']),
+  };
   addEventListener('keydown', (e) => {
     if (e.repeat && !/Arrow|Key[WS]/.test(e.code)) return;
     keys.down(e.code);
     if (e.code === 'Space') e.preventDefault();
     if (e.code === 'KeyM') { mapView.toggle(); drawMap(); return; }
     if (e.code === 'Escape') { mapView.close(); return; }
+    if (e.code === 'KeyZ') { if (auto.on) stopAuto(); else startAuto(); return; }
+    if (auto.on && TAKE_OVER[state.mode].has(e.code)) stopAuto();   // you have the controls (and this key does its job)
     if (keys.ignored(e.code)) return;   // still held from before you boarded
-    if (e.code === 'KeyE') {
-      if (state.mode === 'drive' && stopHere() && arr.getOut) getOut();
-      else if (state.mode === 'foot') { const w = boardable(); if (w && ready(w.leg)) board(w); }
-      return;
-    }
+    if (e.code === 'KeyE') { pressE(); return; }
     if (state.mode !== 'drive') return;
     if (e.code === 'KeyW' || e.code === 'ArrowUp') throttleSteps++;
     if (e.code === 'KeyS' || e.code === 'ArrowDown') throttleSteps--;
-    if (e.code === 'KeyH') { horn(train.spec.sound); hornPressed = true; }
+    if (e.code === 'KeyH') pressH();
     if (e.code === 'KeyV') views.cycle();
     if (e.code === 'Digit1') views.set('cab');
     if (e.code === 'Digit2') views.set('drone');
@@ -670,11 +682,129 @@ async function boot() {
     run: keys.has('ShiftLeft') || keys.has('ShiftRight'),
   });
 
+  // ---- auto mode (Z): the tour drives itself round the ring, pressing what you would. Driving, the autopilot's throttle
+  // steps and brake (autopilot.js) go into stepTrain with your keys', the horn when a prompt asks for it, E once stopped
+  // at the destination; on foot, the conductor runs the way the planner found across the town (autopath.js) with the
+  // walking keys, and boards the onward train with E. Any control key, or Z again, gives you the controls back where
+  // you are ----
+  const AUTO_SLICE = 4;      // ms a frame of path search, at most
+  const AUTO_OUT_AFTER = 1;  // s stood still at the destination platform before getting out
+  const autoSlicer = makeSlicer();
+  autoSlicer.sync = false;
+  const auto = {
+    on: false, t: 0, still: 0, failures: 0, planning: null, token: 0, message: '', messageLeft: 0, log: [], heard: '',
+    to: { stopS: 0, spec: null },              // where it's stopping, and the train's brakes
+    out: { throttleSteps: 0, brake: false },   // the autopilot's keys, driving
+    keys: { fwd: 0, right: 0, run: false },    // and on foot
+    cycle: makeViewCycle(), horn: makeHornCue(), follower: makeFollower(),
+  };
+  const autoLog = (what, data = {}) => { auto.log.push({ t: Math.round(auto.t * 10) / 10, what, ...data }); if (auto.log.length > 500) auto.log.shift(); };
+  function startAuto() {
+    Object.assign(auto, { on: true, still: 0, failures: 0, message: '', messageLeft: 0 });
+    auto.follower.clear();
+    if (state.mode === 'drive') autoViews();
+    autoLog('start', { mode: state.mode, place: state.place, leg: state.leg });
+  }
+  function stopAuto(message = '') {
+    if (!auto.on) return;
+    auto.on = false;
+    auto.token++;   // a path still being searched for is let go
+    auto.planning?.job.return();
+    auto.planning = null;
+    auto.follower.clear();
+    Object.assign(auto.out, { throttleSteps: 0, brake: false });
+    Object.assign(auto.keys, { fwd: 0, right: 0, run: false });
+    auto.message = message; auto.messageLeft = message ? 8 : 0;
+    autoLog('stop', { message });
+  }
+  // the views it cycles through while it drives (carrying on from the one showing, if it's one of them)
+  function autoViews() {
+    const m = auto.cycle.start(views.mode);
+    if (m !== views.mode) views.set(m);
+    autoLog('view', { mode: m });
+  }
+  // the way across town to beside the onward train's cab (where you'd step down from it, journey.stepOut), from where
+  // he stands, searched for a slice a frame. A second search (after a failure) looks wider, on a finer grid, and closer
+  // to things
+  function autoPlan() {
+    const t = fleet.trains[departureFor(state.place).leg];
+    if (!t) return;   // (not in yet: he waits where he is)
+    const step = journey.stepOut(t.run, t.s), goal = t.run.route.offsetAt(step.s, step.lateral);
+    const from = { x: player.state.x, z: player.state.z }, token = ++auto.token, t0 = performance.now(), started = auto.t;
+    const job = findPath(walkWorld(), from, { x: goal.x, z: goal.z }, auto.failures ? { margin: 80, cell: 0.25, clear: 0, soft: 0.2 } : {});
+    auto.planning = { job };
+    autoSlicer.run(job).then((path) => {
+      if (token !== auto.token) return;
+      auto.planning = null;
+      if (!path) { autoLog('plan', { place: state.place, found: false, ms: Math.round(performance.now() - t0) }); autoFail('no way found'); return; }
+      const length = path.points.reduce((a, q, k) => (k ? a + Math.hypot(q.x - path.points[k - 1].x, q.z - path.points[k - 1].z) : 0), 0);
+      autoLog('plan', { place: state.place, found: true, ms: Math.round(performance.now() - t0), took: Math.round((auto.t - started) * 10) / 10, searched: path.searched, waypoints: path.points.length, metres: Math.round(length) });
+      auto.follower.set(path.points);
+    }, (err) => {
+      if (token !== auto.token) return;
+      auto.planning = null;
+      console.error(err);
+      autoFail('the search failed');
+    });
+  }
+  // no way found, or stuck: look again from where he is; the second time, the controls are yours
+  function autoFail(why) {
+    auto.failures++;
+    autoLog('fail', { place: state.place, why, x: Math.round(player.state.x * 10) / 10, z: Math.round(player.state.z * 10) / 10 });
+    auto.follower.clear();
+    if (auto.failures >= 2) stopAuto("Auto tour stopped: couldn't find the way to the departures");
+  }
+  // a frame of auto, before the frame's driving or walking: it reads what last frame left (the reactions' prompt, the
+  // platform's hold), as your keys do
+  function autoStep(dt) {
+    auto.t += dt;
+    if (state.mode === 'drive') {
+      const stopped = Math.abs(drive.v) < 0.05;
+      // stopped at the destination platform (on its mark, or wherever it came to a stand in it), free to get out
+      auto.still = stopped && stopHere() === run.to && arr.getOut && !arr.hold ? auto.still + dt : 0;
+      if (auto.still >= AUTO_OUT_AFTER) {
+        autoLog('getOut', { place: run.to, leg: run.leg, off: Math.round((drive.s - run.stopS) * 100) / 100 });
+        auto.still = 0;
+        pressE();
+        Object.assign(auto.out, { throttleSteps: 0, brake: false });
+        return;
+      }
+      // (short of the platform where the guard wants it stopped: it draws up there and waits)
+      auto.to.stopS = autoMark(run.stopS, drive.s, evOut?.brakeTo); auto.to.spec = train.spec;
+      autoThrottle(drive, auto.to, auto.out);
+      if (auto.horn.step(evOut?.prompt, dt)) { autoLog('horn', { leg: run.leg, prompt: evOut.prompt }); pressH(); }
+      if (evOut?.message && evOut.message !== auto.heard) { auto.heard = evOut.message; autoLog('event', { leg: run.leg, message: evOut.message, s: Math.round(drive.s) }); }
+      if (evOut?.toast) { auto.heard = ''; autoLog('event', { leg: run.leg, toast: evOut.toast, s: Math.round(drive.s) }); }
+      const m = auto.cycle.step(dt);
+      if (m) { views.set(m); autoLog('view', { mode: m }); }
+      return;
+    }
+    const k = auto.keys;
+    k.fwd = 0; k.right = 0;
+    if (auto.planning) return;
+    if (!auto.follower.path) { autoPlan(); return; }
+    const how = auto.follower.step(player.state, dt, k);
+    if (how === 'stuck') { autoFail('stuck'); return; }
+    if (how !== 'arrived') return;
+    k.fwd = 0; k.right = 0;
+    // beside the onward train: on board as soon as it's ready to go ("Getting … ready" meanwhile)
+    const w = boardable(), leg = departureFor(state.place).leg;
+    if (w?.leg !== leg) { autoFail('not beside the train'); return; }
+    if (!ready(leg)) return;
+    const place = state.place;
+    pressE();
+    if (state.mode !== 'drive') return;
+    autoLog('board', { place, leg });
+    auto.failures = 0;
+    auto.follower.clear();
+    autoViews();
+  }
+
   const $ = (id) => document.getElementById(id);
   $('driver').classList.add('on');
   // how far: to the metre for the last 100 m, to 10 m below a kilometre, then in kilometres
   const distance = (m) => (m < 100 ? `${Math.round(m)} m` : m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
-  let toastLeft = 0, eventLine = '';
+  let toastLeft = 0, eventLine = '', autoShown = '';
   const lookDir = new THREE.Vector3();
   function hud(dt) {
     let prompt = '', message = '';
@@ -710,6 +840,9 @@ async function boot() {
     }
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
+    auto.messageLeft = Math.max(0, auto.messageLeft - dt);
+    const autoLine = auto.on ? 'Auto tour · Z to take over' : auto.messageLeft > 0 ? auto.message : '';
+    if (autoLine !== autoShown) { autoShown = autoLine; $('auto').textContent = autoLine; $('auto').classList.toggle('on', !!autoLine); }
     if (message !== eventLine) { eventLine = message; $('event').textContent = message; $('event').classList.toggle('on', !!message); }
     toastLeft = Math.max(0, toastLeft - dt);
     $('toast').classList.toggle('on', toastLeft > 0);
@@ -734,6 +867,9 @@ async function boot() {
     // the run you're on, with Phase 1's limits and originPlatform alongside it
     run: { get: () => ({ ...run, limits: fleet.trains[run.leg]?.limits, originPlatform: run.origin.platform }) }, mode: { get: () => state.mode }, state: { get: () => state }, train: { get: () => train.model },
     pendingTurn: { get: () => pendingTurn }, arr: { get: () => arr }, mayLand: { get: () => mayLand },
+    // auto mode: on or not, how many failures at this place, and what it's done (getting out, each way found, the horn,
+    // the views, boarding)
+    auto: { get: () => ({ on: auto.on, failures: auto.failures, planning: !!auto.planning, path: auto.follower.path, left: auto.follower.left, log: auto.log }) },
     // the land's pieces: how many are live, and of those shown, how many at each detail; which is being built
     chunks: { get: () => {
       const ids = land.ids, on = ids.filter((id) => land.shown(id)), n = (cell) => on.filter((id) => id.endsWith(`:${cell}`)).length;
@@ -835,7 +971,9 @@ async function boot() {
     // walker clamp to that too, so the train never jumps further than v x 0.1 s
     dt = Math.min(dt, 0.1);
     fit();
+    if (auto.on) autoStep(dt);
     if (state.mode === 'drive') {
+      if (auto.on) throttleSteps += auto.out.throttleSteps;   // its key presses, with any of yours
       const before = drive.s;
       // the events along the run where the front is now, and the reactions to them (the horn, if you sounded it)
       evLegS = journey.where(state, run, drive.s).s;
@@ -845,7 +983,7 @@ async function boot() {
       const guard = evOut.brakeTo !== null && (mustBrake(evOut.brakeTo, drive.v, train.spec) || evOut.brakeTo <= 0);
       // held at a platform (or by the guard): the brake on and the throttle shut, so the train sets off only when you
       // open it again
-      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || arr.hold || guard, throttleSteps: arr.hold || guard ? 0 : throttleSteps }), dt, train.spec, train.limits));
+      Object.assign(drive, stepTrain(drive, trainInput({ driving: true, brakeKey: keys.has('Space') || (auto.on && auto.out.brake) || arr.hold || guard, throttleSteps: arr.hold || guard ? 0 : throttleSteps }), dt, train.spec, train.limits));
       if (arr.hold || guard) drive.throttle = 0;
       train.s = drive.s;
       poseTrain(train.model, run.route, drive.s, drive.s - before, run.lane);
@@ -856,7 +994,7 @@ async function boot() {
     if (state.mode === 'foot' && pendingTurn && Math.hypot(player.state.x - front.x, player.state.z - front.z) > 30) turnPending();
     hud(dt);
     if (controls) controls.update();
-    else if (state.mode === 'foot') player.update(dt, footInput(), walkWorld());
+    else if (state.mode === 'foot') player.update(dt, auto.on ? auto.keys : footInput(), walkWorld());
     else views.update(dt, train.model, viewContext(dt));
     // keep what's near you loaded, and let the sky follow where you are on the ring (it sets the time of day)
     const where = journey.where(state, run, drive.s);
@@ -915,6 +1053,7 @@ async function boot() {
     renderer.render(scene, camera);
     landSlice();   // a slice of the land being built, after this frame's work
     slicer.tick(SCENERY_SLICE);   // and a slice of any scenery being built
+    autoSlicer.tick(AUTO_SLICE);  // and of auto's search for the way across a town
   }
   framing = true;
   renderer.setAnimationLoop(() => frame(clock.getDelta()));

@@ -44,3 +44,30 @@ test("main.js tells the director this run's showpieces and events, on the leg's 
   assert.match(src, /'Digit3'\) views\.set\('director'\)/);
   assert.match(src, /'Digit4'\) views\.set\('nose'\)/);
 });
+
+// auto mode (Z) presses what a player would: its throttle steps join yours, its brake is stepTrain's brake key (with
+// the guard's, so the guard still stops it), and on foot its keys are what the walker steps with
+test('main.js: Z toggles auto mode, whose throttle, brake and walking keys go through the player\'s inputs', () => {
+  assert.match(src, /e\.code === 'KeyZ'\) \{ if \(auto\.on\) stopAuto\(\); else startAuto\(\);/);
+  assert.match(src, /if \(auto\.on && TAKE_OVER\[state\.mode\]\.has\(e\.code\)\) stopAuto\(\)/);
+  assert.match(src, /brakeKey: keys\.has\('Space'\) \|\| \(auto\.on && auto\.out\.brake\) \|\| arr\.hold \|\| guard/);
+  assert.match(src, /if \(auto\.on\) throttleSteps \+= auto\.out\.throttleSteps/);
+  assert.match(src, /player\.update\(dt, auto\.on \? auto\.keys : footInput\(\), walkWorld\(\)\)/);
+  // E and H are the same for both: auto gets out, boards and sounds the horn through them
+  assert.match(src, /if \(e\.code === 'KeyE'\) \{ pressE\(\); return; \}/);
+  assert.match(src, /if \(e\.code === 'KeyH'\) pressH\(\)/);
+  const step = src.match(/function autoStep\(dt\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(step, 'no autoStep()');
+  assert.match(step[0], /pressE\(\)/);
+  assert.match(step[0], /pressH\(\)/);
+  assert.doesNotMatch(step[0], /\bgetOut\(\)|\bboard\(/, 'auto gets out and boards only as E does');
+  // it gets out only at the run's destination (just after boarding, stopHere() is the platform it's leaving), and
+  // boards only the onward train
+  assert.match(step[0], /stopHere\(\) === run\.to/);
+  assert.match(step[0], /departureFor\(state\.place\)\.leg/);
+  // it draws up where the guard wants it stopped (a red signal, cattle), rather than creeping on each time he lets go
+  assert.match(step[0], /auto\.to\.stopS = autoMark\(run\.stopS, drive\.s, evOut\?\.brakeTo\)/);
+  assert.match(step[0], /autoThrottle\(drive, auto\.to, auto\.out\)/);
+  // its search for the way runs on a slicer of its own, ticked each frame
+  assert.match(src, /autoSlicer\.tick\(AUTO_SLICE\)/);
+});

@@ -56,6 +56,7 @@ You start in the Seaside Excursion's cab at the City. The world streams in round
 | On foot: `W` / `S`, `A` / `D`, `Shift` | Walk forwards and back, turn, run (the camera follows behind you) |
 | On foot: drag | Standing still, look round you; it swings back behind you when you move |
 | `M` | The map (`Esc` closes it) |
+| `Z` | Auto tour: it drives, gets out, runs across each town to the next train and boards it, round the whole ring, cycling the nose, drone and director views. `Z` again, or any driving or walking key, gives you the controls back where you are |
 
 **Views.** The cab is the driver's seat; the nose rides just above the front of the train; the drone orbits it. The director's view cuts between dramatic shots on its own: from the trackside, below a viaduct, a helicopter alongside, a chase, a wide or high view, round the nose, and at a tunnel's portal as you go in. It cuts to each leg's showpieces (the cliffs, the tunnel, the viaduct and trestle, the guideway, the bridge, the skyline) and to each event as it begins.
 
