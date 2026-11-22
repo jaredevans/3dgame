@@ -300,3 +300,134 @@ test('the arrival shot is picked over another showpiece sharing its window', () 
   const d = makeDirector({ rand: () => 0 });
   assert.equal(d.step({ ...base, legS: 1600, v: 20, showpieces: [arrive, skyline] }).shot.id, 'arrive');
 });
+
+// ---- the arrival shot and the events near a line's end ----
+import { eventsFor, makeEventTrack, EVENTS } from '../events.js';
+import { legRoute, platformWindow } from '../world-data.js';
+
+// a run driven through the real events of a leg, fed to the director as main.js feeds it: its showpieces (a shot, no
+// actor) and the events with a shot that start each frame. The train cruises at `v`, brakes at `brake` m/s² to draw up
+// at each mark ({ at, wait } s standing, then on at `accel`), and stands at the last. -> { cuts: [{ id, kind, at, s, t,
+// v }], stopT: when it came to a stand at the last mark, stops: when it came to a stand at each }
+function drive(leg, { from, v: cruise, brake, accel = 0.6, marks, stand = 120, length = 100, rand = () => 0 }) {
+  const defs = eventsFor(leg, 'out'), track = makeEventTrack(defs), byId = new Map(defs.map((e) => [e.id, e]));
+  const showpieces = defs.filter((e) => e.shot && !e.actor);
+  const d = makeDirector({ rand });
+  const cuts = [], dt = 0.1;
+  let s = from, v = cruise, t = 0, m = 0, waited = 0, stopT = null;
+  const stops = [];
+  while (t < 2000) {
+    const mark = marks[m], last = m === marks.length - 1;
+    if (mark && s >= mark.at - 0.05 && v <= 0.05) {
+      if (waited === 0) stops.push(t);
+      v = 0; waited += dt;
+      if (last) { stopT ??= t; if (t - stopT >= stand) break; } else if (waited >= mark.wait) { m++; waited = 0; }
+    } else if (mark && v * v / (2 * brake) >= mark.at - s) v = Math.max(0, v - brake * dt);
+    else v = Math.min(cruise, v + accel * dt);
+    s = mark ? Math.min(mark.at, s + v * dt) : s + v * dt;
+    const ev = track.step({ legS: s, dt });
+    const started = ev.started.map((id) => byId.get(id)).filter((e) => e.shot && e.actor);
+    const r = d.step({ dt, legS: s, dir: 'out', v, showpieces, started, length });
+    if (r.cut || t === 0) cuts.push({ id: r.shot.id, kind: r.shot.kind, at: r.shot.at, s, t, v });
+    t += dt;
+  }
+  return { cuts, stopT, stops };
+}
+const FIXED_KINDS = new Set(['trackside', 'below', 'wide', 'high-wide', 'portal', 'arrival']);
+const stopAt = (leg) => platformWindow(legRoute(leg).length, 'end').stopS;
+
+test('city-ocean out at 24 m/s: the crossing cuts into the arrival shot before the train passes it, never after a stop', () => {
+  // drawn up at the platform, and (a driver braking early) short of it at 1794, inside the crossing's window
+  for (const end of [stopAt('city-ocean'), 1794]) {
+    const { cuts, stopT } = drive('city-ocean', { from: 1150, v: 24, brake: 0.8, marks: [{ at: end }] });
+    const trace = JSON.stringify(cuts.map((c) => [c.id, Math.round(c.s)]));
+    const crossing = cuts.filter((c) => c.id === 'crossing');
+    assert.equal(crossing.length, 1, `stop ${end}: ${trace}`);
+    // while the train's middle (50 m back) is still short of the crossing at 1610
+    assert.ok(crossing[0].s < 1610 + 50, `stop ${end}: crossing cut at ${crossing[0].s.toFixed(0)}`);
+    assert.ok(crossing[0].t < stopT);
+    // nothing behind the train is cut to once it has stopped (a fixed shot's at behind its middle)
+    for (const c of cuts) if (c.t >= stopT && FIXED_KINDS.has(c.kind) && c.kind !== 'arrival') assert.ok(c.at >= c.s - 50, `stop ${end}: stale ${c.id} at ${c.at} after the stop`);
+    // the arrival shot comes back after the crossing's, and the train comes in under it
+    const before = cuts.filter((c) => c.t < stopT);
+    if (end > 1900) assert.equal(before[before.length - 1].kind, 'arrival', trace);
+  }
+});
+
+test("mountain-west out: the cattle's shot cuts into the arrival shot as the train comes up to the herd, not once it's held", () => {
+  const { cuts, stopT, stops } = drive('mountain-west', { from: 200, v: 15, brake: 1.0, marks: [{ at: 1106, wait: 12 }, { at: stopAt('mountain-west') }] });
+  const trace = JSON.stringify(cuts.map((c) => [c.id, Math.round(c.s), Math.round(c.t)]));
+  const cattle = cuts.filter((c) => c.id === 'cattle');
+  assert.equal(cattle.length, 1, trace);
+  assert.ok(cattle[0].t < stops[0], `cattle cut at ${cattle[0].t.toFixed(1)} s, the guard's stop at ${stops[0].toFixed(1)}: ${trace}`);
+  assert.ok(!cuts.some((c) => c.t >= stopT && c.id === 'cattle'));
+  const before = cuts.filter((c) => c.t < stopT);
+  assert.equal(before[before.length - 1].kind, 'arrival', trace);
+});
+
+test('a queued event whose fixed shot the train has passed while it waited is dropped (`always` ones too)', () => {
+  // a portal shot holds the train's whole way through a long window; the event's trackside shot at 600 is passed meanwhile
+  const portal = { id: 'portal', s0: 434, s1: 1000, shot: { kind: 'portal', at: 642 } };
+  for (const always of [false, true]) {
+    const e = { id: 'crossing', s0: 440, s1: 1400, actor: 'crossing', always, shot: { kind: 'trackside', at: 600, lateral: -10 } };
+    const d = makeDirector({ rand: () => 0 });
+    assert.equal(d.step({ ...base, legS: 400, v: 16, showpieces: [portal] }).shot.id, 'portal');
+    const ids = [];
+    for (let legS = 436; legS < 1300; legS += 1.6) {
+      const r = d.step({ ...base, legS, v: 16, showpieces: [portal], started: legS >= 440 && legS < 441.6 ? [e] : [] });
+      if (r.cut) ids.push(r.shot.id);
+    }
+    assert.ok(!ids.includes('crossing'), `always ${always}: ${ids}`);
+  }
+});
+
+test("west-future out: the rocket's shot from behind its window still cuts in (its at was behind the train when it started)", () => {
+  const rocket = EVENTS['west-future'].find((e) => e.id === 'rocket');
+  const d = makeDirector({ rand: () => 0 });
+  d.step({ ...base, legS: 1880, v: 20 }); run(d, 20, { legS: 1880, v: 20 });
+  let r = d.step({ ...base, legS: 1900, v: 20, started: [rocket] }), legS = 1900;
+  for (let i = 0; i < 20 && !(r.cut && r.shot.id === 'rocket'); i++) { legS += 2; r = d.step({ ...base, legS, v: 20 }); }
+  assert.equal(r.shot.id, 'rocket');
+  assert.equal(r.shot.at, 1750);
+});
+
+test('a ready event cuts into the arrival shot after 1.5 s, and the arrival shot is picked again after it', () => {
+  const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
+  const e = { id: 'horses', s0: 1500, s1: 1900, actor: 'horses', shot: { kind: 'heli', at: 1650, lateral: -60 } };
+  const d = makeDirector({ rand: () => 0 });
+  let legS = 1560;
+  assert.equal(d.step({ ...base, legS, v: 10, showpieces: [arrive] }).shot.id, 'arrive');
+  const cuts = [];
+  for (let i = 1; i < 300; i++) {
+    legS += 1;
+    const r = d.step({ ...base, legS, v: 10, showpieces: [arrive], started: i === 2 ? [e] : [] });
+    if (r.cut) cuts.push([r.shot.id, i / 10]);
+  }
+  assert.equal(cuts[0][0], 'horses');
+  assert.ok(Math.abs(cuts[0][1] - 1.5) < 0.05, `horses cut ${cuts[0][1]} s in`);
+  assert.equal(cuts[1][0], 'arrive', JSON.stringify(cuts));
+});
+
+test('standing at the destination for 120 s: the arrival shot ends after 2 s, and no shot after it is held under 5 s', () => {
+  const arrive = { id: 'arrive', s0: 1550, s1: 2000, shot: { kind: 'arrival', at: 2000, lateral: 2 } };
+  for (const r of [0, 0.5, 0.999]) {
+    const d = makeDirector({ rand: () => r });
+    assert.equal(d.step({ ...base, legS: 1980, v: 4, showpieces: [arrive] }).shot.id, 'arrive');
+    const cuts = [];
+    for (let i = 1; i <= 1200; i++) if (d.step({ ...base, legS: 1986, v: 0, showpieces: [arrive] }).cut) cuts.push(i / 10);
+    assert.ok(cuts[0] >= 2 && cuts[0] <= 2.3, `rand ${r}: arrival ended ${cuts[0]} s in`);
+    for (let i = 1; i < cuts.length; i++) assert.ok(cuts[i] - cuts[i - 1] >= 4.95, `rand ${r}: a shot held ${(cuts[i] - cuts[i - 1]).toFixed(1)} s at ${cuts[i - 1]}`);
+  }
+});
+
+test("a stop mid-window (the guard, at the cattle) doesn't end the arrival shot; at the platform it does", () => {
+  const arrive = { id: 'arrive', s0: 977, s1: 1427, shot: { kind: 'arrival', at: 1427, lateral: 2 } };
+  const d = makeDirector({ rand: () => 0 });
+  assert.equal(d.step({ ...base, legS: 990, v: 10, showpieces: [arrive] }).shot.id, 'arrive');
+  for (let i = 0; i < 150; i++) assert.equal(d.step({ ...base, legS: 1106, v: 0, showpieces: [arrive] }).cut, false, `cut ${i / 10} s into the guard's stop`);
+  // on again, up to the platform
+  for (let legS = 1106; legS < 1414; legS += 1) assert.equal(d.step({ ...base, legS, v: 10, showpieces: [arrive] }).cut, false, `cut at ${legS}`);
+  let t = 0, cut = false;
+  while (!cut && t < 10) { cut = d.step({ ...base, legS: 1414, v: 0, showpieces: [arrive] }).cut; t += 0.1; }
+  assert.ok(t >= 2 && t <= 2.3, `cut ${t.toFixed(1)} s after stopping at the platform`);
+});

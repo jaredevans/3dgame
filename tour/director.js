@@ -11,8 +11,10 @@
 //
 // A started event is queued, and cuts in once the front is within its lead of the shot's `at` (at once with no `at`),
 // after the current shot has had EVENT_DELAY s; not into a portal or below showpiece's long hold, nor into another
-// event's shot: those finish first, then the queue is served in order. An event's fixed shot (trackside, below, wide,
-// high-wide) holds until the train's middle has passed its `at` (up to LONG_HOLD s), so it sees the train go by.
+// event's shot: those finish first, then the queue is served in order. It may cut into the arrival shot (the last
+// ARRIVE m of a line are full of events), which is picked again after it. An event's fixed shot (trackside, below,
+// wide, high-wide) holds until the train's middle has passed its `at` (up to LONG_HOLD s), so it sees the train go by;
+// one still queued when the train's middle passes its `at` is dropped, as it would only show where the train has been.
 
 import { aheadOf } from './events.js';
 
@@ -29,8 +31,11 @@ const TUNNEL_CLEAR = { before: 15, after: 30, ahead: 30 };   // m: a fixed gener
 const FIXED = new Set(['trackside', 'below', 'wide', 'high-wide', 'portal', 'arrival']);
 const QUEUE = 8;
 // the arrival shot (from the line's end, the train coming in head-on: owner, 2026-11-21) holds until the train has stood
-// still this long at the platform, up to ARRIVAL_HOLD s (a slow train takes ~40 s over its window's last 450 m)
-const ARRIVAL_HOLD = 60, ARRIVAL_STOPPED = 2;
+// still this long at the platform (its front within ARRIVAL_NEAR m of the line's end: about a platform's length, so a
+// stop for the guard further up the line doesn't end it), up to ARRIVAL_HOLD s (a slow train takes ~40 s over its
+// window's last 450 m). It isn't picked while the train stands still that long, so it's not cut back to for a moment
+// at the platform each time it drops out of the last two shots
+const ARRIVAL_HOLD = 60, ARRIVAL_STOPPED = 2, ARRIVAL_NEAR = 130;
 
 // per kind: fov, height and lateral (metres; `side` = random sign, mirrored either side) used where the spec gives none
 const DEFAULTS = {
@@ -67,9 +72,10 @@ export function makeDirector({ rand = Math.random } = {}) {
   let stoodFor = 0;                   // s the train has stood still (for the arrival shot)
   let event = null;                  // the event the current shot is for, while it is one
   const queue = [];                  // started events waiting for their cut, in order
+  const passing = new Set();         // those queued with a fixed shot whose `at` was ahead of the train's middle then
   const out = { shot: null, cut: false };
 
-  const reset = () => { cur = null; age = 0; recent = []; general = -1; win = null; entered = false; stoodFor = 0; event = null; queue.length = 0; };
+  const reset = () => { cur = null; age = 0; recent = []; general = -1; win = null; entered = false; stoodFor = 0; event = null; queue.length = 0; passing.clear(); };
 
   const specFor = (kind, id, given, input) => {
     const d = DEFAULTS[kind] ?? DEFAULTS.chase;
@@ -98,6 +104,7 @@ export function makeDirector({ rand = Math.random } = {}) {
     for (let i = 0; i < list.length; i++) {
       const p = list[i];
       if (!p.shot || recent.includes(p.id) || leftOf(p, input) < MIN_LEFT) continue;
+      if (p.shot.kind === 'arrival' && stoodFor >= ARRIVAL_STOPPED) continue;
       const inside = input.legS >= p.s0 && input.legS <= p.s1;
       const edge = input.dir === 'out' ? p.s0 : p.s1;
       const ahead = aheadOf(input.legS, edge, input.dir);
@@ -133,6 +140,8 @@ export function makeDirector({ rand = Math.random } = {}) {
   };
 
   const cutTo = (shot, input, longWin, ev) => {
+    // an event cutting into the arrival shot: that's picked again after it
+    if (ev && cur?.kind === 'arrival') recent = recent.filter((id) => id !== cur.id);
     cur = shot; age = 0; event = ev;
     recent.push(shot.id);
     if (recent.length > 2) recent.shift();
@@ -152,8 +161,22 @@ export function makeDirector({ rand = Math.random } = {}) {
     if (!event || !FIXED.has(cur.kind) || cur.at === null || age >= LONG_HOLD) return false;
     return aheadOf(input.legS, cur.at, input.dir) > -(input.length ?? 0) / 2;
   };
-  // a queued event whose window the train has left (and isn't `always`, flying on past it) no longer comes
-  const gone = (e, input) => !e.always && aheadOf(input.legS, input.dir === 'out' ? e.s1 : e.s0, input.dir) < 0;
+  // how far ahead of the train's middle a fixed event shot's `at` is (negative once the middle has passed it), or null
+  const pastMiddle = (e, input) => {
+    const at = e.shot.at;
+    if (!FIXED.has(e.shot.kind) || at === undefined || at === null) return null;
+    return aheadOf(input.legS, at, input.dir) + (input.length ?? 0) / 2;
+  };
+  // a queued event whose window the train has left (and isn't `always`, flying on past it) no longer comes; nor one
+  // whose fixed shot's `at` the train's middle has passed since it was queued (`always` too). (One whose `at` was
+  // already behind the train when it started, as the rocket's from behind its window, is meant to be)
+  const gone = (e, input) => (!e.always && aheadOf(input.legS, input.dir === 'out' ? e.s1 : e.s0, input.dir) < 0)
+    || (passing.has(e) && pastMiddle(e, input) < 0);
+  const dequeue = (i) => {
+    passing.delete(queue[i]);
+    for (let j = i; j < queue.length - 1; j++) queue[j] = queue[j + 1];
+    queue.length--;
+  };
 
   const step = (input) => {
     age += input.dt;
@@ -161,25 +184,27 @@ export function makeDirector({ rand = Math.random } = {}) {
     if (started) {
       for (let i = 0; i < started.length; i++) {
         const e = started[i];
-        if (e.shot && queue.length < QUEUE && !queue.includes(e)) queue.push(e);
+        if (!e.shot || queue.length >= QUEUE || queue.includes(e)) continue;
+        queue.push(e);
+        if (pastMiddle(e, input) >= 0) passing.add(e);
       }
     }
-    for (let i = queue.length - 1; i >= 0; i--) if (gone(queue[i], input)) { for (let j = i; j < queue.length - 1; j++) queue[j] = queue[j + 1]; queue.length--; }
+    for (let i = queue.length - 1; i >= 0; i--) if (gone(queue[i], input)) dequeue(i);
 
     if (cur && win && !entered && input.legS >= win.s0 && input.legS <= win.s1) entered = true;
     const leftWin = win && entered && !(input.legS >= win.s0 && input.legS <= win.s1);
     stoodFor = Math.abs(input.v) < STILL ? stoodFor + input.dt : 0;
-    const arrived = cur && cur.kind === 'arrival' && stoodFor >= ARRIVAL_STOPPED;
+    const arrived = cur && cur.kind === 'arrival' && stoodFor >= ARRIVAL_STOPPED
+      && Math.abs(aheadOf(input.legS, cur.at, input.dir)) <= ARRIVAL_NEAR;
     const expired = cur && ((age >= cur.hold && !waiting(input)) || leftWin || arrived);
-    // what may be cut into: anything once it's expired; a general or short showpiece shot after EVENT_DELAY
-    const open = !cur || expired || (!win && !event && age >= EVENT_DELAY);
+    // what may be cut into: anything once it's expired; a general, short showpiece or arrival shot after EVENT_DELAY
+    const open = !cur || expired || (!event && age >= EVENT_DELAY && (!win || cur.kind === 'arrival'));
 
     if (open) {
       for (let i = 0; i < queue.length; i++) {
         const e = queue[i];
         if (!ready(e, input)) continue;
-        for (let j = i; j < queue.length - 1; j++) queue[j] = queue[j + 1];
-        queue.length--;
+        dequeue(i);
         const s = specFor(e.shot.kind, e.id, e.shot, input);
         s.hold = Math.max(HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN), HOLD_MIN);
         return cutTo(s, input, null, e);
