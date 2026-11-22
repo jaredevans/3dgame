@@ -594,6 +594,7 @@ import {
 } from '../actors/paths.js';
 import { PLACES, LEGS } from '../world-data.js';
 import { LAYOUT, clearGround } from '../suburbs.js';
+import { TOWERS } from './fixtures.js';   // the towers and parked fliers, as measured in the page
 
 const FC = legRoute('future-city');
 
@@ -604,24 +605,6 @@ test('one platform window\'s length, shared: paceBounds keeps that far off both 
   assert.equal(hi, 2000 - PLATFORM - 10);
 });
 
-// the towers and the kit's own parked fliers in each town, in its kit's frame (measured in the page): x, z, r (how far
-// out from its middle it reaches), from and top (metres over the town's ground)
-const TOWERS = {
-  future: [
-    { x: -2, z: -52, r: 11.3, from: 0, top: 41 },                                            // the monolith tower
-    { x: -56, z: -8, r: 5.7, from: 0, top: 31 }, { x: -48, z: -8, r: 5.7, from: 0, top: 31 },   // the capsule towers
-    { x: -40, z: -30, r: 8.5, from: 0, top: 25 }, { x: -40, z: -18, r: 8.5, from: 0, top: 25 }, // the slab blocks
-    { x: 0, z: 46, r: 5.7, from: 0, top: 21 }, { x: -23, z: 45, r: 5.7, from: 0, top: 21 },    // the vertical farms
-    { x: -12, z: 46, r: 9, from: 25, top: 29 },                                               // the sky bridges
-    { x: 40, z: -24, r: 11.3, from: 0, top: 14 },                                             // the depot
-    { x: 26, z: -40, r: 2.7, from: 53, top: 55 }, { x: -24, z: -30, r: 3.4, from: 47, top: 49 }, // parked up high
-    { x: -24, z: 38, r: 2.7, from: 40, top: 41 }, { x: 14, z: 44, r: 6, from: 44, top: 45 },
-    { x: -24, z: 0, r: 2.7, from: 16, top: 17 }, { x: -24, z: 26, r: 2.7, from: 16, top: 18 },
-    { x: 38, z: 50, r: 2.7, from: 13, top: 15 }, { x: 38, z: 32, r: 2.7, from: 15, top: 17 },
-  ],
-  city: [-36, -20, 12].map((z) => ({ x: -52, z, r: 5.7, from: 0, top: 32 })).concat(
-    [[-12, 12], [-28, 36], [24, -36], [44, -36], [44, 36]].map(([x, z]) => ({ x, z, r: 5.7, from: 0, top: 32 }))),
-};
 const toKit = (place, x, z) => {
   const c = Math.cos(place.rot), s = Math.sin(place.rot), dx = x - place.centre.x, dz = z - place.centre.z;
   return [dx * c - dz * s, dx * s + dz * c];

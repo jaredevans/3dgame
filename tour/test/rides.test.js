@@ -7,6 +7,7 @@ import { RIDE_LEGS, RIDE_DT, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL
 import { LEGS, PLACES, SEA_LEVEL, EXTRA_REACH, legRoute, laneOf, platformWindow, worldTerrain } from '../world-data.js';
 import { stationWalk } from '../station-walk.js';
 import { rocketPad } from '../actors/paths.js';
+import { TOWERS, footprint } from './fixtures.js';
 
 const terrain = worldTerrain(), ground = (x, z) => terrain.heightAt(x, z);
 const rides = RIDE_LEGS.map(rideFor);
@@ -21,15 +22,8 @@ function nearestOn(leg, x, z) {
   return best;
 }
 
-// a place's footprint and its town for the walk, as places.test.js stands them in (no kits in Node): its `size`
-// rectangle, turned by `rot`, and the ground round its extra parts
-function footprint(p) {
-  const c = Math.cos(p.rot), s = Math.sin(p.rot), [ox, oz] = p.offset ?? [0, 0];
-  const toWorld = (lx, lz) => [p.centre.x + lx * c + lz * s, p.centre.z - lx * s + lz * c];
-  const toLocal = (x, z) => { const dx = x - p.centre.x, dz = z - p.centre.z; return [dx * c - dz * s, dx * s + dz * c]; };
-  const hx = p.size[0] / 2, hz = p.size[1] / 2;
-  return { toWorld, outside(x, z) { const [lx, lz] = toLocal(x, z); return Math.hypot(Math.max(0, Math.abs(lx - ox) - hx), Math.max(0, Math.abs(lz - oz) - hz)); } };
-}
+// a place's town for the walk, as places.test.js stands it in (no kits in Node): its footprint, and the ground round its
+// extra parts
 function inTownOf(p) {
   const f = footprint(p), spots = (p.extras ?? []).map((e) => f.toWorld(e.x, e.z));
   return (x, z) => f.outside(x, z) === 0 || spots.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= EXTRA_REACH);
@@ -176,6 +170,25 @@ test('the jet flies round the rocket pad: its path comes within 2.2 km of the pa
   });
   assert.ok(closest <= 2200, `${closest.toFixed(0)} m from the pad at closest`);
   assert.ok((hi - lo) * 180 / Math.PI >= 300, `its bearing spans ${((hi - lo) * 180 / Math.PI).toFixed(0)} degrees`);
+  // its take-off and landing rolls are on the ground (on level ground, as its hardstanding and apron will be): at most
+  // 2 m over it, never under 1, the take-off from the start and the landing to the stop, and quick enough to fly
+  assert.equal(r.rolls.length, 2);
+  assert.equal(r.rolls[0][0], 0);
+  assert.equal(r.rolls[1][1], r.path.length);
+  for (const [a, b] of r.rolls) {
+    assert.ok(b - a >= 50 && b - a <= 250, `a roll of ${(b - a).toFixed(0)} m`);
+    for (let s = a, p = {}; s <= b; s += 1) {
+      r.path.at(s, p);
+      const up = p.y - ground(p.x, p.z);
+      assert.ok(up >= 1 && up <= 2, `the jet ${up.toFixed(2)} m over the ground on its roll at ${s}`);
+    }
+  }
+  let st = { s: 0, t: 0 };
+  while (st.s < r.rolls[0][1]) st = rideStep(st, 1 / 60, r);
+  assert.ok(st.v * 3.6 >= 150, `lifting off at ${(st.v * 3.6).toFixed(0)} km/h`);
+  while (st.s < r.rolls[1][0]) st = rideStep(st, 1 / 60, r);
+  assert.ok(st.v * 3.6 >= 150 && st.v * 3.6 <= 260, `touching down at ${(st.v * 3.6).toFixed(0)} km/h`);
+  for (const other of rides) if (other !== r) assert.deepEqual(other.rolls, []);
   // fast: cruising at 750-800 km/h, low over the desert (60-150 m up) once it's climbed out and till it comes down
   assert.ok(r.profile.v * 3.6 >= 750 && r.profile.v * 3.6 <= 800, `${(r.profile.v * 3.6).toFixed(0)} km/h`);
   along(r.path, 10, (p, s) => {
@@ -200,25 +213,6 @@ test('the balloon rises to about 150 m over the land, and the car flies 40-80 m 
     assert.ok(up >= 40 && up <= 80, `the car ${up.toFixed(0)} m up at ${s} (leg-s ${legS.toFixed(0)})`);
   });
 });
-
-// the towers and the kit's own parked fliers in each town, in its kit's frame, as actors.test.js has them (measured in
-// the page): x, z, r (how far out from its middle it reaches), from and top (metres over the town's ground)
-const TOWERS = {
-  future: [
-    { x: -2, z: -52, r: 11.3, from: 0, top: 41 },
-    { x: -56, z: -8, r: 5.7, from: 0, top: 31 }, { x: -48, z: -8, r: 5.7, from: 0, top: 31 },
-    { x: -40, z: -30, r: 8.5, from: 0, top: 25 }, { x: -40, z: -18, r: 8.5, from: 0, top: 25 },
-    { x: 0, z: 46, r: 5.7, from: 0, top: 21 }, { x: -23, z: 45, r: 5.7, from: 0, top: 21 },
-    { x: -12, z: 46, r: 9, from: 25, top: 29 },
-    { x: 40, z: -24, r: 11.3, from: 0, top: 14 },
-    { x: 26, z: -40, r: 2.7, from: 53, top: 55 }, { x: -24, z: -30, r: 3.4, from: 47, top: 49 },
-    { x: -24, z: 38, r: 2.7, from: 40, top: 41 }, { x: 14, z: 44, r: 6, from: 44, top: 45 },
-    { x: -24, z: 0, r: 2.7, from: 16, top: 17 }, { x: -24, z: 26, r: 2.7, from: 16, top: 18 },
-    { x: 38, z: 50, r: 2.7, from: 13, top: 15 }, { x: 38, z: 32, r: 2.7, from: 15, top: 17 },
-  ],
-  city: [-36, -20, 12].map((z) => ({ x: -52, z, r: 5.7, from: 0, top: 32 })).concat(
-    [[-12, 12], [-28, 36], [24, -36], [44, -36], [44, 36]].map(([x, z]) => ({ x, z, r: 5.7, from: 0, top: 32 }))),
-};
 
 test('the car keeps 15 m clear of the City and Futuristic towers (tower boxes as Task 8 of phase 3 measured in paths.js LANES tests)', () => {
   const r = ride('car');

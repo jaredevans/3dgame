@@ -177,39 +177,40 @@ export const JET = { radius: 1500, cruise: 80, rest: 1.5 };
 // west, its own side, the town's, would mean flying over the place and turning back (3 km more, too far for 90 s).
 // Its hardstanding is 35 m in from the platform's open end, not by it (owner's ruling, 2026-11-22): the Wild West's
 // town is by the buffer end, and over the last 33 m to the open end the walk is the platform alone, so this is the
-// nearest the walk comes off the platform to the open end. 20 m out, so its wings clear the line as it taxis out.
+// nearest the walk comes off the platform to the open end. 17 m out, so its wings clear the platform as it rolls.
+// It rolls on the ground (JET.rest over it) along the station's level shelf, 17 m out, lifting off 50 m past the
+// platform's end before the land falls away into the dry wash; it lands on level ground and rolls to a stop there.
+// (`rolls`: the stretches of its path on its wheels.)
 function jet() {
   const at = stationSpot('west', 'departure'), to = stationSpot('future', 'arrival');
   const pad = rocketPad(legRoute('west-future')), R = JET.radius;
-  // the hardstanding and runway: level, at the highest of the ground along them
-  const roll = [at(35, 20), at(8, 25), at(-40, 25), at(-160, 25)];
-  let top = -Infinity;
-  for (let i = 0; i < roll.length - 1; i++) for (let t = 0; t <= 1; t += 0.05) {
-    const a = roll[i], b = roll[i + 1];
-    top = Math.max(top, ground(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t));
-  }
-  const runway = roll.map((p) => ({ ...p, y: top + JET.rest }));
+  // the hardstanding and runway, on the ground beside the line; then rotating and climbing away over the wash
+  const runway = [35, 15, 0, -15, -30, -50].map((inn) => onGround(at(inn, 17), JET.rest));
+  const liftoff = runway[runway.length - 1];
+  const climb = { ...at(-130, 19), y: liftoff.y + 6 };
   // out to the circle's near side and round the far side of the pad (bearings 90 to 270 degrees, through 180: west)
   const circle = [];
   for (let deg = 90; deg <= 270; deg += 30) {
     const a = deg * Math.PI / 180, x = pad.x + R * Math.cos(a), z = pad.z + R * Math.sin(a);
     circle.push({ x, z, y: over(x, z, 300, JET.cruise) });
   }
-  const last = runway[runway.length - 1], first = circle[0], out = [];
+  const last = climb, first = circle[0], out = [];
   for (const f of [0.15, 0.4, 0.65, 0.85]) {
     const x = last.x + (first.x - last.x) * f, z = last.z + (first.z - last.z) * f;
     out.push({ x, z, y: over(x, z, 300, JET.cruise) });
   }
-  // the landing: down a 3.5-degree glide onto the apron, touching down some 150 m short of where it stops
+  // the landing: down a 3.5-degree glide onto the apron (level ground, 1.0-1.2 m), touching down 110 m short of where
+  // it stops, at some 220 km/h
+  const TOUCH = 150;
   let apron = -Infinity;
   for (let inn = 40; inn <= 260; inn += 5) { const p = to(inn, -35); apron = Math.max(apron, ground(p.x, p.z)); }
-  const level = apron + JET.rest, glide = (inn) => ({ ...to(inn, -35), y: level + Math.max(0, inn - 220) * Math.tan(3.5 * Math.PI / 180) });
-  const home = [1700, 900, 450, 260, 200, 140, 90].map(glide), land = glide(40);   // (close at the touchdown: no dip)
+  const level = apron + JET.rest, glide = (inn) => ({ ...to(inn, -35), y: level + Math.max(0, inn - TOUCH) * Math.tan(3.5 * Math.PI / 180) });
+  const home = [1700, 900, 450, 260, 200, TOUCH, 100].map(glide), land = glide(40);   // (close at the touchdown: no dip)
   const back = circle[circle.length - 1], mid = { x: (back.x + home[0].x) / 2, z: (back.z + home[0].z) / 2 };
   const inbound = { ...mid, y: over(mid.x, mid.z, 300, JET.cruise) };
   const step = onGround(to(40, 20));   // on the town-side approach, across the tracks from the apron
-  return { pts: [...runway, ...out, ...circle, inbound, ...home, land], step: { ...step, yaw: townward('future', 'arrival')(step.yaw) },
-    ease: [16, 16], rest: JET.rest };
+  return { pts: [...runway, climb, ...out, ...circle, inbound, ...home, land], step: { ...step, yaw: townward('future', 'arrival')(step.yaw) },
+    ease: [16, 16], rest: JET.rest, rolls: [[null, liftoff], [glide(TOUCH), null]] };
 }
 
 // The flying car (future-city): up from a pad beside the Futuristic place's departure platform, 55 m over the highest
@@ -308,11 +309,19 @@ export function rideFor(leg) {
   if (!rides.has(leg)) {
     const b = BUILD[leg];
     if (!b) throw new Error(`no ride along ${leg}`);
-    const { pts, step, ease, rest } = b.make();
+    const { pts, step, ease, rest, rolls = [] } = b.make();
     const path = makeRoute(pts);
+    // a roll's ends given as points (null: the path's end) -> ride-s, the path's nearest metre to each
+    const sOf = (p, fallback) => {
+      if (!p) return fallback;
+      let best = Infinity, bs = 0;
+      for (let s = 0, q = {}; s <= path.length; s += 1) { path.at(s, q); const d = Math.hypot(q.x - p.x, q.z - p.z); if (d < best) { best = d; bs = s; } }
+      return bs;
+    };
     const end = (s) => { const o = path.at(s); return { x: o.x, z: o.z, y: o.y, yaw: o.yaw }; };
     rides.set(leg, {
       leg, id: b.id, name: b.name, from: LEGS[leg].from, to: LEGS[leg].to, rest,
+      rolls: rolls.map(([a, z]) => [sOf(a, 0), sOf(z, path.length)]),
       board: end(0), land: end(path.length), step: { x: step.x, z: step.z, y: step.y, yaw: step.yaw },
       path, duration: DURATION, profile: profileFor(path.length, DURATION, ease), legS: legTable(path, leg),
       events: [], showpieces: [],   // each ride's own set pieces (Tasks 4-8)

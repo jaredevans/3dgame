@@ -7,20 +7,7 @@ import { stationWalk } from '../station-walk.js';
 import { STATION_STYLES } from '../station-style.js';
 import { makeWalkWorld } from '../walk-world.js';
 import { BODY } from '../walk.js';
-
-// a place's footprint: its `size` rectangle, centred `offset` (kit metres) from the kit's origin, turned by `rot`
-// (as places.js turns the kit: local (lx, lz) is world (x + lx cos + lz sin, z - lx sin + lz cos))
-function footprint(p) {
-  const c = Math.cos(p.rot), s = Math.sin(p.rot), [ox, oz] = p.offset ?? [0, 0];
-  const toWorld = (lx, lz) => [p.centre.x + lx * c + lz * s, p.centre.z - lx * s + lz * c];
-  const toLocal = (x, z) => { const dx = x - p.centre.x, dz = z - p.centre.z; return [dx * c - dz * s, dx * s + dz * c]; };
-  const hx = p.size[0] / 2, hz = p.size[1] / 2;
-  return {
-    toWorld,
-    // how far a world point lies outside the rectangle (0 inside it)
-    outside(x, z) { const [lx, lz] = toLocal(x, z); return Math.hypot(Math.max(0, Math.abs(lx - ox) - hx), Math.max(0, Math.abs(lz - oz) - hz)); },
-  };
-}
+import { footprint } from './fixtures.js';   // a place's footprint rectangle, standing in for its kit's land
 
 const CLEAR = 10;   // from a line's centre: its swept path (lanes ±2, trains 3.2 m wide) and its platforms (out to 8 m), and 2 m
 
