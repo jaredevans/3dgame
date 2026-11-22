@@ -1,8 +1,9 @@
 // Building trains from Countryside Railway parts and posing them on a route.
 import * as THREE from 'three';
 import { KITS } from './config.js';
-import { part } from './parts.js';
+import { part, urlPart } from './parts.js';
 import { placeCars } from './consist.js';
+import { hdUrlFor, hdFailed, hdLight } from './hd.js';
 
 // The basement's measureVehicle (index.html), unchanged: finds a vehicle's pivots, bogies and spinnable wheels.
 export function measureVehicle(obj, flip) {
@@ -32,13 +33,32 @@ export function measureVehicle(obj, flip) {
   return { holder, obj, box, front: box.max.z, length: box.max.z - box.min.z, pf, pr, bogies, bogieZ: bogies.map((b) => b.z), wheels, spin: flip ? -1 : 1 };
 }
 
+// the wheels that turn, as the flat parts have them: a wheelset's group and its set inside it (each turned by ds/r, as
+// measureVehicle finds them). An HD edition nests its set's zones as meshes inside the set as well, five 'wheel' nodes to
+// the flat one's two; turning those too would compound, so they're left to turn with their set
+function asFlatWheels(wheels) {
+  const nodes = new Set(wheels.map((w) => w.node));
+  const depth = (o) => { let n = 0; for (let p = o.parent; p; p = p.parent) if (nodes.has(p)) n++; return n; };
+  return wheels.filter((w) => depth(w.node) <= 1);
+}
+
+// one car: its HD edition when HD is on and it has one (lit for its materials: hd.js), else, or if that fails to load
+// (said once), its flat kit part -> { obj, hd }
+async function carPart(kit, key, params) {
+  const url = hdUrlFor(key);
+  if (url) {
+    try { return { obj: hdLight(await urlPart(url, key, params)), hd: true }; } catch (err) { hdFailed(key, err); }
+  }
+  return { obj: await part(kit, key, params), hd: false };
+}
+
 // trains made in code, by builder name (loaded when wanted: they measure their cars with measureVehicle, above)
 const BUILDERS = {
   bullet: async (def) => (await import('./trains/bullet.js')).buildBullet({ cars: def.carCount, name: def.name }),
 };
 
 // def: { name, kit?, ride?, cars: [[kitKey, params, flip?]] } (parts from `kit`, the Countryside Railway unless named,
-// standing `ride` up off the formation), or
+// or their HD editions (hd.js), standing `ride` up off the formation), or
 // { name, builder, carCount } for a train made in code -> { name, group, cars }
 export async function buildTrain(def) {
   if (def.builder) {
@@ -49,10 +69,12 @@ export async function buildTrain(def) {
   group.name = def.name;
   const cars = [];
   for (const [key, params, flip] of def.cars) {
-    const obj = await part(def.kit ?? KITS.railway, key, params);
+    const { obj, hd } = await carPart(def.kit ?? KITS.railway, key, params);
     obj.position.y = def.ride ?? 0;   // a car that stands up off the formation (the Metro Glide's, over the deck)
     const v = measureVehicle(obj, !!flip);
-    v.key = key;
+    v.key = key;   // the kit part's key, HD or not (the cabs are found by it)
+    v.hd = hd;
+    if (hd) v.wheels = asFlatWheels(v.wheels);
     group.add(v.holder);
     cars.push(v);
   }

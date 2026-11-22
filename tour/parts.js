@@ -46,6 +46,15 @@ export async function part(kitId, key, params = {}) {
   return obj;
 }
 
+// a part from a module at a URL of its own (an HD edition, hd.js), its module loaded once; key names it as the kit part
+// it stands in for. A load that fails is thrown, naming the URL (and tried again next time)
+export async function urlPart(url, key, params = {}) {
+  const mod = await modules.load(url);
+  const obj = await mod.createAsset(params);
+  obj.userData.partKey = key;
+  return obj;
+}
+
 // load(url) from each base in turn until one works: the parts folder beside the kits, then Polyfork's public CDN. Taken
 // from a later base, onFallback(url) says so (the part wasn't copied out of the catalogue); if none works, the last
 // base's error is thrown. -> what load returned

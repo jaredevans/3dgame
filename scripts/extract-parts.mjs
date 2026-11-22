@@ -8,7 +8,8 @@
 //
 // Which parts: every catalogue asset id written anywhere in tour/ (the suburbs' houses, the events' animals and props)
 // or in the Scenic Tour plans (parts a task is still to use), each as its .mjs and its .glb, and its -params.json
-// (its knobs and night map) from Polyfork's public CDN.
+// (its knobs and night map) from Polyfork's public CDN; and Polyfork's materials engine (materials.mjs), which dresses the
+// animals in HD (tour/hd.js): polyfork.dev serves it without CORS headers, so a page can only import it from here.
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -62,3 +63,12 @@ for (const id of used) {
   } catch { /* offline: the parts work without it, only their night map is missing */ }
 }
 console.log(`${got} of ${used.size} parts' -params.json fetched from Polyfork's CDN`);
+
+// Polyfork's materials engine, for the HD animals (tour/hd.js): public on polyfork.dev, but without the CORS headers a
+// page on another origin needs to import it, so it's kept beside the parts too
+try {
+  const res = await fetch('https://polyfork.dev/materials.mjs');
+  if (!res.ok) throw new Error(`${res.status}`);
+  writeFileSync(join(to, 'materials.mjs'), await res.text());
+  console.log('materials.mjs (the materials engine) fetched from polyfork.dev');
+} catch (err) { console.log(`materials.mjs not fetched (${err.message}): the HD animals stay flat`); }

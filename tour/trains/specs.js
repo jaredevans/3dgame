@@ -5,6 +5,18 @@
 import { KITS } from '../config.js';
 import { SHUTTLE } from './shuttle-shape.js';
 
+// The kit parts with an HD edition (its own high-poly program with PBR materials, from the owner's account CDN: see
+// hd-switch.js), by kit part key -> catalogue asset id. The same knobs and rig as the flat part. The mainline diesel has
+// none, and the Silver Arrow is built in code: both stay flat.
+export const HD_EDITIONS = {
+  'passenger-carriage': 'passenger-carriage-de9d58',
+  'brake-coach': 'brake-coach-f83456',
+  'coal-tender': 'coal-tender-0e3647',
+  'tank-locomotive': 'tank-steam-locomotive-314bb1',
+  'tender-locomotive': 'tender-steam-locomotive-8e2a82',
+  'guideway-rail-shuttle': 'guideway-rail-shuttle-3d67d7',   // the Chrome Arcology's
+};
+
 const coach = (extra = {}) => ({ colorway: 'royal-blue', era: 'royal-blue', length: 18, wear: 0.2, ...extra });
 
 export const TRAIN_SPECS = {

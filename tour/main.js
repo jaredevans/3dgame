@@ -21,6 +21,7 @@ import { makeReactions, mustBrake } from './react.js';
 import { makeSlicer, scenery } from './slicer.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
+import { makeHdEnvironment, updateHdLight, prepareHdAnimals } from './hd.js';
 import { poseTrain } from './vehicles.js';
 import { stepTrain, leaveCab, trainInput } from './drive.js';
 import { horn } from './audio.js';
@@ -155,6 +156,8 @@ async function boot() {
   setLoading('lighting');
   const { stage } = await kitModule(KITS.railway, 'stage.mjs');
   const look = stage(renderer, scene, { time: 'day', far: 8000, shadowSpan: 160, sky: false, fog: false });
+  makeHdEnvironment(renderer);   // the HD models' own light (hd.js), while HD is on; nothing else is lit by it
+  await prepareHdAnimals();      // and the HD animals' materials' maps, made now rather than as the first is built
   const skyDome = makeSkyDome(scene, camera);
   // the land as a height function; each place with its own ground adds its patch as it loads (and takes it away again).
   // This is world-data's one cached terrain: the page is its only user, so the patches on it are the page's.
@@ -848,6 +851,7 @@ async function boot() {
       for (const t of Object.values(fleet.trains)) t.model.night?.(look.night);   // a train's own lit windows
     }
     dimmer.update(Math.round(tunnelDark() * 100) / 100);   // in steps of 1%, so lights are written only as it changes
+    updateHdLight(look.hemi, scene);   // the HD materials' environment, after the daylight and the tunnel's dimming
     addWeather(sky);
     skyDome.update(sky, sunDir, dt);
     scene.background = null;
