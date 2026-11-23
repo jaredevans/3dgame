@@ -23,7 +23,7 @@ import { loadAnimal } from './actors/animals.js';
 import { EVENTS, eventsFor, makeEventTrack } from './events.js';
 import { makeReactions, mustBrake } from './react.js';
 import { makeSlicer, scenery } from './slicer.js';
-import { autoThrottle, autoMark, makeViewCycle, makeHornCue } from './autopilot.js';
+import { autoThrottle, autoMark, tourKey, makeHornCue } from './autopilot.js';
 import { findPath, makeFollower } from './autopath.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
@@ -825,7 +825,7 @@ async function boot() {
     player.enter(p.x, p.z, p.yaw, walkWorld().heightAt(p.x, p.z));
     keys.ignoreHeld();
     ridden = null;
-    if (autoAfterRide) { autoAfterRide = false; startAuto(); }
+    if (autoAfterRide) { autoAfterRide = false; startAuto('train'); }
   }
 
   // the map: M toggles it, Escape closes it; drawn only while open
@@ -958,7 +958,8 @@ async function boot() {
   const keys = makeKeys();
   let throttleSteps = 0;
   // E: get out at a platform you've stopped at, or board the train you're beside, or take the ride you're beside (a
-  // train first; auto mode, pressing E beside the onward train, never takes a ride); H: the horn. Auto mode presses them
+  // train first; the train tour, pressing E beside the onward train, never takes a ride: the ride tour takes its ride
+  // itself); H: the horn. Auto mode presses them
   // too. Riding, E does nothing
   function pressE() {
     if (state.mode === 'drive' && stopHere() && arr.getOut) getOut();
@@ -973,7 +974,7 @@ async function boot() {
   const TAKE_OVER = {
     drive: new Set(['KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Space', 'KeyH', 'KeyE']),
     foot: new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyE']),
-    ride: new Set(),   // (it's never on during a ride)
+    ride: new Set(),   // (only the ride tour runs during a ride, and there's nothing to take over: the ride goes itself)
   };
   addEventListener('keydown', (e) => {
     if (e.repeat && !/Arrow|Key[WS]/.test(e.code)) return;
@@ -986,9 +987,13 @@ async function boot() {
     if (e.code === 'Escape') { if (mapView.open) return void mapView.close(); closeTeleportList(); tp.cancel(); return; }
     if (e.code === 'KeyT') { if (tpListOpen) closeTeleportList(); else if (tp.active) tp.cancel(); else if (tpCan()) openTeleportList(); return; }
     if (tpListOpen && /^Digit[1-5]$/.test(e.code)) { pickTeleport(+e.code.slice(5)); return; }
-    // (the auto tour takes the trains only: Z mid-ride starts it once you've landed, or Z again thinks better of it)
-    if (e.code === 'KeyZ' && state.mode === 'ride') { autoAfterRide = !autoAfterRide; return; }
-    if (e.code === 'KeyZ') { if (auto.on) stopAuto(); else startAuto(); return; }
+    // Z, the train tour, and X, the ride tour (autopilot.js tourKey): Z mid-ride starts the train tour once you've landed
+    if (e.code === 'KeyZ' || e.code === 'KeyX') {
+      const next = tourKey(e.code, { mode: state.mode, tour: auto.on ? auto.tour : null, afterRide: autoAfterRide });
+      autoAfterRide = next.afterRide;
+      if (!next.tour) stopAuto(); else if (!auto.on || auto.tour !== next.tour) { stopAuto(); startAuto(next.tour); }
+      return;
+    }
     if (tp.active) return;   // fizzing out or in: nothing else does anything till you're there
     if (auto.on && TAKE_OVER[state.mode].has(e.code)) stopAuto();   // you have the controls (and this key does its job)
     if (keys.ignored(e.code)) return;   // still held from before you boarded
@@ -1017,28 +1022,31 @@ async function boot() {
     run: keys.has('ShiftLeft') || keys.has('ShiftRight'),
   });
 
-  // ---- auto mode (Z): the tour drives itself round the ring, pressing what you would. Driving, the autopilot's throttle
-  // steps and brake (autopilot.js) go into stepTrain with your keys', the horn when a prompt asks for it, E once stopped
-  // at the destination; on foot, the conductor runs the way the planner found across the town (autopath.js) with the
-  // walking keys, and boards the onward train with E. Any control key, or Z again, gives you the controls back where
-  // you are ----
+  // ---- auto mode: the tour goes itself round the ring, pressing what you would, in the director's view (owner,
+  // 2026-11-22). Z, by train: driving, the autopilot's throttle steps and brake (autopilot.js) go into stepTrain with
+  // your keys', the horn when a prompt asks for it, E once stopped at the destination; on foot, the conductor runs the
+  // way the planner found across the town (autopath.js) with the walking keys, and boards the onward train with E.
+  // X, by ride: on foot, he runs to where the place's ride waits and takes it; it lands him at the next place, and on
+  // he goes (in a train when it starts, he gets out at once if he can, else at the train's next platform). Any control
+  // key, or the tour's key again, gives you the controls back where you are ----
   const AUTO_SLICE = 4;      // ms a frame of path search, at most
   const AUTO_OUT_AFTER = 1;  // s stood still at the destination platform before getting out
   const autoSlicer = makeSlicer();
   autoSlicer.sync = false;
   const auto = {
-    on: false, t: 0, still: 0, failures: 0, planning: null, token: 0, message: '', messageLeft: 0, log: [], heard: '',
+    on: false, tour: 'train', t: 0, still: 0, failures: 0, planning: null, token: 0, message: '', messageLeft: 0, log: [], heard: '',
     to: { stopS: 0, spec: null },              // where it's stopping, and the train's brakes
     out: { throttleSteps: 0, brake: false },   // the autopilot's keys, driving
     keys: { fwd: 0, right: 0, run: false },    // and on foot
-    cycle: makeViewCycle(), horn: makeHornCue(), follower: makeFollower(),
+    horn: makeHornCue(), follower: makeFollower(),
   };
   const autoLog = (what, data = {}) => { auto.log.push({ t: Math.round(auto.t * 10) / 10, what, ...data }); if (auto.log.length > 500) auto.log.shift(); };
-  function startAuto() {
-    Object.assign(auto, { on: true, still: 0, failures: 0, message: '', messageLeft: 0 });
+  // tour: 'train' (Z) or 'rides' (X)
+  function startAuto(tour = 'train') {
+    Object.assign(auto, { on: true, tour, still: 0, failures: 0, message: '', messageLeft: 0 });
     auto.follower.clear();
-    if (state.mode === 'drive') autoViews();
-    autoLog('start', { mode: state.mode, place: state.place, leg: state.leg });
+    if (state.mode !== 'foot') autoView();
+    autoLog('start', { tour, mode: state.mode, place: state.place, leg: state.leg });
   }
   function stopAuto(message = '') {
     if (!auto.on) return;
@@ -1052,11 +1060,9 @@ async function boot() {
     auto.message = message; auto.messageLeft = message ? 8 : 0;
     autoLog('stop', { message });
   }
-  // the views it cycles through while it drives (carrying on from the one showing, if it's one of them)
-  function autoViews() {
-    const m = auto.cycle.start(views.mode);
-    if (m !== views.mode) views.set(m);
-    autoLog('view', { mode: m });
+  // its view, driving or riding: the director's (V still changes it, the tour going on)
+  function autoView() {
+    if (views.mode !== 'director') views.set('director');
   }
   // the way across town to beside the onward train's cab (where you'd step down from it, journey.stepOut), from where
   // he stands, searched for a slice a frame. A second search (after a failure) looks wider, on a finer grid, and closer
@@ -1064,9 +1070,13 @@ async function boot() {
   function autoPlan() {
     const t = fleet.trains[departureFor(state.place).leg];
     if (!t) return;   // (not in yet: he waits where he is)
-    const step = journey.stepOut(t.run, t.s), goal = t.run.route.offsetAt(step.s, step.lateral);
+    const step = journey.stepOut(t.run, t.s);
+    autoPlanTo(t.run.route.offsetAt(step.s, step.lateral));
+  }
+  // ... or to `goal` ({ x, z }); more: findPath's options over these (a ride's reach)
+  function autoPlanTo(goal, more = {}) {
     const from = { x: player.state.x, z: player.state.z }, token = ++auto.token, t0 = performance.now(), started = auto.t;
-    const job = findPath(walkWorld(), from, { x: goal.x, z: goal.z }, auto.failures ? { margin: 80, cell: 0.25, clear: 0, soft: 0.2 } : {});
+    const job = findPath(walkWorld(), from, { x: goal.x, z: goal.z }, { ...(auto.failures ? { margin: 80, cell: 0.25, clear: 0, soft: 0.2 } : {}), ...more });
     auto.planning = { job };
     autoSlicer.run(job).then((path) => {
       if (token !== auto.token) return;
@@ -1087,15 +1097,22 @@ async function boot() {
     auto.failures++;
     autoLog('fail', { place: state.place, why, x: Math.round(player.state.x * 10) / 10, z: Math.round(player.state.z * 10) / 10 });
     auto.follower.clear();
-    if (auto.failures >= 2) stopAuto("Auto tour stopped: couldn't find the way to the departures");
+    if (auto.failures >= 2) stopAuto(`${auto.tour === 'rides' ? 'Ride' : 'Auto'} tour stopped: couldn't find the way to the ${auto.tour === 'rides' ? 'ride' : 'departures'}`);
   }
   // a frame of auto, before the frame's driving or walking: it reads what last frame left (the reactions' prompt, the
   // platform's hold), as your keys do
   function autoStep(dt) {
     auto.t += dt;
-    if (state.mode === 'ride') return;   // (never on: it takes the trains only)
+    if (state.mode === 'ride') return;   // (only the ride tour is on during a ride, which goes itself)
     if (state.mode === 'drive') {
       const stopped = Math.abs(drive.v) < 0.05;
+      // the ride tour, in a train: out at once where it stands at a platform you may get out at
+      if (auto.tour === 'rides' && stopped && stopHere() && arr.getOut && !arr.hold) {
+        autoLog('getOut', { place: stopHere(), leg: run.leg });
+        pressE();
+        Object.assign(auto.out, { throttleSteps: 0, brake: false });
+        return;
+      }
       // stopped at the destination platform (on its mark, or wherever it came to a stand in it), free to get out
       auto.still = stopped && stopHere() === run.to && arr.getOut && !arr.hold ? auto.still + dt : 0;
       if (auto.still >= AUTO_OUT_AFTER) {
@@ -1111,12 +1128,11 @@ async function boot() {
       if (auto.horn.step(evOut?.prompt, dt)) { autoLog('horn', { leg: run.leg, prompt: evOut.prompt }); pressH(); }
       if (evOut?.message && evOut.message !== auto.heard) { auto.heard = evOut.message; autoLog('event', { leg: run.leg, message: evOut.message, s: Math.round(drive.s) }); }
       if (evOut?.toast) { auto.heard = ''; autoLog('event', { leg: run.leg, toast: evOut.toast, s: Math.round(drive.s) }); }
-      const m = auto.cycle.step(dt);
-      if (m) { views.set(m); autoLog('view', { mode: m }); }
       return;
     }
     const k = auto.keys;
     k.fwd = 0; k.right = 0;
+    if (auto.tour === 'rides') { autoRideStep(dt, k); return; }
     if (auto.planning) return;
     if (!auto.follower.path) { autoPlan(); return; }
     const how = auto.follower.step(player.state, dt, k);
@@ -1133,7 +1149,30 @@ async function boot() {
     autoLog('board', { place, leg });
     auto.failures = 0;
     auto.follower.clear();
-    autoViews();
+    autoView();
+  }
+  // the ride tour on foot: to within reach of where the place's ride waits (its vehicle is solid, and the nearest you
+  // can stand may be 5.5 m from it, so the way is searched to within AUTO_RIDE_REACH of it, then he steps straight on
+  // towards it), and on board as soon as it's ready to go
+  const AUTO_RIDE_REACH = RIDE_REACH - 0.2;
+  function autoRideStep(dt, k) {
+    const leg = departureFor(state.place).leg, id = `ride:${leg}`, ride = rideFor(leg);
+    if (!builders[id] || streamer.failed(id)) { stopAuto(`Ride tour stopped: the ${ride.name} isn't running`); return; }
+    if (nearRide(player.state, ride, RIDE_REACH)) {
+      if (!rideReady(leg)) return;
+      const place = state.place;
+      takeRide(leg);
+      autoLog('ride', { place, leg });
+      auto.failures = 0;
+      auto.follower.clear();
+      autoView();
+      return;
+    }
+    if (auto.planning) return;
+    if (!auto.follower.path) { autoPlanTo(ride.board, { reach: AUTO_RIDE_REACH }); return; }
+    const how = auto.follower.step(player.state, dt, k);
+    if (how === 'stuck') { autoFail('stuck'); return; }
+    if (how === 'arrived') auto.follower.set([{ x: player.state.x, z: player.state.z }, { x: ride.board.x, z: ride.board.z }]);
   }
 
   const $ = (id) => document.getElementById(id);
@@ -1186,7 +1225,8 @@ async function boot() {
     $('prompt').textContent = prompt;
     $('prompt').classList.toggle('on', !!prompt);
     auto.messageLeft = Math.max(0, auto.messageLeft - dt);
-    const autoLine = auto.on ? 'Auto tour · Z to take over' : autoAfterRide ? 'Auto tour once you land · Z to cancel'
+    const autoLine = auto.on ? (auto.tour === 'rides' ? 'Ride tour · X to take over' : 'Auto tour · Z to take over')
+      : autoAfterRide ? 'Auto tour once you land · Z to cancel'
       : auto.messageLeft > 0 ? auto.message : '';
     if (autoLine !== autoShown) { autoShown = autoLine; $('auto').textContent = autoLine; $('auto').classList.toggle('on', !!autoLine); }
     if (message !== eventLine) { eventLine = message; $('event').textContent = message; $('event').classList.toggle('on', !!message); }
@@ -1220,7 +1260,7 @@ async function boot() {
     skyPos: { get: () => skyPos },   // where on the ring the sky is (it follows where you are)
     // auto mode: on or not, how many failures at this place, and what it's done (getting out, each way found, the horn,
     // the views, boarding)
-    auto: { get: () => ({ on: auto.on, failures: auto.failures, planning: !!auto.planning, path: auto.follower.path, left: auto.follower.left, log: auto.log }) },
+    auto: { get: () => ({ on: auto.on, tour: auto.tour, failures: auto.failures, planning: !!auto.planning, path: auto.follower.path, left: auto.follower.left, log: auto.log }) },
     // the land's pieces: how many are live, and of those shown, how many at each detail; which is being built
     chunks: { get: () => {
       const ids = land.ids, on = ids.filter((id) => land.shown(id)), n = (cell) => on.filter((id) => id.endsWith(`:${cell}`)).length;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDirector } from '../director.js';
+import { makeDirector, steepOver, STEEP } from '../director.js';
 
 const seq = (xs) => { let i = 0; return () => xs[i++ % xs.length]; };
 const base = { dt: 0.1, legS: 500, dir: 'out', v: 20, showpieces: [], started: [], length: 100 };
@@ -443,4 +443,26 @@ test("a stop mid-window (the guard, at the cattle) doesn't end the arrival shot;
   let t = 0, cut = false;
   while (!cut && t < 10) { cut = d.step({ ...base, legS: 1414, v: 0, showpieces: [arrive] }).cut; t += 0.1; }
   assert.ok(t >= 2 && t <= 2.3, `cut ${t.toFixed(1)} s after stopping at the platform`);
+});
+
+// owner, 2026-11-22: the director's view never looks steeply down on the train from close by
+test('steepOver: how far a camera stands too high to see the line within reach at no more than 35 degrees down', () => {
+  const route = { length: 1000, at: (s, o) => Object.assign(o, { x: 0, y: 0, z: s }) };   // a straight level line up +z
+  const aim = 2;
+  // right over the line, 22 m up: far too steep, and stood on it
+  let r = steepOver({ x: 0, y: 22, z: 100 }, route, 0, 300, aim);
+  assert.ok(r.over > 19 && r.d < STEEP.step);
+  // 15 m out and 60 up: too steep; brought down by `over`, it sees its nearest point at exactly STEEP.down
+  r = steepOver({ x: 15, y: 60, z: 100 }, route, 0, 300, aim);
+  assert.ok(r.over > 0 && Math.abs(r.d - 15) < 1e-9);
+  assert.ok(Math.abs(Math.atan2(60 - r.over - aim, 15) - STEEP.down) < 1e-9);
+  // 30 m out, 22 m up (20 over the train): 34 degrees, fine; and high-wide's own 150 m out and 60 up
+  assert.equal(steepOver({ x: 30, y: 22, z: 100 }, route, 0, 300, aim).over, 0);
+  assert.equal(steepOver({ x: 150, y: 60, z: 100 }, route, 0, 300, aim).over, 0);
+  // only the stretch it runs through counts: over the line behind the train is fine (the balloon's falls shot)
+  assert.equal(steepOver({ x: 0, y: 22, z: 100 }, route, 230, 600, aim).over, 0);
+  // and the same stretch either way round (going back, s0 > s1)
+  assert.ok(steepOver({ x: 0, y: 22, z: 100 }, route, 300, 0, aim).over > 19);
+  // further than STEEP.near, however steep, it's no close look
+  assert.equal(steepOver({ x: 0, y: 200, z: 100 }, route, 0, 300, aim).over, 0);
 });

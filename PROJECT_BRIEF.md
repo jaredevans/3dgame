@@ -107,7 +107,9 @@ Status: Phase 4 done. Phase 2 built the whole ring, all five places and their fi
 - **Events on every leg**, played by actors built while you stand at a platform: the lighthouse, boats, gulls, dolphins and a freight on the coast; deer, a shower and its rainbow, an eagle and a work train on the climb; snow, a rockfall, riders, wild horses, tumbleweeds and a stagecoach down the canyon; the wind and solar farms, a passing bullet, a rocket launch and drones on the desert; flying pods round the Futuristic place's towers, helicopters and drones over Downtown City, suburban traffic and an airliner coming in to land on the way back to the City.
 - **Four that you react to**, none of which can make you fail: a level crossing on the first and last legs (sound the horn as you come up to it; the gates close either way); a red signal on the climb (the guard stops the train at it, and it turns green once the work train has cleared the viaduct); cattle on the line at the canyon's mouth (the horn moves them on, or the guard stops for them and they wander off); and the high-speed stretch on the desert (your top speed on it, when you leave it).
 - **The director's view** (`3`): cuts between dramatic shots of the train on its own, to each leg's showpieces (the cliffs, the tunnel's portals, the viaduct, the trestle, the guideway, the bridge, the skyline) and to each event as it begins; and **the nose view** (`4`), riding just above the front of the train. `V` cycles cab, nose, drone and director.
-- **The auto tour** (`Z`): it drives each train to its platform, gets out, walks across the town to the next train and boards it, round the whole ring, cycling the nose, drone and director views; `Z` again or any driving or walking key gives you the controls back.
+- **The auto tour** (`Z`): it drives each train to its platform, gets out, walks across the town to the next train and boards it, round the whole ring, in the director's view (owner, 2026-11-22); `Z` again or any driving or walking key gives you the controls back.
+- **The ride tour** (`X`, owner, 2026-11-22): it walks across each town to the ride waiting there and takes it, round the whole ring, never a train, in the director's view; in a train it gets out at once at a platform, or else at the train's next one. `X` again or any walking key gives you the controls back; `Z` switches to the train tour.
+- **The director** never looks steeply down on a train or ride from close by (more than 35 degrees down within 120 m), except on the balloon, which it may (owner, 2026-11-22).
 - **Teleport** (`T`): on foot, or in the cab standing still, a list of the five places; you fizz out in a column of sparkles and fizz in on foot on that place's arrival platform, its two trains waiting. The train you leave stays where it stopped, unless its line serves the destination, where it's put at its platform (one train per line). `Esc` or `T` takes you back till you've been moved.
 - **The on-foot camera**: above and behind you, looking the way you face, so `W` always walks into the screen; `A` and `D` turn you.
 - **The map** (`M`): the ring from above, where you are, and on foot a flag on the platform the next train leaves from.
@@ -128,7 +130,7 @@ How the rides work:
 - **What's around you.** The sky and the streaming follow the ride, and nothing loads while it moves.
 - **The leg's train events** don't play during a ride, so the signal's work train stays still.
 - **At the end** you step off on foot by the next place's station, with the trains standing at their platforms.
-- **The auto tour (`Z`)** takes the trains only.
+- **The auto tour (`Z`)** takes the trains only; **the ride tour (`X`)** the rides only.
 
 Left to the owner's call from Phase 4's final check:
 - **The balloon's chase** crops the top of the envelope, and the crows look small beside it.

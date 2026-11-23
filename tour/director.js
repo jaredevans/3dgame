@@ -67,6 +67,26 @@ function tunnelWithin(tunnels, legS, dir, reach) {
   return false;
 }
 
+// never a close look steeply down on the train (owner, 2026-11-22: a wide shot drawn in over the line looked straight
+// down on it): how far (m) a camera at p ({ x, y, z }) stands too high to see the stretch of `route` from s0 to s1
+// (either way round; the train `aim` m over it) at no more than STEEP.down below level, anywhere within STEEP.near of
+// it, sampled every STEEP.step m -> into out { over (0: fine), d (the worst point's distance across the ground) }.
+// STEEP.out: how far from the line a camera that would stand over it is stood out first (cameras.js)
+export const STEEP = { down: 35 * Math.PI / 180, near: 120, out: 20, step: 5 };
+const RP = {}, TAN_DOWN = Math.tan(STEEP.down);
+export function steepOver(p, route, s0, s1, aim, out = { over: 0, d: Infinity }) {
+  out.over = 0; out.d = Infinity;
+  const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(route.length, Math.max(s0, s1));
+  for (let s = lo; s <= hi + 1e-6; s += STEEP.step) {
+    route.at(Math.min(s, hi), RP);
+    const d = Math.hypot(RP.x - p.x, RP.z - p.z), h = p.y - (RP.y + aim);
+    if (h <= 0 || Math.hypot(d, h) > STEEP.near) continue;
+    const over = h - d * TAN_DOWN;
+    if (over > out.over) { out.over = over; out.d = d; }
+  }
+  return out;
+}
+
 export function makeDirector({ rand = Math.random } = {}) {
   let cur = null, age = 0, recent = [], general = -1;
   let win = null, entered = false;   // the window a long-hold showpiece shot lasts for

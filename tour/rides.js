@@ -616,7 +616,9 @@ export function placeCrow(ride, s, t, i, out) {
 
 const BUILD = {
   'city-ocean': { id: 'boat', name: 'speedboat', make: boat },
-  'ocean-mountain': { id: 'balloon', name: 'hot-air balloon', make: balloon },
+  // (overhead: the director may look steeply down on it from close by, as on no other: owner, 2026-11-22, its view
+  // down on the balloon is fine)
+  'ocean-mountain': { id: 'balloon', name: 'hot-air balloon', make: balloon, overhead: true },
   'mountain-west': { id: 'coach', name: 'stagecoach', make: coach },
   'west-future': { id: 'jet', name: 'starfighter', make: jet },
   'future-city': { id: 'car', name: 'flying car', make: car },
@@ -764,7 +766,7 @@ export function rideFor(leg) {
     };
     const end = (s) => { const o = path.at(s); return { x: o.x, z: o.z, y: o.y, yaw: o.yaw }; };
     rides.set(leg, {
-      leg, id: b.id, name: b.name, from: LEGS[leg].from, to: LEGS[leg].to, rest,
+      leg, id: b.id, name: b.name, from: LEGS[leg].from, to: LEGS[leg].to, rest, overhead: !!b.overhead,
       rolls: rolls.map(([a, z]) => [sOf(a, 0), sOf(z, path.length)]),
       board: end(0), land: end(path.length), step: { x: step.x, z: step.z, y: step.y, yaw: step.yaw },
       path, duration: DURATION, profile: profileFor(path.length, DURATION, ease), legS: legTable(path, leg),

@@ -33,25 +33,17 @@ export function autoThrottle(drive, { stopS, spec }, out) {
 // time the guard lets the brake off
 export const autoMark = (stopS, s, brakeTo) => (brakeTo === null || brakeTo === undefined ? stopS : Math.min(stopS, s + Math.max(0, brakeTo)));
 
-// the driving views auto cycles through, each held for min..max s (random()); start(current) -> the first view: the one
-// showing if it's in the cycle, else the first; step(dt) -> the next view when it's time to change, else null
-export function makeViewCycle({ order = ['nose', 'drone', 'director'], min = 20, max = 30, random = Math.random } = {}) {
-  let i = 0, left = 0;
-  const hold = () => min + (max - min) * random();
-  return {
-    start(current) {
-      i = Math.max(0, order.indexOf(current));
-      left = hold();
-      return order[i];
-    },
-    step(dt) {
-      left -= dt;
-      if (left > 0) return null;
-      i = (i + 1) % order.length;
-      left = hold();
-      return order[i];
-    },
-  };
+// the two auto tours' keys: Z, by train (it drives, gets out, walks to the onward train); X, by ride (it walks to the
+// ride waiting at each place and takes it, never a train). tour: the one running ('train', 'rides') or null; afterRide:
+// Z pressed during a ride, the train tour to start once you land (a train tour can't run during a ride; the ride tour
+// can). The key for the tour running stops it; the other one switches to it -> { tour, afterRide }
+export function tourKey(code, { mode, tour, afterRide }) {
+  if (code === 'KeyZ') {
+    if (mode === 'ride') return tour === 'rides' ? { tour: null, afterRide: true } : { tour, afterRide: !afterRide };
+    return { tour: tour === 'train' ? null : 'train', afterRide: false };
+  }
+  if (code === 'KeyX') return tour === 'rides' ? { tour: null, afterRide } : { tour: 'rides', afterRide: false };
+  return { tour, afterRide };
 }
 
 // a reaction's prompt asking for the horn (react.js: the level crossings, the cattle)

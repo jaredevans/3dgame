@@ -212,3 +212,13 @@ test('the conductor rides along: hidden in the seat view (you see through his ey
   bare.start(rideFor('future-city'), kitOf());
   bare.stop();
 });
+
+test('the director may look down on the balloon from close by, and on no other ride (owner, 2026-11-22)', () => {
+  for (const leg of ['city-ocean', 'ocean-mountain', 'mountain-west', 'west-future', 'future-city']) {
+    const r = rideFor(leg), runner = makeRideRunner({ views: { attachCab() {}, setDriving() {}, restart() {} }, interior: {} });
+    assert.equal(r.overhead, r.id === 'balloon');
+    runner.start(r, kitOf());
+    assert.equal(runner.viewContext(0.1).overhead, r.id === 'balloon');
+    runner.stop();
+  }
+});

@@ -56,12 +56,19 @@ test('main.js: on a ride V cycles the seat, chase and director only, and 4 gives
   // (and the cycle itself is unchanged for trains: cameras.js's four)
   const cams = readFileSync(new URL('../cameras.js', import.meta.url), 'utf8');
   assert.match(cams, /const MODES = \['cab', 'nose', 'drone', 'director'\];/);
+  // the director never looks steeply down on a train or ride from close by (owner, 2026-11-22): a wide shot is stood
+  // out and brought down (director.test.js steepOver), but for the balloon's; and a moving shot past a route's end goes
+  // on along its heading rather than standing over the vehicle at its pad
+  assert.match(cams, /unsteep\(shot, ctx, sign, at, lateral \* f\);/);
+  assert.match(cams, /function unsteep\(shot, ctx, sign, at, lateral\) \{\n\s*if \(ctx\.overhead\) return;/);
+  assert.match(cams, /const on = Math\.min\(route\.length, Math\.max\(0, s\)\), past = s - on;/);
 });
 
-// auto mode (Z) presses what a player would: its throttle steps join yours, its brake is stepTrain's brake key (with
-// the guard's, so the guard still stops it), and on foot its keys are what the walker steps with
-test('main.js: Z toggles auto mode, whose throttle, brake and walking keys go through the player\'s inputs', () => {
-  assert.match(src, /e\.code === 'KeyZ'\) \{ if \(auto\.on\) stopAuto\(\); else startAuto\(\);/);
+// auto mode (Z by train, X by ride) presses what a player would: its throttle steps join yours, its brake is
+// stepTrain's brake key (with the guard's, so the guard still stops it), and on foot its keys are what the walker steps with
+test('main.js: Z and X toggle the auto tours, whose throttle, brake and walking keys go through the player\'s inputs', () => {
+  assert.match(src, /import \{[^}]*\btourKey\b[^}]*\} from '\.\/autopilot\.js'/);
+  assert.match(src, /if \(e\.code === 'KeyZ' \|\| e\.code === 'KeyX'\) \{\n\s*const next = tourKey\(e\.code, \{ mode: state\.mode, tour: auto\.on \? auto\.tour : null, afterRide: autoAfterRide \}\);/);
   assert.match(src, /if \(auto\.on && TAKE_OVER\[state\.mode\]\.has\(e\.code\)\) stopAuto\(\)/);
   assert.match(src, /brakeKey: keys\.has\('Space'\) \|\| \(auto\.on && auto\.out\.brake\) \|\| arr\.hold \|\| guard/);
   assert.match(src, /if \(auto\.on\) throttleSteps \+= auto\.out\.throttleSteps/);
@@ -83,6 +90,16 @@ test('main.js: Z toggles auto mode, whose throttle, brake and walking keys go th
   assert.match(step[0], /autoThrottle\(drive, auto\.to, auto\.out\)/);
   // its search for the way runs on a slicer of its own, ticked each frame
   assert.match(src, /autoSlicer\.tick\(AUTO_SLICE\)/);
+  // both tours watch from the director's view only (owner, 2026-11-22): no cycling through the views
+  assert.match(src, /function autoView\(\) \{\n\s*if \(views\.mode !== 'director'\) views\.set\('director'\);/);
+  assert.doesNotMatch(src, /auto\.cycle|makeViewCycle/);
+  // the ride tour: on foot it goes to the place's ride, and takes it only within reach and once it's ready
+  assert.match(step[0], /if \(auto\.tour === 'rides'\) \{ autoRideStep\(dt, k\); return; \}/);
+  const ride = src.match(/function autoRideStep\(dt, k\) \{[\s\S]*?\n {2}\}/);
+  assert.ok(ride, 'no autoRideStep()');
+  assert.match(ride[0], /if \(nearRide\(player\.state, ride, RIDE_REACH\)\) \{\n\s*if \(!rideReady\(leg\)\) return;[\s\S]*takeRide\(leg\);[\s\S]*autoView\(\);/);
+  assert.match(ride[0], /autoPlanTo\(ride\.board, \{ reach: AUTO_RIDE_REACH \}\)/);
+  assert.doesNotMatch(ride[0], /\bboard\(|pressE\(\)/, 'the ride tour never boards a train');
 });
 
 // teleport (T): the list opens only when T may work (canTeleport), its numbers are taken before the views' 1-4, and
@@ -144,7 +161,7 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   assert.match(src, /if \(state\.mode === 'drive'\) \{\n\s*if \(e\.code === 'KeyW' \|\| e\.code === 'ArrowUp'\) throttleSteps\+\+;/);
   assert.match(src, /ride: new Set\(\),/);
   // Z mid-ride waits for the landing; T doesn't work mid-ride
-  assert.match(src, /if \(e\.code === 'KeyZ' && state\.mode === 'ride'\) \{ autoAfterRide = !autoAfterRide; return; \}/);
+  assert.match(src, /autoAfterRide = next\.afterRide;/);   // (Z mid-ride: autopilot.test.js tourKey)
   assert.match(src, /const tpCan = \(\) => !controls && state\.mode !== 'ride' && canTeleport\(/);
   // the frame: the runner, then landing when it's done
   assert.match(src, /ridden = runner\.update\(dt, rideEnv\);/);
@@ -155,7 +172,7 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   assert.match(land[0], /fleet\.wait\(w\.leg, w\.dir\)/);
   assert.match(land[0], /player\.enter\(/);
   assert.match(land[0], /runner\.stop\(\)/);
-  assert.match(land[0], /if \(autoAfterRide\) \{ autoAfterRide = false; startAuto\(\); \}/);
+  assert.match(land[0], /if \(autoAfterRide\) \{ autoAfterRide = false; startAuto\('train'\); \}/);
   // nothing lands, nor is freed, on a ride's moving frames; the ride's kit stays wanted while riding (where.ride)
   assert.match(src, /mayLand = state\.mode === 'ride' \? false : /);
   assert.match(src, /if \(\(state\.mode === 'foot' \|\| \(state\.mode === 'drive' && Math\.abs\(drive\.v\) < 0\.05\)\)/);

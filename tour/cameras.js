@@ -2,7 +2,7 @@
 // clear view down the line ahead), the drone (orbiting the train) and the director (director.js plans the shots and
 // their cuts; framed here). V cycles them; 1 cab, 2 drone, 3 director, 4 nose.
 import * as THREE from 'three';
-import { makeDirector } from './director.js';
+import { makeDirector, steepOver, STEEP } from './director.js';
 import { clearUnder } from './structures.js';
 
 const MODES = ['cab', 'nose', 'drone', 'director'];
@@ -143,17 +143,36 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
         lateral = (lateral < 0 ? -1 : 1) * Math.max(Math.abs(lateral), SHOT.trackside.clear);
       }
       if (!WIDE.has(shot.kind)) { standAt(shot, route, at, lateral); return; }
-      // a wide one is drawn in until it sees the train where it is now, and the line where it stands abreast of it
+      // a wide one is drawn in until it sees the train where it is now, and the line where it stands abreast of it; at
+      // each, never looking steeply down on the train from close by (unsteep)
       route.at(at, rp);
       const lx = rp.x, ly = rp.y + SHOT.aim, lz = rp.z, now = aimFixed(shot, ctx, sign, train);
       for (const f of SHOT.reach) {
         standAt(shot, route, at, lateral * f);
+        unsteep(shot, ctx, sign, at, lateral * f);
         const p = shotCam.pos;
         if (clearSight(p.x, p.y, p.z, lx, ly, lz) && clearSight(p.x, p.y, p.z, now.x, now.y, now.z)) break;
       }
       return;
     }
     shotCam.pos.y = lift(shotCam.pos.x, shotCam.pos.z, shotCam.pos.y);
+  }
+  // a wide shot standing where it would look steeply down on the train from close by, anywhere over the stretch it runs
+  // through in the shot (from the front now on to as far as it goes meanwhile, and on to the shot's place if that's
+  // further): stood out from the line (STEEP.out) if it's over it, then brought down until it doesn't, though never into
+  // the ground (owner, 2026-11-22). Not for a ride the director may look down on (ctx.overhead: the balloon)
+  const steep = { over: 0, d: Infinity };
+  function unsteep(shot, ctx, sign, at, lateral) {
+    if (ctx.overhead) return;
+    const end = ctx.legS + sign * (Math.abs(ctx.v) * shot.hold + SHOT.lead);
+    const far = sign * (at - end) > 0 ? at : end;
+    if (!steepOver(shotCam.pos, ctx.route, ctx.legS, far, SHOT.aim, steep).over) return;
+    if (steep.d < STEEP.out) {
+      standAt(shot, ctx.route, at, (Math.sign(lateral) || shotCam.spin) * Math.max(STEEP.out, Math.abs(lateral)));
+      if (!steepOver(shotCam.pos, ctx.route, ctx.legS, far, SHOT.aim, steep).over) return;
+    }
+    const p = shotCam.pos;
+    p.y = lift(p.x, p.z, p.y - steep.over);
   }
   // what a fixed shot looks at: the train's middle; from the tunnel mouth, the mouth until the train is out of it; at the
   // line's end, the train's front, head-on
@@ -198,10 +217,13 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     }
     alongside(shot, route, s, shot.lateral ? SHOT.reach[shotCam.reach] : 0);
   }
-  // a moving shot at leg-s `s`, this part of its lateral out: into `want`; and whether it sees `aim` from there
+  // a moving shot at leg-s `s`, this part of its lateral out: into `want`; and whether it sees `aim` from there. Past
+  // either end of the route (a chase 30 m behind a ride just off its pad), it's on along the route's heading there: held
+  // at the end, it stood right over the vehicle, looking straight down on it (owner, 2026-11-22)
   function alongside(shot, route, s, f) {
-    route.offsetAt(s, shot.lateral * f, rp);
-    return want.set(rp.x, rp.y + shot.height, rp.z);
+    const on = Math.min(route.length, Math.max(0, s)), past = s - on;
+    route.offsetAt(on, shot.lateral * f, rp);
+    return want.set(rp.x + Math.sin(rp.yaw) * past, rp.y + shot.height, rp.z + Math.cos(rp.yaw) * past);
   }
   function sees(shot, route, s, i) {
     alongside(shot, route, s, SHOT.reach[i]);

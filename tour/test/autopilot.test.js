@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoThrottle, autoMark, makeViewCycle, makeHornCue, asksForHorn } from '../autopilot.js';
+import { autoThrottle, autoMark, tourKey, makeHornCue, asksForHorn } from '../autopilot.js';
 import { stepTrain, TRAIN_SPECS } from '../drive.js';
 import { makeJourney } from '../journey.js';
 import { LEGS, PLACES, RING } from '../world-data.js';
@@ -79,24 +79,24 @@ test('the autopilot moves the throttle a step a frame, as a key press does, and 
   assert.equal(again, out);
 });
 
-test('the view cycle: nose, drone, director, each for 20-30 s', () => {
-  let k = 0;
-  const rnd = [0, 1, 0.5, 0.25];
-  const cycle = makeViewCycle({ random: () => rnd[k++ % rnd.length] });
-  assert.equal(cycle.start('cab'), 'nose');          // from the cab (not in the cycle): the nose first
-  const changes = [];
-  let t = 0;
-  for (; t < 100; t += 0.1) { const v = cycle.step(0.1); if (v) changes.push([Math.round(t * 10) / 10, v]); }
-  assert.deepEqual(changes.map((c) => c[1]), ['drone', 'director', 'nose', 'drone']);
-  // 20 s of the nose (random 0), then 30 s of the drone (1), 25 of the director (0.5), 22.5 of the nose (0.25)
-  assert.deepEqual(changes.map((c) => c[0]), [19.9, 49.9, 74.9, 97.4]);
-  for (let i = 1; i < changes.length; i++) {
-    const held = changes[i][0] - changes[i - 1][0];
-    assert.ok(held >= 20 - 0.11 && held <= 30 + 0.11, `held ${held} s`);
-  }
-  // already in one of its views, it carries on from there
-  assert.equal(makeViewCycle({ random: () => 0 }).start('director'), 'director');
-  assert.equal(makeViewCycle({ random: () => 0 }).start('drone'), 'drone');
+test('Z and X: the train tour and the ride tour, each key stopping its own and switching from the other', () => {
+  const at = (mode, tour = null, afterRide = false) => ({ mode, tour, afterRide });
+  // on foot or driving: Z starts the train tour, X the ride tour; the same key again stops it, the other switches
+  assert.deepEqual(tourKey('KeyZ', at('foot')), { tour: 'train', afterRide: false });
+  assert.deepEqual(tourKey('KeyX', at('drive')), { tour: 'rides', afterRide: false });
+  assert.deepEqual(tourKey('KeyZ', at('drive', 'train')), { tour: null, afterRide: false });
+  assert.deepEqual(tourKey('KeyX', at('foot', 'rides')), { tour: null, afterRide: false });
+  assert.deepEqual(tourKey('KeyX', at('foot', 'train')), { tour: 'rides', afterRide: false });
+  assert.deepEqual(tourKey('KeyZ', at('foot', 'rides')), { tour: 'train', afterRide: false });
+  // during a ride: X starts the ride tour there and then (Z waiting to land is let go); Z waits for the landing, or
+  // thinks better of it, and from the ride tour, stops it for the train tour once you land
+  assert.deepEqual(tourKey('KeyX', at('ride', null, true)), { tour: 'rides', afterRide: false });
+  assert.deepEqual(tourKey('KeyZ', at('ride')), { tour: null, afterRide: true });
+  assert.deepEqual(tourKey('KeyZ', at('ride', null, true)), { tour: null, afterRide: false });
+  assert.deepEqual(tourKey('KeyZ', at('ride', 'rides')), { tour: null, afterRide: true });
+  assert.deepEqual(tourKey('KeyX', at('ride', 'rides')), { tour: null, afterRide: false });
+  // any other key leaves them be
+  assert.deepEqual(tourKey('KeyW', at('foot', 'rides')), { tour: 'rides', afterRide: false });
 });
 
 test('the horn: sounded once a prompt asks for it, not again until a new prompt asks', () => {

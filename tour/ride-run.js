@@ -105,7 +105,7 @@ export function makeRideRunner({ views, audio = null, interior }) {
   const trainF = { front: null, v: 0, length: 0 };
   const f = { rideS: 0, rideV: 0, legS: 0, dir: 'out', here: true, dt: 0, time: 0, on: null, react: null, camera: null, train: trainF, night: 0, sunDir: null };
   const started = [];   // this frame's started set pieces with a shot, for the director
-  const ctx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started, tunnels: [] };
+  const ctx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started, tunnels: [], overhead: false };
   const q = {};
   const attitude = () => ({ pitch: 1, bank: 0, level: 0, ...kit.vehicle.attitude });
   let att = null;
@@ -164,7 +164,7 @@ export function makeRideRunner({ views, audio = null, interior }) {
       pose(0);
       Object.assign(out, { done: false, s: 0, t: 0, v: 0, legS: rideLegS(r, 0), pos: k.vehicle.holder.position, yaw: k.vehicle.holder.rotation.y, on: null });
       trainF.front = k.vehicle.holder.position; trainF.length = car.length;
-      Object.assign(ctx, { route: r.path, length: car.length, showpieces: r.showpieces });
+      Object.assign(ctx, { route: r.path, length: car.length, showpieces: r.showpieces, overhead: r.overhead });
       // the seat is the cab: its view rides the holder at the seat (no shell to cut away: the kit's cabin is glazed);
       // in it, the conductor's out of sight (the views clip the cab as they go into and out of the seat view)
       const rider = k.vehicle.rider ?? null;
