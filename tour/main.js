@@ -37,6 +37,7 @@ import { buildPlace, fetchPlace, seamCheck } from './places.js';
 import { release, makeUnloader } from './dispose.js';
 import { buildTerminus, PLATFORM_TOP } from './stations.js';
 import { makePlayer } from './player.js';
+import { PLACE_LIFE } from './life/index.js';
 import { nearestBoardable, BODY } from './walk.js';
 import { makeWalkWorld, solidVehicles } from './walk-world.js';
 import { makeJourney } from './journey.js';
@@ -245,6 +246,18 @@ async function boot() {
       if (place.patch) terrain.addPatch(place.patch);
       await ctx.still();
       for (const e of await place.addExtras(terrain)) { shadows(e); e.visible = false; shown.push(e); }
+      // its living things (life/index.js: Oceanside's starfish, dock and fisherman, and the sea's creatures close in),
+      // freed with its extras; left out, warned, if they can't be built
+      if (PLACE_LIFE[id]) {
+        await ctx.still();
+        try {
+          const life = await PLACE_LIFE[id]({ place, terrain, still: ctx.still });
+          ctx.check();
+          place.life = life;
+          place.extras.push(life.group);
+          scene.add(life.group); shadows(life.group); life.group.visible = false; shown.push(life.group);
+        } catch (err) { if (err?.dropped) throw err; console.warn(`${PLACES[id].name}'s life was left out: ${err?.message ?? err}`); }
+      }
       // the place's stations: a terminus at its end of each built leg it serves
       for (const st of PLACES[id].stations) {
         await ctx.still();
@@ -1477,7 +1490,7 @@ async function boot() {
     skyDome.update(sky, sunDir, dt);
     scene.background = null;
     scene.fog.near = 300; scene.fog.far = 5200 - sky.haze * 3000;
-    for (const p of Object.values(places)) p.tick(clock.elapsedTime);
+    for (const p of Object.values(places)) { p.tick(clock.elapsedTime); p.life?.update(dt, clock.elapsedTime); }
     updateActors(dt);
     rideIdle.dt = dt; rideIdle.time = clock.elapsedTime; rideIdle.night = look.night; rideIdle.sunDir = sunDir;
     for (let k = 0; k < RIDE_IDS.length; k++) {

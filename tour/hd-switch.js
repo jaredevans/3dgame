@@ -44,7 +44,7 @@ export function envLevel(intensity, { r, g, b }) {
 }
 
 // the animals the actors load (loadAnimal): dressed in HD, the maps their materials need are made at boot (hd.js)
-export const HD_ANIMALS = ['deer-base', 'cow-base', 'saddled-horse-da86d3', 'wild-horse-047e93', 'herring-gull-base', 'dolphin-base', 'octopus-base', 'crow-base', 'stingray-base'];
+export const HD_ANIMALS = ['deer-base', 'cow-base', 'saddled-horse-da86d3', 'wild-horse-047e93', 'herring-gull-base', 'dolphin-base', 'octopus-base', 'crow-base', 'stingray-base', 'grouper-base'];
 
 // promise, or a rejection once `ms` have passed without it settling (err.timeout true): a load from a host that never
 // answers is given up on, not waited on for ever. What it does after that is ignored
