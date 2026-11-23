@@ -178,6 +178,10 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
   // line's end, the train's front, head-on
   function aimFixed(shot, ctx, sign, train) {
     const cars = train.cars;
+    if (shot.look !== null && shot.look !== undefined) {   // a place on the line, whatever the train's doing (the crossing)
+      ctx.route.at(shot.look, rp);
+      return aim.set(rp.x, rp.y + SHOT.aim / 2, rp.z);
+    }
     if (shot.kind === 'arrival') {
       aim.copy(cars[0].holder.position);
       aim.y += SHOT.aim;

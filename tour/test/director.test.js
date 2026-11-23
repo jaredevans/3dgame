@@ -478,7 +478,7 @@ function cruise(leg, dir, v, { from, to, length = 100 }) {
     const ev = track.step({ legS: s, dt });
     const started = ev.started.map((id) => byId.get(id)).filter((e) => e.shot && e.actor);
     const r = d.step({ dt, legS: s, dir, v, showpieces, started, length });
-    if (r.cut) cuts.push({ id: r.shot.id, kind: r.shot.kind, s, tilt: r.shot.tilt });
+    if (r.cut) cuts.push({ id: r.shot.id, kind: r.shot.kind, s, tilt: r.shot.tilt, look: r.shot.look });
   }
   return cuts;
 }
@@ -497,6 +497,8 @@ test('city-ocean: the dolphins\' shot starts before the train draws level with t
       assert.ok(whales && aheadOf(whales.s, 1330, dir) > 0, `whales: ${trace}`);
       assert.equal(whales.tilt, 16);
       if (dir === 'out') assert.ok(cuts.some((c) => c.id === 'crossing'), `crossing: ${trace}`);
+      // the crossing's shot looks at the crossing itself, the train going through the frame past the waiting cars
+      if (dir === 'out') assert.equal(cuts.find((c) => c.id === 'crossing').look, 1610);
     }
   }
 });

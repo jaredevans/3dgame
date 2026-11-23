@@ -36,9 +36,12 @@ export const EVENTS = {
     // (at: the one stretch near the Oceanside end where both lines lie within 1.5 m of the natural ground for 15 m
     // either side; the window runs 400 m before it, for the gates closing ahead, and on to 1800 for the cars crossing
     // after, short of Oceanside's platform)
+    // (its shot: on the road on the land side, 34 m back and 4.5 m up, a little off the waiting cars' lane, looking
+    // over their roofs at the crossing itself, the train going through the frame: owner, 2026-11-22, a trackside shot
+    // following the train left the cars out)
     ev('crossing', 1210, 1800, {
       react: { kind: 'crossing', at: { out: 1610, back: 1610 } },
-      shot: { kind: 'trackside', at: 1610, lateral: -10 },
+      shot: { kind: 'high-wide', at: 1612.5, lateral: -34, height: 4.5, fov: 50, look: 1610 },
     }),
     showpiece('cliffs', 900, 1300, { kind: 'wide', at: 1100, lateral: 120 }),
   ],
