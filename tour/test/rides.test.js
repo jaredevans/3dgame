@@ -1282,5 +1282,16 @@ test('the arrows: a volley lands just ahead of each rider as it begins to pull u
     assert.equal(rearAt(i, land + 40), 0);
     assert.ok(turnedAt(i, land + 300) > 0.99 && turnedAt(i, land) === 0);
   }
-  assert.ok(GANG_SHOTS.some((x) => x.id === 'arrows' && x.shot.look !== undefined));
+  assert.ok(GANG_SHOTS.some((x) => x.id === 'arrows' && x.shot.look === 'focus'));
+  // a band of five, one loosing at each rider
+  assert.deepEqual([...new Set(arrows.map((x) => x.archer))].sort(), [0, 1, 2, 3, 4]);
+  for (let j = 0; j < 5; j++) assert.equal(new Set(arrows.filter((x) => x.archer === j).map((x) => x.rider)).size, 1);
+  // scared off: once it has pulled up and turned, each rider rides off back down the road, and is soon out of sight
+  for (let i = 0; i < GANG.count; i++) {
+    const land = arrows.find((x) => x.rider === i).sLand, a = {}, b = {};
+    placeRider(r, land + 200, i, a); placeRider(r, land + 260, i, b);
+    assert.ok(b.a < a.a - 30, `rider ${i} rides off: ${a.a.toFixed(0)} -> ${b.a.toFixed(0)}`);
+    placeRider(r, land + 600, i, b);
+    assert.equal(b.visible, false, `rider ${i} out of sight`);
+  }
 });

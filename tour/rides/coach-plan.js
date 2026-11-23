@@ -55,10 +55,13 @@ const SURGE = [330, 390, 450];   // ride-s: the surge rises from the first, hold
 // left) as the gang breaks from its ambush, and a heli abreast out past the gang's lanes as they ride level with it
 export const GANG_SHOTS = [
   { id: 'gang-low', s0: 255, s1: 345, shot: { kind: 'trackside', at: 350, lateral: -6, height: 1.2, fov: 45 } },
-  { id: 'gang-heli', s0: 360, s1: 460, shot: { kind: 'heli', lateral: 30, height: 7, fov: 52 } },
-  // and the arrows (owner, 2026-11-22): from up the road ahead, out on its right, looking back down it at the gang
-  // reining in under them, the coach coming on up towards the camera
-  { id: 'arrows', s0: 455, s1: 560, shot: { kind: 'high-wide', at: 505, lateral: -9, height: 3, fov: 48, look: 474 } },
+  // (held 2.5 s, so it's over before the arrows' shot comes in, ~400)
+  { id: 'gang-heli', s0: 360, s1: 400, shot: { kind: 'heli', lateral: 30, height: 7, fov: 52, hold: 2.5 } },
+  // and the arrows (owner, 2026-11-22): gliding in from high over the hillside off the road's right to just below the
+  // band of archers (about ride-s 507-517, 70 m out), between them and the road, a close look up at them facing it
+  // before they loose (gang.js: its focus, the band until then; above them the hillside filled the frame); then following each volley in flight down onto the road in front of its rider, all
+  // five (loosed from ride-s 449, landing by 586)
+  { id: 'arrows', s0: 400, s1: 520, shot: { kind: 'high-wide', at: 498, lateral: -60, height: 1.6, fov: 55, look: 'focus', hold: 11, from: { at: 470, lateral: -115, height: 24 }, push: 2.6 } },
 ];
 
 const smooth = (u) => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
@@ -67,9 +70,13 @@ const ramped = (x) => (x <= 0 ? 0 : x >= 1 ? x - 0.5 : x ** 3 - x ** 4 / 2);
 const surgeAt = (s) => smooth((s - SURGE[0]) / (SURGE[1] - SURGE[0])) * (1 - smooth((s - SURGE[1]) / (SURGE[2] - SURGE[1])));
 
 // rider i's own line-s when the coach is at ride-s s
+// and once it has pulled up and turned away (scared off by the arrows: owner, 2026-11-22), back down the road the way
+// it came at RETREAT.rate of the coach's pace, eased in over RETREAT.ramp metres of the coach's travel
+export const RETREAT = { after: 40, ramp: 30, rate: 0.9 };
 function riderA(i, s) {
-  const R = RIDERS[i], aW = R.go + GANG.go / 2 + R.along;
-  return aW + GANG.go * ramped((s - R.go) / GANG.go) - GANG.stop * ramped((s - R.stop) / GANG.stop) + R.surge * surgeAt(s);
+  const R = RIDERS[i], aW = R.go + GANG.go / 2 + R.along, back = R.stop + GANG.stop + RETREAT.after;
+  return aW + GANG.go * ramped((s - R.go) / GANG.go) - GANG.stop * ramped((s - R.stop) / GANG.stop) + R.surge * surgeAt(s)
+    - RETREAT.rate * RETREAT.ramp * ramped((s - back) / RETREAT.ramp);
 }
 // rider i's lane at its own line-s a (m out to the road's left)
 function riderLane(i, a) {
@@ -195,26 +202,30 @@ export function gangPlan(ride) {
 export const GANG_RIDERS = RIDERS.length;
 
 // ---- the arrows (owner, 2026-11-22) ----
-// Why the gang give up the chase: as each rider comes up the climb, a volley of ARROWS.per arrows from a band of Native
-// archers on the hillside off the road's right (ARROWS.out m out, ARROWS.ahead m on up the road) lands in the road
-// just in front of it, and it pulls up, its horse rearing, and turns away. Each volley is loosed ARROWS.flight s before
+// Why the gang give up the chase: as each rider comes up the climb, a volley of ARROWS.per arrows from one of a band
+// of five Native archers on the hillside off the road's right (ARROWS.band: standing ARROWS.band.gap apart along the
+// road, ARROWS.band.out m out, about line-s ARROWS.band.a; the first to loose at one end) lands in the road just in
+// front of it, and it pulls up, its horse rearing, turns away and rides off back down the road. Each archer looses
+// three quick shots, ARROWS.every s apart (owner, 2026-11-22). Each volley is loosed ARROWS.flight s before
 // it lands (in the coach's ride-s: the same picture whatever the frame rate) and lands as the rider begins to pull up,
 // ARROWS.lead m ahead of the rider (ARROWS.spread m along and across), stuck in the ground thereafter. Worked out once.
-export const ARROWS = { per: 3, out: -70, ahead: 12, flight: 1.6, early: 4, lead: [5, 9], near: 1.8, coach: 4.2, spread: 2.6, apex: 16, clear: 2.5 };
+export const ARROWS = { per: 3, every: 0.7, band: { a: 512, out: -70, gap: 2.6 }, flight: 1.6, early: 4, lead: [5, 9], near: 1.8, coach: 4.2, spread: 2.6, apex: 16, clear: 2.5 };
 const ARROW_PLANS = new WeakMap();
 // -> { arrows: [{ rider, sLoose, sLand, from: { x, z }, to: { x, z } }] in order of sLoose }
 export function arrowPlan(ride) {
   let plan = ARROW_PLANS.get(ride);
   if (plan) return plan;
   const arrows = [], r = {}, f = {}, q = {}, line = coachRoad().line;
+  // each rider's archer: the band in the order their riders pull up, the first at the band's near end
+  const order = RIDERS.map((R, i) => i).sort((x, y) => RIDERS[x].stop - RIDERS[y].stop);
   for (let i = 0; i < RIDERS.length; i++) {
-    const R = RIDERS[i];
+    const R = RIDERS[i], j = order.indexOf(i), B = ARROWS.band;
+    line.offsetAt(Math.min(line.length, B.a + (j - (RIDERS.length - 1) / 2) * B.gap), B.out, f);
     for (let k = 0; k < ARROWS.per; k++) {
       // each arrow of the volley a moment after the last, aimed at where the rider will be as it lands
-      const sLand = R.stop - ARROWS.early + k * 1.5, sLoose = sLand - ride.profile.v * ARROWS.flight;
+      const sLand = R.stop - ARROWS.early + k * ARROWS.every * ride.profile.v, sLoose = sLand - ride.profile.v * ARROWS.flight;
       placeRider(ride, sLand, i, r);
       const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw);
-      if (k === 0) line.offsetAt(Math.min(line.length, Math.max(0, r.a + ARROWS.ahead)), ARROWS.out, f);
       // no nearer the coach than ARROWS.coach m: a rider close behind it (9 m) has its volley land nearer its horse's nose
       const p = ride.path.at(Math.min(ride.path.length, sLand), FP);
       const gap = (p.x - r.x) * fx + (p.z - r.z) * fz + COACH_FOOT.back - ARROWS.coach;
@@ -229,7 +240,7 @@ export function arrowPlan(ride) {
         let ok = true;
         for (let j = 0; j < RIDERS.length && ok; j++) { placeRider(ride, sLand, j, q); if (Math.hypot(q.x - tx, q.z - tz) <= ARROWS.clear) ok = false; }
         if (!ok) continue;
-        arrows.push({ rider: i, sLoose, sLand, from: { x: f.x + (hash(i, k, 23) - 0.5) * 6, z: f.z + (hash(i, k, 24) - 0.5) * 6 }, to: { x: tx, z: tz } });
+        arrows.push({ rider: i, archer: j, sLoose, sLand, from: { x: f.x, z: f.z }, to: { x: tx, z: tz } });
         break;
       }
     }

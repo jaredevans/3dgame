@@ -86,7 +86,7 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
 
   // ---- the director: the planner's shot, framed. `fresh`: the next frame snaps to its shot, cut or not ----
   const director = makeDirector();
-  const shotCam = { shot: null, fresh: true, age: 0, spin: 1, reach: 0, recheck: 0, pos: new THREE.Vector3(), target: new THREE.Vector3(), off: new THREE.Vector3(), aimOff: new THREE.Vector3() };
+  const shotCam = { shot: null, fresh: true, age: 0, spin: 1, reach: 0, recheck: 0, pos: new THREE.Vector3(), target: new THREE.Vector3(), off: new THREE.Vector3(), aimOff: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3() };
   const rp = {}, want = new THREE.Vector3(), aim = new THREE.Vector3(), front = new THREE.Vector3(), seen = new THREE.Vector3();
   // 0 at a train's speeds, rising to 1 at twice SHOT.quick: how far a view follows as for something faster than any train
   const quick = (v) => Math.min(1, Math.max(0, (Math.abs(v) - SHOT.quick) / SHOT.quick));
@@ -178,7 +178,9 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
   // line's end, the train's front, head-on
   function aimFixed(shot, ctx, sign, train) {
     const cars = train.cars;
-    if (shot.look !== null && shot.look !== undefined) {   // a place on the line, whatever the train's doing (the crossing)
+    // the point a ride's set piece offers (the arrows in flight, then where they land), while it offers one
+    if (shot.look === 'focus' && ctx.focus) return aim.copy(ctx.focus);
+    if (typeof shot.look === 'number') {   // a place on the line, whatever the train's doing (the crossing)
       ctx.route.at(shot.look, rp);
       return aim.set(rp.x, rp.y + SHOT.aim / 2, rp.z);
     }
@@ -248,10 +250,19 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     if (snap) {
       shotCam.shot = shot; shotCam.fresh = false; shotCam.age = 0; shotCam.spin = -shotCam.spin; shotCam.recheck = 0;
       if (camera.fov !== shot.fov) { camera.fov = shot.fov; camera.updateProjectionMatrix(); }
-      if (FIXED.has(shot.kind)) placeFixed(shot, ctx, sign, train);
+      if (FIXED.has(shot.kind)) {
+        // a fixed shot that glides in (shot.from: where it starts, eased to its own stand over shot.push s)
+        if (shot.from) { placeFixed({ ...shot, ...shot.from }, ctx, sign, train); shotCam.from.copy(shotCam.pos); }
+        placeFixed(shot, ctx, sign, train);
+        shotCam.to.copy(shotCam.pos);
+      }
     } else { shotCam.age += dt; shotCam.recheck -= dt; }
     const k = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease), w = quick(ctx.v);
     if (FIXED.has(shot.kind)) {
+      if (shot.from) {
+        const u = Math.min(1, shotCam.age / (shot.push || 1)), e = u * u * (3 - 2 * u);
+        shotCam.pos.lerpVectors(shotCam.from, shotCam.to, e);
+      }
       const kf = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease * (1 + w * (Math.abs(ctx.v) / SHOT.quick - 1)));
       shotCam.target.lerp(aimFixed(shot, ctx, sign, train), kf);
       seen.copy(shotCam.target);

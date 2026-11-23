@@ -112,7 +112,7 @@ export function makeDirector({ rand = Math.random } = {}) {
     // tilt: degrees the camera looks further down than at the train (the whales' shot: the sea below it in frame);
     // look: a fixed shot looks at the line at this leg-s, not following the train (the crossing's: the train goes
     // through the frame past the waiting cars)
-    return { kind, id, at, lateral, height: given?.height ?? d.height, fov: given?.fov ?? d.fov, tilt: given?.tilt ?? 0, look: given?.look ?? null, hold: 0 };
+    return { kind, id, at, lateral, height: given?.height ?? d.height, fov: given?.fov ?? d.fov, tilt: given?.tilt ?? 0, look: given?.look ?? null, from: given?.from ?? null, push: given?.push ?? 0, hold: 0 };
   };
 
   // seconds of a window left ahead of the front at this speed (Infinity standing still)
@@ -241,7 +241,7 @@ export function makeDirector({ rand = Math.random } = {}) {
       if (p) {
         const s = specFor(p.shot.kind, p.id, p.shot, input);
         const long = p.shot.kind === 'portal' || p.shot.kind === 'below' || p.shot.kind === 'arrival';
-        s.hold = p.shot.kind === 'arrival' ? ARRIVAL_HOLD : long ? LONG_HOLD : HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN);
+        s.hold = p.shot.hold ?? (p.shot.kind === 'arrival' ? ARRIVAL_HOLD : long ? LONG_HOLD : HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN));   // (a showpiece may set its own)
         return cutTo(s, input, long ? { s0: p.s0, s1: p.s1 } : null, null);
       }
       const s = specFor(nextGeneral(input), null, null, input);

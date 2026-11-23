@@ -105,7 +105,8 @@ export function makeRideRunner({ views, audio = null, interior }) {
   const trainF = { front: null, v: 0, length: 0 };
   const f = { rideS: 0, rideV: 0, legS: 0, dir: 'out', here: true, dt: 0, time: 0, on: null, react: null, camera: null, train: trainF, night: 0, sunDir: null };
   const started = [];   // this frame's started set pieces with a shot, for the director
-  const ctx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started, tunnels: [], overhead: false };
+  // (focus: a point a set piece offers the director to watch, the first of its actors' `focus` that's set: the arrows)
+  const ctx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started, tunnels: [], overhead: false, focus: null };
   const q = {};
   const attitude = () => ({ pitch: 1, bank: 0, level: 0, ...kit.vehicle.attitude });
   let att = null;
@@ -190,6 +191,8 @@ export function makeRideRunner({ views, audio = null, interior }) {
     // what the director is told this frame (cameras.js): the ride's own path, in ride-s, always out
     viewContext(dt) {
       ctx.dt = dt; ctx.legS = state.s; ctx.v = state.v;
+      ctx.focus = null;
+      for (const a of kit.actors.values()) if (a.focus) { ctx.focus = a.focus; break; }
       return ctx;
     },
     // the ride is over (or let go): its set pieces told so, the engine quiet, the views off the seat. The vehicle stays

@@ -56,3 +56,38 @@ export function seatOnHorse(figure, horse) {
 // seat view and whenever you're not riding (ride-run.js: the kit's vehicle.rider). -> crewFigure's { figure, anim } or null
 export const CONDUCTOR = { kitKey: 'railway', key: 'engine-driver', params: { colorway: 'driver', oilCan: false } };
 export const conductorFigure = (ctx, clip = 'Sitting') => crewFigure(ctx, { ...CONDUCTOR, clip, name: 'conductor', what: 'conductor' });
+
+// a figure's arm (side 'Right' or 'Left') raised to point along `aim` (a unit vector in the figure's own frame): its
+// upper arm and forearm turned in the world so shoulder to elbow and elbow to hand point that way, and those turns kept
+// as their bones' own (re-put after each clip update, which poses them again); `held` (a gun, a bow: its +z along the
+// aim) put in the hand, a little out along the aim. -> the arm's bones and their aimed turns, or null if it has none
+const AV = new THREE.Vector3(), AW = new THREE.Vector3(), AD = new THREE.Vector3(), AQ = new THREE.Quaternion(), AP = new THREE.Quaternion();
+export function aimArm(figure, held, aim, side = 'Right') {
+  const arm = figure.getObjectByName(`${side}Arm`), fore = figure.getObjectByName(`${side}ForeArm`), hand = figure.getObjectByName(`${side}Hand`);
+  if (!arm || !fore || !hand) return null;
+  figure.updateMatrixWorld(true);
+  figure.getWorldQuaternion(AQ);
+  AD.copy(aim).applyQuaternion(AQ);   // the aim, in the world
+  const turn = (bone, from, to) => {
+    bone.updateMatrixWorld(true);
+    from.getWorldPosition(AV); to.getWorldPosition(AW);
+    const q = new THREE.Quaternion().setFromUnitVectors(AW.sub(AV).normalize(), AD);
+    // the bone's world turn, turned by q, back into its parent's frame
+    bone.getWorldQuaternion(AP);
+    AP.premultiply(q);
+    bone.parent.getWorldQuaternion(AQ);
+    bone.quaternion.copy(AQ.invert().multiply(AP));
+    bone.updateMatrixWorld(true);
+  };
+  turn(arm, arm, fore);
+  turn(fore, fore, hand);
+  hand.updateMatrixWorld(true);
+  hand.getWorldQuaternion(AP);
+  AQ.setFromUnitVectors(new THREE.Vector3(0, 0, 1), AD);
+  held.quaternion.copy(AP.invert().multiply(AQ));
+  hand.getWorldPosition(AV);
+  hand.worldToLocal(AV.addScaledVector(AD, 0.06));
+  held.position.copy(AV);
+  hand.add(held);
+  return { arm, fore, qa: arm.quaternion.clone(), qf: fore.quaternion.clone() };
+}
