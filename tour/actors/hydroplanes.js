@@ -25,7 +25,7 @@ const RIDE = { lift: 0.18, nose: 0.045, chatter: [0.05, 0.012, 21], lean: 0.22 }
 // the director's place by the leader (m out to sea, ahead of it, up), and how far behind it it looks: back across the
 // two of them along their rooster tails
 const WATCH = { out: 42, ahead: 24, up: 8, behind: 10 };
-const SEEN = 900;   // m: further than this from the camera, a boat can't be made out (the race may be put right)
+const SEEN = 2500;   // m: further than this from the camera, a boat and its tail can't be made out (the race may be put right)
 
 async function buildHydroplanes({ leg, route, def, terrain, slicer }) {
   const group = new THREE.Group();
@@ -38,7 +38,7 @@ async function buildHydroplanes({ leg, route, def, terrain, slicer }) {
     const m = makeHydroplane(b.livery);
     m.object.rotation.order = 'YXZ';
     group.add(m.object);
-    return { ...b, m, last: null };
+    return { ...b, m, last: null, owe: { tail: 0, foam: 0, fan: 0 } };
   });
   await slicer.frame();
   const tail = makeSpray({ count: 7000, size: 2.1, life: TAIL.life, gravity: 9.8, opacity: 0.85, name: 'hydroplanes rooster tails' });
@@ -87,19 +87,21 @@ async function buildHydroplanes({ leg, route, def, terrain, slicer }) {
         o.updateMatrixWorld();
         const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), lx = Math.cos(P.yaw), lz = -Math.sin(P.yaw), pace = Math.min(1, v / HYDRO.top);
         w.copy(b.m.stern).applyMatrix4(o.matrixWorld);
-        for (let n = Math.round(moved * TAIL.perM * pace); n > 0; n--) {
+        // (how many this frame, the fraction carried on to the next: a frame is under a metre)
+        const due = (k, n) => { b.owe[k] += n; const whole = Math.floor(b.owe[k]); b.owe[k] -= whole; return whole; };
+        for (let n = due('tail', moved * TAIL.perM * pace); n > 0; n--) {
           // (strewn back along the way it came this frame, so the tail is unbroken)
           const back = Math.random() * moved, up = rnd(...TAIL.up) * pace, aft = rnd(...TAIL.back), out = rnd(-TAIL.out, TAIL.out);
           tail.emit(w.x - fx * back, w.y, w.z - fz * back, -fx * aft + lx * out, up, -fz * aft + lz * out, TAIL.life * rnd(0.85, 1.1));
         }
-        for (let n = Math.round(moved * FOAM.perM); n > 0; n--) {
+        for (let n = due('foam', moved * FOAM.perM); n > 0; n--) {
           const back = Math.random() * moved, s = rnd(-FOAM.spread, FOAM.spread);
           foam.emit(w.x - fx * back + lx * s, SEA_LEVEL + 0.05, w.z - fz * back + lz * s, lx * s * 0.6, 0, lz * s * 0.6, FOAM.life * rnd(0.7, 1.1), false);
         }
         for (const [k, bow] of b.m.bows.entries()) {
           w.copy(bow).applyMatrix4(o.matrixWorld);
           const side = k ? 1 : -1;
-          for (let n = Math.round(moved * FAN.perM * pace); n > 0; n--) {
+          for (let n = due('fan', moved * FAN.perM * pace / 2); n > 0; n--) {
             const o2 = rnd(...FAN.out);
             fan.emit(w.x, SEA_LEVEL + 0.1, w.z, lx * side * o2 + fx * v * 0.25, rnd(...FAN.up), lz * side * o2 + fz * v * 0.25, FAN.life * rnd(0.7, 1.1));
           }

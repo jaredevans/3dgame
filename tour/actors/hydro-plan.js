@@ -9,7 +9,7 @@
 // trim, it's put right in one go, but only while neither where the boats are nor where they'd go is in sight.
 
 export const HYDRO = {
-  s0: 380, s1: 1780,       // leg-s of the course's two turns: clear of the speedboat's way out of the City and into Oceanside
+  s0: 380, s1: 1720,       // leg-s of the course's two turns: clear of the speedboat's way out of the City and into Oceanside, and of Oceanside's whales
   inner: 25, outer: 70,    // m off the waterline: the eastbound lane, the westbound one (the turns' diameter between)
   sub: 6,                  // m either side of its lane's middle each boat keeps to
   step: 5,                 // m between the course's points
