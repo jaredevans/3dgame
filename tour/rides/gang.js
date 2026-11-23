@@ -4,9 +4,11 @@
 // shot lands well wide (some with a ricochet's ping). Western-film spectacle: no one is ever hit. They stand in the
 // scene from the build, hidden until the ride's event ('gang') runs.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { sound } from '../audio.js';
 import { clipFor, HORSE } from '../actors/clips.js';
-import { GANG, gangPlan, placeRider } from './coach-plan.js';
+import { GANG, gangPlan, placeRider, arrowPlan, arrowAt, rearAt, turnedAt } from './coach-plan.js';
+import { HORSE_HOOVES } from '../actors/paths.js';
 import { crewFigure, seatOnHorse } from './crew.js';
 import { makeSpray } from './spray.js';
 
@@ -15,6 +17,18 @@ const FLASH = 0.07;                           // s a muzzle flash shows
 const AIM = new THREE.Vector3(-0.2, 0.35, 1).normalize();   // the gun arm's way, in the rider's frame: ahead, up a little, out to its right
 const LOUD = 30;                              // m: a shot nearer the camera than this is at its loudest
 const DUST = { per: 36, life: 2.2 };          // a puff's dust: how many specks, and how long it hangs
+
+// an arrow, 0.8 m, its point at +z: a shaft, a head, three flights at its tail
+function arrowGeometry() {
+  const parts = [
+    new THREE.CylinderGeometry(0.007, 0.007, 0.8, 4).rotateX(Math.PI / 2),
+    new THREE.ConeGeometry(0.018, 0.07, 4).rotateX(Math.PI / 2).translate(0, 0, 0.43),
+    ...[0, 1, 2].map((k) => new THREE.PlaneGeometry(0.035, 0.12).translate(0.02, 0, -0.33).rotateZ((k * 2 * Math.PI) / 3)),
+  ];
+  const g = mergeGeometries(parts.map((p) => p.toNonIndexed()));
+  for (const p of parts) p.dispose();
+  return g;
+}
 
 // a revolver (barrel, cylinder, grip), its muzzle at +z; and its flash: a bright star of two crossed quads there
 function revolver(flashMat) {
@@ -112,9 +126,26 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
   const dust = makeSpray({ count: 520, size: 1.5, life: DUST.life, gravity: 0.5, name: 'gang shots dust', color: '#c9ad84', opacity: 0.9, air: 1.4, floor: -Infinity });
   group.add(dust.points);
   const plan = gangPlan(ride);   // (worked out here, at the build's standstill, not mid-ride)
+  // the arrows that drive them off (coach-plan.js arrowPlan): one mesh each, sharing a geometry, hidden till loosed,
+  // stuck where they land till the ride's event is over
+  const volley = arrowPlan(ride).arrows;
+  const arrowGeo = arrowGeometry(), arrowMat = new THREE.MeshStandardMaterial({ color: '#7a5a38', roughness: 0.8, side: THREE.DoubleSide });
+  const arrows = volley.map((a) => {
+    const m = new THREE.Mesh(arrowGeo, arrowMat);
+    m.name = 'arrow';
+    m.visible = false;
+    m.castShadow = true;
+    group.add(m);
+    return { a, m, y0: terrain.heightAt(a.from.x, a.from.z) + 1.4, y1: terrain.heightAt(a.to.x, a.to.z), hissed: false, landed: false };
+  });
+  const A = {}, dir = new THREE.Vector3(), Zf = new THREE.Vector3(0, 0, 1);
   const P0 = { x: 0, z: 0, yaw: 0, pace: 0, stopped: 0, a: 0, lane: 0, visible: false };
   let next = 0;
-  const hide = () => { for (const r of riders) { r.horse.object.visible = false; if (r.flash) r.flash.visible = false; r.flashFor = 0; } next = 0; };
+  const hide = () => {
+    for (const r of riders) { r.horse.object.visible = false; if (r.flash) r.flash.visible = false; r.flashFor = 0; }
+    for (const x of arrows) { x.m.visible = false; x.hissed = false; x.landed = false; x.m.userData.stuck = false; }
+    next = 0;
+  };
   const loud = (cam, x, z) => (cam ? Math.min(1, LOUD / Math.max(LOUD, Math.hypot(cam.position.x - x, cam.position.z - z))) : 1);
   return {
     group,
@@ -126,8 +157,11 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
         placeRider(ride, s, i, P0);
         o.visible = P0.visible;
         if (!P0.visible) continue;
-        o.position.set(P0.x, terrain.heightAt(P0.x, P0.z), P0.z);
-        o.rotation.y = P0.yaw;
+        // rearing as its volley lands (tipped up about its hind hooves), and turned away once it has pulled up
+        const rear = rearAt(i, s), hb = HORSE_HOOVES.back, yaw = P0.yaw + Math.PI * turnedAt(i, s);
+        const lift = -hb * Math.sin(rear), back = hb * (1 - Math.cos(rear));
+        o.position.set(P0.x + Math.sin(yaw) * back, terrain.heightAt(P0.x, P0.z) + lift, P0.z + Math.cos(yaw) * back);
+        o.rotation.set(-rear, yaw, 0, 'YXZ');
         // its gait from its speed (the coach's times its pace): standing, trotting up, galloping
         const v = P0.pace * f.rideV;
         clipFor(v, r.horse.clips, HORSE, r.gait);
@@ -149,8 +183,26 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
         dust.burst(sh.x, terrain.heightAt(sh.x, sh.z) + 0.1, sh.z, DUST.per, [0.8, 2.8], [0.4, 2.0], 0.6);
         if (sh.ping) sound('ping', loud(f.camera, sh.x, sh.z));
       }
+      // the arrows: in flight along their arcs, pointing along them; stuck where they came down, a puff and a thud
+      for (const x of arrows) {
+        arrowAt(x.a, s, x.y0, x.y1, A);
+        x.m.visible = A.flying || A.landed;
+        if (!x.m.visible) continue;
+        if (A.flying && !x.hissed) { x.hissed = true; sound('hiss', loud(f.camera, x.a.to.x, x.a.to.z)); }
+        if (A.landed && !x.landed) {
+          x.landed = true;
+          dust.burst(x.a.to.x, x.y1 + 0.05, x.a.to.z, 10, [0.4, 1.4], [0.2, 0.9], 0.2);
+          sound('thud', loud(f.camera, x.a.to.x, x.a.to.z));
+        }
+        if (A.landed && x.m.userData.stuck) continue;
+        dir.set(A.dx, A.dy, A.dz).normalize();
+        // stuck: its point a quarter of the way in, at the angle it came down
+        x.m.position.set(A.x - (A.landed ? dir.x * 0.2 : 0), A.y - (A.landed ? dir.y * 0.2 : 0), A.z - (A.landed ? dir.z * 0.2 : 0));
+        x.m.quaternion.setFromUnitVectors(Zf, dir);
+        x.m.userData.stuck = A.landed;
+      }
       dust.update(dt);
     },
-    dispose() { dust.dispose(); },
+    dispose() { dust.dispose(); arrowGeo.dispose(); },
   };
 }

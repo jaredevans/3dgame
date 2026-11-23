@@ -56,6 +56,9 @@ const SURGE = [330, 390, 450];   // ride-s: the surge rises from the first, hold
 export const GANG_SHOTS = [
   { id: 'gang-low', s0: 255, s1: 345, shot: { kind: 'trackside', at: 350, lateral: -6, height: 1.2, fov: 45 } },
   { id: 'gang-heli', s0: 360, s1: 460, shot: { kind: 'heli', lateral: 30, height: 7, fov: 52 } },
+  // and the arrows (owner, 2026-11-22): from up the road ahead, out on its right, looking back down it at the gang
+  // reining in under them, the coach coming on up towards the camera
+  { id: 'arrows', s0: 455, s1: 560, shot: { kind: 'high-wide', at: 505, lateral: -9, height: 3, fov: 48, look: 474 } },
 ];
 
 const smooth = (u) => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
@@ -190,3 +193,71 @@ export function gangPlan(ride) {
   return plan;
 }
 export const GANG_RIDERS = RIDERS.length;
+
+// ---- the arrows (owner, 2026-11-22) ----
+// Why the gang give up the chase: as each rider comes up the climb, a volley of ARROWS.per arrows from a band of Native
+// archers on the hillside off the road's right (ARROWS.out m out, ARROWS.ahead m on up the road) lands in the road
+// just in front of it, and it pulls up, its horse rearing, and turns away. Each volley is loosed ARROWS.flight s before
+// it lands (in the coach's ride-s: the same picture whatever the frame rate) and lands as the rider begins to pull up,
+// ARROWS.lead m ahead of the rider (ARROWS.spread m along and across), stuck in the ground thereafter. Worked out once.
+export const ARROWS = { per: 3, out: -70, ahead: 12, flight: 1.6, early: 4, lead: [5, 9], near: 1.8, coach: 4.2, spread: 2.6, apex: 16, clear: 2.5 };
+const ARROW_PLANS = new WeakMap();
+// -> { arrows: [{ rider, sLoose, sLand, from: { x, z }, to: { x, z } }] in order of sLoose }
+export function arrowPlan(ride) {
+  let plan = ARROW_PLANS.get(ride);
+  if (plan) return plan;
+  const arrows = [], r = {}, f = {}, q = {}, line = coachRoad().line;
+  for (let i = 0; i < RIDERS.length; i++) {
+    const R = RIDERS[i];
+    for (let k = 0; k < ARROWS.per; k++) {
+      // each arrow of the volley a moment after the last, aimed at where the rider will be as it lands
+      const sLand = R.stop - ARROWS.early + k * 1.5, sLoose = sLand - ride.profile.v * ARROWS.flight;
+      placeRider(ride, sLand, i, r);
+      const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw);
+      if (k === 0) line.offsetAt(Math.min(line.length, Math.max(0, r.a + ARROWS.ahead)), ARROWS.out, f);
+      // no nearer the coach than ARROWS.coach m: a rider close behind it (9 m) has its volley land nearer its horse's nose
+      const p = ride.path.at(Math.min(ride.path.length, sLand), FP);
+      const gap = (p.x - r.x) * fx + (p.z - r.z) * fz + COACH_FOOT.back - ARROWS.coach;
+      const lead1 = Math.max(ARROWS.near, Math.min(ARROWS.lead[1], gap)), lead0 = Math.min(ARROWS.lead[0], lead1);
+      // spots tried in turn: the first clear of every rider by ARROWS.clear (one in file ahead of it among them) and of
+      // the coach by ARROWS.coach is where it lands (none clear: that arrow isn't loosed)
+      const c = coachAt(ride, sLand, {});
+      for (let m = 0; m < 10; m++) {
+        const along = lead0 + (lead1 - lead0) * hash(i, k, m, 21), across = ((k + m) % 2 ? 1 : -1) * (1.8 + (ARROWS.spread - 1.8) * hash(i, k, m, 22));
+        const tx = r.x + fx * along + fz * across, tz = r.z + fz * along - fx * across;
+        if (fromCoach(c, tx, tz) <= ARROWS.coach) continue;
+        let ok = true;
+        for (let j = 0; j < RIDERS.length && ok; j++) { placeRider(ride, sLand, j, q); if (Math.hypot(q.x - tx, q.z - tz) <= ARROWS.clear) ok = false; }
+        if (!ok) continue;
+        arrows.push({ rider: i, sLoose, sLand, from: { x: f.x + (hash(i, k, 23) - 0.5) * 6, z: f.z + (hash(i, k, 24) - 0.5) * 6 }, to: { x: tx, z: tz } });
+        break;
+      }
+    }
+  }
+  arrows.sort((a, b) => a.sLoose - b.sLoose);
+  plan = { arrows };
+  ARROW_PLANS.set(ride, plan);
+  return plan;
+}
+// an arrow of the plan at the coach's ride-s s, its ground heights at its ends given (y0 where it's loosed, y1 where it
+// lands) -> into out { flying, landed, x, y, z, dx, dy, dz (its way, not unit) }
+export function arrowAt(a, s, y0, y1, out) {
+  const u = (s - a.sLoose) / (a.sLand - a.sLoose);
+  out.flying = u >= 0 && u < 1; out.landed = u >= 1;
+  const w = Math.min(1, Math.max(0, u));
+  out.x = a.from.x + (a.to.x - a.from.x) * w;
+  out.z = a.from.z + (a.to.z - a.from.z) * w;
+  out.y = y0 + (y1 - y0) * w + ARROWS.apex * 4 * w * (1 - w);
+  out.dx = a.to.x - a.from.x; out.dz = a.to.z - a.from.z;
+  out.dy = (y1 - y0) + ARROWS.apex * 4 * (1 - 2 * w);
+  return out;
+}
+// how far a horse rears (radians, nose up) as its volley lands: up over the coach's first REAR.up m after, down by REAR.down
+export const REAR = { up: 6, down: 22, most: 0.5 };
+export function rearAt(i, s) {
+  const d = s - (RIDERS[i].stop - ARROWS.early);
+  if (d <= 0 || d >= REAR.down) return 0;
+  return REAR.most * (d < REAR.up ? Math.sin((Math.PI / 2) * d / REAR.up) : Math.cos((Math.PI / 2) * (d - REAR.up) / (REAR.down - REAR.up)));
+}
+// how far round a rider has turned (0..1 of a half turn) once it has pulled up: away, back the way it came
+export const turnedAt = (i, s) => smooth((s - RIDERS[i].stop - GANG.stop) / 40);

@@ -117,6 +117,13 @@ const SOUNDS = {
     noiseBurst({ type: 'bandpass', freq: 1800, to: 400, q: 0.6, peak: 0.08, attack: 0.004, dur: 0.5 });
     for (let k = 0; k < 7; k++) noiseBurst({ type: 'highpass', freq: 2500 + 900 * Math.random(), q: 0.7, peak: 0.03, attack: 0.002, dur: 0.06, at: 0.35 + k * 0.17 + Math.random() * 0.1 });
   },
+  // the arrows that drive the gang off: an arrow's hiss through the air as it comes down, and its thud into the ground,
+  // each as loud as `level`
+  hiss(level = 1) { noiseBurst({ type: 'bandpass', freq: 5200, to: 2600, q: 2.2, peak: 0.05 * level, attack: 0.25, dur: 0.6 }); },
+  thud(level = 1) {
+    noiseBurst({ type: 'lowpass', freq: 260, to: 120, q: 1, peak: 0.09 * level, attack: 0.003, dur: 0.16 });
+    noiseBurst({ type: 'bandpass', freq: 1400, to: 900, q: 1.5, peak: 0.025 * level, attack: 0.002, dur: 0.07 });
+  },
   ping(level = 1) {
     const t0 = audio.currentTime + 0.12, o = audio.createOscillator(), g = audio.createGain();
     const f0 = 2300 + Math.random() * 600;

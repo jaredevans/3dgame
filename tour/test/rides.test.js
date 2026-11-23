@@ -25,7 +25,7 @@ import { BODY } from '../walk.js';
 import { BENCH, ROAD, coachRoad, roadSurface } from '../world-data.js';
 import { BED_HALF } from '../terrain.js';
 import { CLEAR_LINE } from '../scenery.js';
-import { GANG, GANG_SHOTS, COACH_FOOT, COACH_TEAM, RIDER_REACH, PUFF, placeRider, gangPlan, fromCoach } from '../rides/coach-plan.js';
+import { GANG, GANG_SHOTS, COACH_FOOT, COACH_TEAM, RIDER_REACH, PUFF, placeRider, gangPlan, fromCoach, ARROWS, arrowPlan, arrowAt, rearAt, turnedAt } from '../rides/coach-plan.js';
 
 const terrain = worldTerrain(), ground = (x, z) => terrain.heightAt(x, z);
 const rides = RIDE_LEGS.map(rideFor);
@@ -945,7 +945,7 @@ test('the gang falls back one by one and is gone (out of sight, over 400 m back)
 
 test('the coach\'s showpieces: the chase from low ahead beside the road, and a heli out past the gang\'s lanes, over the chase', () => {
   const r = ride('coach'), by = Object.fromEntries(r.showpieces.map((p) => [p.id, p]));
-  assert.deepEqual(Object.keys(by).sort(), ['gang-heli', 'gang-low']);
+  assert.deepEqual(Object.keys(by).sort(), ['arrows', 'gang-heli', 'gang-low']);
   assert.deepEqual(r.showpieces, GANG_SHOTS);
   const low = by['gang-low'], heli = by['gang-heli'];
   assert.equal(low.shot.kind, 'trackside');
@@ -1248,4 +1248,39 @@ test('the far place\'s trains are put at their platforms past a third of the way
   assert.equal(placeFarTrains(700, 2000, seen(false)), true);
   assert.equal(placeFarTrains(1990, 2000, seen(true)), false, 'in view to the end: left for the landing');
   assert.equal(FAR_TRAINS_FROM, 1 / 3);
+});
+
+// owner, 2026-11-22: why the gang give up the chase: a volley of arrows lands in the road in front of each rider as it
+// pulls up, its horse rearing, and it turns away
+test('the arrows: a volley lands just ahead of each rider as it begins to pull up, clear of it, the others and the coach', () => {
+  const r = ride('coach'), { arrows } = arrowPlan(r), o = {}, q = {}, c = {}, a = {};
+  assert.ok(arrows.length >= GANG.count * ARROWS.per - 2, `${arrows.length} arrows`);
+  for (let i = 0; i < GANG.count; i++) {
+    const mine = arrows.filter((x) => x.rider === i);
+    assert.ok(mine.length >= ARROWS.per - 1, `rider ${i}: ${mine.length} arrows`);
+    for (const x of mine) {
+      assert.ok(x.sLoose < x.sLand);
+      placeRider(r, x.sLand, i, o);
+      // in front of it (along its way), a few metres
+      const dx = x.to.x - o.x, dz = x.to.z - o.z, along = dx * Math.sin(o.yaw) + dz * Math.cos(o.yaw);
+      assert.ok(along >= ARROWS.near - 0.5 && along <= ARROWS.lead[1] + 0.5, `rider ${i}: ${along.toFixed(1)} m ahead`);
+      // clear of every rider and of the coach where it lands
+      for (let j = 0; j < GANG.count; j++) { placeRider(r, x.sLand, j, q); assert.ok(Math.hypot(q.x - x.to.x, q.z - x.to.z) > ARROWS.clear, `rider ${j} under rider ${i}'s arrow`); }
+      const p = r.path.at(x.sLand);
+      assert.ok(fromCoach({ x: p.x, z: p.z, sx: Math.sin(p.yaw), sz: Math.cos(p.yaw) }, x.to.x, x.to.z) > ARROWS.coach, `rider ${i}'s arrow by the coach`);
+      // from well off the road, arcing up and coming down where it lands
+      assert.ok(Math.hypot(x.to.x - x.from.x, x.to.z - x.from.z) > 40);
+      arrowAt(x, (x.sLoose + x.sLand) / 2, 10, 5, a);
+      assert.ok(a.flying && a.y > 10 + ARROWS.apex * 0.9 - 3);
+      arrowAt(x, x.sLand + 1, 10, 5, a);
+      assert.ok(a.landed && a.y === 5 && a.dy < 0, 'stuck where it came down, pointing down');
+    }
+    // its horse rears as they land, and after it has pulled up it turns away
+    const land = mine[0].sLand;
+    assert.equal(rearAt(i, land - 1), 0);
+    assert.ok(rearAt(i, land + 6) > 0.4);
+    assert.equal(rearAt(i, land + 40), 0);
+    assert.ok(turnedAt(i, land + 300) > 0.99 && turnedAt(i, land) === 0);
+  }
+  assert.ok(GANG_SHOTS.some((x) => x.id === 'arrows' && x.shot.look !== undefined));
 });
