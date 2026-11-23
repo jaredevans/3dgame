@@ -4,10 +4,13 @@
 // an Object3D, by its position and rotation), so Node can test it.
 //
 // A RideKit (tour/rides/index.js builds one per ride, at a standstill) =
-//   { vehicle: { holder, box, seat, foot?, attitude? }, crew?, actors: Map<event id, Actor>, boardMarker, landPad?,
-//     update(f), dispose() }
+//   { vehicle: { holder, box, seat, foot?, attitude?, rider? }, crew?, actors: Map<event id, Actor>, boardMarker,
+//     landPad?, update(f), dispose() }
 //   holder  rides the path (its origin on it, +z forward); the model inside it stands `ride.rest` below
 //   box     the vehicle's bounds in the holder's frame; seat: where you sit, in the holder's frame (the seat view)
+//   rider   you, the conductor, in your seat (rides/crew.js conductorFigure): seen from the chase and director views,
+//           hidden in the seat view (you look out through his eyes) and whenever you're not riding (the page hides
+//           it once the kit is warmed)
 //   foot    { min: { x, z }, max: { x, z } } in the holder's frame: what a walker runs into where it stands (walk-world.js
 //           vehicleBlocks), if not the box's own x and z (the balloon's basket, not its envelope)
 //   attitude { pitch: how much of the path's climb it takes (1: all; a hanging basket 0), bank: the most it rolls
@@ -162,8 +165,10 @@ export function makeRideRunner({ views, audio = null, interior }) {
       Object.assign(out, { done: false, s: 0, t: 0, v: 0, legS: rideLegS(r, 0), pos: k.vehicle.holder.position, yaw: k.vehicle.holder.rotation.y, on: null });
       trainF.front = k.vehicle.holder.position; trainF.length = car.length;
       Object.assign(ctx, { route: r.path, length: car.length, showpieces: r.showpieces });
-      // the seat is the cab: its view rides the holder at the seat (no shell to cut away: the kit's cabin is glazed)
-      views.attachCab({ holder: k.vehicle.holder, seat: k.vehicle.seat, interior, clip() {} });
+      // the seat is the cab: its view rides the holder at the seat (no shell to cut away: the kit's cabin is glazed);
+      // in it, the conductor's out of sight (the views clip the cab as they go into and out of the seat view)
+      const rider = k.vehicle.rider ?? null;
+      views.attachCab({ holder: k.vehicle.holder, seat: k.vehicle.seat, interior, clip(on) { if (rider) rider.visible = !on; } });
       views.setDriving(true);
       views.restart();
       sound = audio?.engine(r.id) ?? null;
@@ -198,6 +203,7 @@ export function makeRideRunner({ views, audio = null, interior }) {
       sound?.stop();
       sound = null;
       views.setDriving(false);
+      if (kit?.vehicle.rider) kit.vehicle.rider.visible = false;   // (stepped off: you're the figure on foot again)
       ride = null; kit = null; out.on = null;
     },
   };

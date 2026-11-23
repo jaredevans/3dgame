@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { kitNight } from '../actors/metro.js';
 import { lightZones } from '../actors/coast.js';
 import { buildEscort } from './escort.js';
+import { conductorFigure, sitOn } from './crew.js';
 
 const POD = { key: 'commuter-hover-pod', params: { colorway: 'arcology-white', glazing: 'canopy', roofHatch: false } };
 // the pod, measured (2 x 2.12 x 4.52 m, +z forward, its floor 0.5 m up, its windows from 0.98 to 1.92 m): cut at its
@@ -22,6 +23,7 @@ const FOOT = { y: BELT, w: 0.8, front: 1.65, back: -2.0, cut: 0.3 };
 const TOP = { y: 2.06, w: 0.7, front: 0.7, back: -1.6, cut: 0.25 };
 const BAR = 0.03;   // the frame's bars, square, metres across
 const SEAT = { y: 1.52, z: -0.35 };   // your eyes, on the bench (its cushion 0.95 m up, 0.45 over the floor)
+const CUSHION = { top: 0.95, z: -0.48 };   // where you (the conductor) sit on it: its top, your hips over it
 const PAD = { r: 3.4, ring: 0.18, up: 0.04 };
 const NIGHT_STRIP = '#8ff5e8';
 
@@ -157,6 +159,11 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
   holder.add(glazed);
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
+  // you, the conductor, on the bench in the middle (seen from outside: ride-run.js)
+  await slicer.frame();
+  await still();
+  const rider = await conductorFigure({ kit, warn });
+  if (rider) sitOn(rider.figure, glazed, CUSHION.top, CUSHION.z);
   await slicer.frame();
   const ringMat = new THREE.MeshStandardMaterial({ color: '#9fb4c2', roughness: 0.5, emissive: new THREE.Color(NIGHT_STRIP), emissiveIntensity: 0 });
   const at = (p) => [p.x, terrain.heightAt(p.x, p.z), p.z];
@@ -169,7 +176,7 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
   let night = -1;
   return {
     vehicle: {
-      holder, box, seat: new THREE.Vector3(0, SEAT.y - ride.rest, SEAT.z),
+      holder, box, seat: new THREE.Vector3(0, SEAT.y - ride.rest, SEAT.z), rider: rider?.figure ?? null,
       // banked gently into its turns, nosing up or down only a little as it climbs and comes down (it lifts on its
       // nacelles, not its wings); lifting off and settling onto its pad level
       attitude: { pitch: 0.35, bank: 0.3, level: 8 },

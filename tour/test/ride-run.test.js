@@ -193,3 +193,22 @@ test('a vehicle\'s footprint is its own foot if it has one (the balloon\'s baske
   const foot = { min: { x: -1.75, z: -0.85 }, max: { x: 1.75, z: 0.85 } };
   assert.equal(vehicleFoot({ ...v, foot }), foot);
 });
+
+test('the conductor rides along: hidden in the seat view (you see through his eyes), seen in the others, gone once you step off', () => {
+  const rider = { visible: true }, kit = kitOf(), calls = [];
+  kit.vehicle.rider = rider;
+  let cab = null;
+  const views = { attachCab: (c) => { cab = c; }, setDriving: (on) => calls.push(on), restart() {} };
+  const runner = makeRideRunner({ views, interior: {} });
+  runner.start(rideFor('future-city'), kit);
+  cab.clip(true);    // the seat view
+  assert.equal(rider.visible, false);
+  cab.clip(false);   // chase or director
+  assert.equal(rider.visible, true);
+  runner.stop();     // stepped off: you're the figure on foot again
+  assert.equal(rider.visible, false);
+  // a ride with no conductor goes on as before
+  const bare = makeRideRunner({ views: { attachCab: (c) => { c.clip(true); c.clip(false); }, setDriving() {}, restart() {} }, interior: {} });
+  bare.start(rideFor('future-city'), kitOf());
+  bare.stop();
+});

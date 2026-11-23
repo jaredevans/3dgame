@@ -7,7 +7,7 @@
 // heeling into the turn. Its jetties are the places' own (walkways.js). The octopus is its set piece (octopus.js).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { crewFigure } from './crew.js';
+import { crewFigure, conductorFigure, sitOn } from './crew.js';
 import { SEA_LEVEL } from '../world-data.js';
 import { swerveAt } from '../rides.js';
 import { buildOctopus } from './octopus.js';
@@ -19,6 +19,7 @@ const FLOAT = -0.05;   // the model's origin this far under the surface at rest:
 // sheer and the stem head filled half the view; the captain on the after deck (0.7 m up) behind the cuddy, at a wheel
 // on a post in front of him
 const SEAT = { x: 0.45, y: 2.3, z: -0.1 };
+const ROOF = 1.45;   // the cuddy's roof, where you (the conductor) sit
 const HELM = { z: -2.25, deck: 0.7, wheel: { z: -1.9, y: 1.62, r: 0.32 } };
 // at cruise: how far it rides up, its bow's lift (radians), and its pitching and rolling on the swell; at its jetty
 // it rocks a little
@@ -72,6 +73,11 @@ export async function buildBoat({ ride, slicer, still, cdnPart, loadAnimal, kit,
   }
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
+  // you, the conductor, sitting up on the cuddy's roof (seen from outside: ride-run.js)
+  await slicer.frame();
+  await still();
+  const rider = await conductorFigure({ kit, warn });
+  if (rider) sitOn(rider.figure, hull, ROOF, SEAT.z, SEAT.x);
 
   // the wake and spray, in the world's frame (left where they were thrown as the boat runs on)
   await slicer.frame();
@@ -92,7 +98,7 @@ export async function buildBoat({ ride, slicer, still, cdnPart, loadAnimal, kit,
   // a point of the hull (its own frame) in the world's, into p
   const at = (x, y, z) => p.set(x, y, z).applyMatrix4(hull.matrixWorld);
   return {
-    vehicle: { holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y - ride.rest + FLOAT, SEAT.z) },
+    vehicle: { holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y - ride.rest + FLOAT, SEAT.z), rider: rider?.figure ?? null },
     crew: [],
     actors,
     boardMarker: marker,

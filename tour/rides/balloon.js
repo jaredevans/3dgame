@@ -10,7 +10,7 @@
 // platform where it sets down. The crows are its set piece (crows.js).
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { crewFigure } from './crew.js';
+import { crewFigure, conductorFigure } from './crew.js';
 import { BALLOON, envelopeRadius, burnAt } from '../rides.js';
 import { buildCrows } from './crows.js';
 
@@ -231,6 +231,14 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   }
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
+  // you, the conductor, standing where your seat is, in the basket's front right (seen from outside: ride-run.js)
+  await slicer.frame();
+  await still();
+  const rider = await conductorFigure({ kit, warn }, 'Idle');
+  if (rider) {
+    rider.figure.position.set(SEAT.x, BALLOON.floor + 0.08, SEAT.z);
+    holder.add(rider.figure);
+  }
 
   await slicer.frame();
   await still();   // (the pads draped on the land: some 1,300 heights looked up, only where it may land)
@@ -246,7 +254,7 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   return {
     vehicle: {
-      holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y, SEAT.z),
+      holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y, SEAT.z), rider: rider?.figure ?? null,
       // what you walk into on its pad: the basket and the jets on its sides (the envelope is far over your head, and
       // its 17 m would shut you out of the pad)
       foot: { min: { x: -(JET.x + JET.r), z: -Math.max(BASKET.half, JET.len / 2) }, max: { x: JET.x + JET.r, z: Math.max(BASKET.half, JET.len / 2) } },
@@ -260,6 +268,7 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
       const dt = f.dt;
       t += dt;
       anim?.update(dt);
+      if (rider?.figure.visible) rider.anim?.update(dt);
       let burn, thrust;
       if (f.rideS === null) {
         // waiting on its pad (or on the one it set down on): a short blast every so often to keep it full, jets idle

@@ -16,6 +16,7 @@ import { ridePads } from '../world-data.js';
 import { FOIL_RIG, foilsAt, noseUp, aimAt } from './jet-plan.js';
 import { buildUfo } from './ufo.js';
 import { dotTexture } from './spray.js';
+import { conductorFigure, sitOn } from './crew.js';
 
 const CRAFT = 'agile-starfighter-89805f';
 const PARAMS = { colorway: 'coalition-blue' };
@@ -25,6 +26,8 @@ const PARAMS = { colorway: 'coalition-blue' };
 const GLASS = '#20242f', LINING = { z: [-1.05, 2.4], x: 1.0, y: 0.45 }, BULKHEAD = { z: -1.0, y: 1.12, w: 0.62, h: 0.5 };
 // your eyes in the seat, under the canopy's crown, so its panes are all round you
 const EYE = { x: 0, y: 1.34, z: 0.15 };
+// you (the conductor) in the seat, seen through the canopy from outside: the seat's top under you, your hips over it
+const SEATED = { top: 0.56, z: 0.02 };   // (his cap clear of the canopy frame over him, at 1.48 m)
 const DEG = Math.PI / 180;
 const STROBE = { every: 1.4, on: 0.06, gap: 0.12 };   // s
 const PAD_LIGHT = { every: 8, blue: '#5ab0ff', white: '#fff4dc' };
@@ -147,7 +150,7 @@ function onPad(p, x, z) {
 }
 
 // ctx: the registry's (rides/index.js)
-export async function buildJet({ ride, slicer, still, cdnPart, warn }) {
+export async function buildJet({ ride, slicer, still, cdnPart, kit, warn }) {
   await slicer.frame();
   await still();   // (the starfighter made, its lights cut out and its cockpit glazed and lined: only where it may land)
   const model = await cdnPart(CRAFT, PARAMS);   // (a vehicle that can't be loaded fails the build)
@@ -202,6 +205,11 @@ export async function buildJet({ ride, slicer, still, cdnPart, warn }) {
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3();
   model.traverse((o) => { if (o.isMesh && !o.name.startsWith('cockpit') && o.name !== 'nozzle plume') box.expandByObject(o); });   // (in the holder's frame)
+  // you, the conductor, in its seat (seen from outside: ride-run.js)
+  await slicer.frame();
+  await still();
+  const rider = await conductorFigure({ kit, warn });
+  if (rider) sitOn(rider.figure, model, SEATED.top, SEATED.z);
 
   // its pads, drawn on their level ground
   await slicer.frame();
@@ -222,7 +230,7 @@ export async function buildJet({ ride, slicer, still, cdnPart, warn }) {
   let t = 0, night = -1;
   return {
     vehicle: {
-      holder, box, seat: new THREE.Vector3(EYE.x, EYE.y - ride.rest, EYE.z),
+      holder, box, seat: new THREE.Vector3(EYE.x, EYE.y - ride.rest, EYE.z), rider: rider?.figure ?? null,
       // it climbs and comes down with its path, banks into its turns (round the rocket some 40 degrees), and comes level
       // as it slows to hover
       attitude: { pitch: 1, bank: 0.7, level: 30 },

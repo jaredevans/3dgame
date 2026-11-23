@@ -50,3 +50,9 @@ export function seatOnHorse(figure, horse) {
   // (the spine's frame at rest has no turn of its own: its offset from the horse's origin is all there is to take off)
   return sitOn(figure, spine, SADDLE.y - AT.y, SADDLE.z - AT.z);
 }
+
+// you, the conductor, riding along: the figure you walk as (player.js: the railway kit's engine driver), posed in a
+// clip ('Sitting' on a seat, 'Idle' standing) and named so; seen from a ride's chase and director views, hidden in its
+// seat view and whenever you're not riding (ride-run.js: the kit's vehicle.rider). -> crewFigure's { figure, anim } or null
+export const CONDUCTOR = { kitKey: 'railway', key: 'engine-driver', params: { colorway: 'driver', oilCan: false } };
+export const conductorFigure = (ctx, clip = 'Sitting') => crewFigure(ctx, { ...CONDUCTOR, clip, name: 'conductor', what: 'conductor' });

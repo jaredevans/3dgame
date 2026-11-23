@@ -390,6 +390,7 @@ async function boot() {
       await warm(group);
       ctx.check();
     } catch (err) { thing.dispose(); throw err; }
+    if (kit.vehicle.rider) kit.vehicle.rider.visible = false;   // (warmed with the rest; seen only while you ride: ride-run.js)
     group.visible = true;
     return thing;
   }

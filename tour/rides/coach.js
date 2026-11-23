@@ -5,7 +5,7 @@
 // over the running gear, which stays on the road; its wheels throw up dust behind it. Waiting in the Mountain's station
 // yard, its team stands idle. The gang is its set piece (gang.js).
 import * as THREE from 'three';
-import { crewFigure, sitOn } from './crew.js';
+import { crewFigure, conductorFigure, sitOn } from './crew.js';
 import { buildGang } from './gang.js';
 import { COACH_TEAM } from './coach-plan.js';
 import { makeSpray } from './spray.js';
@@ -25,6 +25,8 @@ const RUNNING = new Set(['wheel-rl', 'wheel-rr', 'steer-front']);   // the runni
 const SPRING = { bob: 0.035, roll: 0.022, pitch: 0.014, jolt: 0.03 };
 const STEER = { base: 2.9, most: 0.4, ease: 4 };   // the front axle turned to its turn's radius (its wheelbase, m), at most, eased
 const DUST = { per: 30, life: 1.6 };                // dust off each rear wheel a second, at cruise
+// the reins, from your hands (the conductor's: you help the driver with the team) to each horse's bit, taut at a gallop
+const REIN = { r: 0.012, color: '#3b2a1c' };
 
 // ctx: the registry's (rides/index.js)
 export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal, warn }) {
@@ -79,6 +81,27 @@ export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal
   if (driver) sitOn(driver.figure, body, BOX.top, BOX.z, -BOX.x);
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame; the team in it)
+  // you, the conductor, beside him on the box's left (seen from outside: ride-run.js)
+  await slicer.frame();
+  await still();
+  const rider = await conductorFigure({ kit, warn });
+  if (rider) sitOn(rider.figure, body, BOX.top, BOX.z, BOX.x);
+  // the reins in your hands: your right to the right horse, your left to the left one (+x, the coach's left); drawn
+  // only while you ride (no one holds them as it waits in the yard)
+  const reins = [];
+  if (rider && team.length) {
+    const geo = new THREE.CylinderGeometry(REIN.r, REIN.r, 1, 4, 1, true).translate(0, 0.5, 0).rotateX(Math.PI / 2);   // 1 m along +z
+    const mat = new THREE.MeshStandardMaterial({ color: REIN.color, roughness: 0.9 });
+    ['RightHand', 'LeftHand'].forEach((n, i) => {
+      const hand = rider.figure.getObjectByName(n), bit = team[i]?.object.getObjectByName('Jaw') ?? team[i]?.object.getObjectByName('Head');
+      if (!hand || !bit) return;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = 'rein';
+      mesh.visible = false;
+      holder.add(mesh);
+      reins.push({ hand, bit, mesh });
+    });
+  }
 
   // the dust its wheels throw up, in the world's frame (left hanging where it was thrown)
   await slicer.frame();
@@ -93,9 +116,10 @@ export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal
   try { actors.set('gang', await buildGang({ ride, slicer, still, kit, terrain, loadAnimal, warn })); } catch (err) { if (err?.dropped) throw err; warn('gang', err); }
 
   const gait = { name: 'Idle', timeScale: 1, fade: 0.4 }, p = new THREE.Vector3();
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), Z = new THREE.Vector3(0, 0, 1);
   let t = 0, steerNow = 0, lastYaw = null, dustDue = 0;
   return {
-    vehicle: { holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y - ride.rest, SEAT.z) },
+    vehicle: { holder, box, seat: new THREE.Vector3(SEAT.x, SEAT.y - ride.rest, SEAT.z), rider: rider?.figure ?? null },
     crew: [],
     actors,
     boardMarker: marker,
@@ -103,6 +127,7 @@ export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal
       const dt = f.dt;
       t += dt;
       driver?.anim?.update(dt);
+      if (f.rideS !== null) rider?.anim?.update(dt);
       const v = f.rideS === null ? 0 : f.rideV, k = Math.min(1, Math.max(0, v / ride.profile.v));
       // the team: standing, trotting off, galloping
       if (team.length) clipFor(v, team[0].clips, HORSE, gait);
@@ -132,7 +157,18 @@ export async function buildCoach({ ride, slicer, still, kit, terrain, loadAnimal
           const o = 0.4 + Math.random() * 0.8, a = Math.random() * 2 * Math.PI;
           dust.emit(p.x, p.y, p.z, Math.cos(a) * o, 0.4 + Math.random() * 0.9, Math.sin(a) * o, DUST.life * (0.7 + Math.random() * 0.6), true);
         }
-      }
+        // the reins, hand to bit (both found in the holder's frame, its matrices brought up to date above)
+        for (const r of reins) {
+          holder.worldToLocal(r.hand.getWorldPosition(A));
+          holder.worldToLocal(r.bit.getWorldPosition(B));
+          B.sub(A);
+          const len = B.length();
+          r.mesh.position.copy(A);
+          r.mesh.quaternion.setFromUnitVectors(Z, B.divideScalar(len || 1));
+          r.mesh.scale.set(1, 1, len);
+          r.mesh.visible = true;
+        }
+      } else for (const r of reins) r.mesh.visible = false;
       dust.update(dt);
     },
     dispose() { dust.dispose(); },
