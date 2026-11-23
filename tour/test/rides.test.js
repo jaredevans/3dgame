@@ -583,9 +583,13 @@ test('the boat\'s set pieces: the octopus (with its shot, low over the water) ab
   // the shot stands over the sea, on the shore side (the octopus is on the other)
   const p = r.path.offsetAt(ev.shot.at, ev.shot.lateral);
   assert.ok(ev.shot.lateral < 0 && ground(p.x, p.z) < SEA_LEVEL - 1);
-  const [cliffs] = r.showpieces;
+  // (the hydroplanes first, owner 2026-11-23: their shot tracks them coming past, and gives way to the cliffs')
+  const [hydro, cliffs] = r.showpieces;
+  assert.equal(hydro.id, 'hydroplanes');
+  assert.equal(hydro.shot.look, 'focus');
   assert.equal(cliffs.id, 'cliffs');
   assert.ok(cliffs.s0 >= 0 && cliffs.s1 < ev.s0 && cliffs.shot.kind);
+  assert.ok(hydro.s0 < cliffs.s1 && hydro.s1 < cliffs.s1);
 });
 
 // ---- the balloon and its crows ----

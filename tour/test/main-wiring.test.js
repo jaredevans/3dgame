@@ -179,7 +179,7 @@ test('main.js: E takes a ride only near it and ready; riding ignores the driving
   assert.match(src, /mayLand = state\.mode === 'ride' \? false : /);
   assert.match(src, /if \(\(state\.mode === 'foot' \|\| \(state\.mode === 'drive' && Math\.abs\(drive\.v\) < 0\.05\)\)/);
   assert.match(src, /where\.ride = true/);
-  assert.match(src, /views\.update\(dt, runner\.train, runner\.viewContext\(dt\)\)/);
+  assert.match(src, /views\.update\(dt, runner\.train, rideViewContext\(dt\)\)/);
   // the prompts by a ride: ready, or still being built
   assert.match(src, /if \(r\) prompt = rideReady\(r\.leg\) \? `Take the \$\{r\.name\} to \$\{PLACES\[r\.to\]\.name\} \(E\)` : `Getting the \$\{r\.name\} ready…`;/);
   // the vehicle you stepped off, let go of or wanted again where it waits, is put back on its own pad
@@ -220,7 +220,7 @@ test('main.js gives the walk world the rides\' standing vehicles', () => {
 // after the views have moved it), and as you land if they never were
 test('main.js puts the far place\'s trains at their platforms on a frame neither is in view, after the views move', () => {
   assert.match(src, /import \{[^}]*\bplaceFarTrains\b[^}]*\} from '\.\/rides\.js'/);
-  const views = src.indexOf("else if (state.mode === 'ride') views.update(dt, runner.train, runner.viewContext(dt));");
+  const views = src.indexOf("else if (state.mode === 'ride') views.update(dt, runner.train, rideViewContext(dt));");
   const place = src.indexOf("if (state.mode === 'ride' && !rideLeg.placed && placeFarTrains(ridden.legS, routes[state.leg].length, farTrainsSeen))");
   assert.ok(views > 0 && place > views, 'the trains are placed before the camera has moved this frame');
   assert.doesNotMatch(src, /ridden\.legS > routes\[state\.leg\]\.length \/ 2/);

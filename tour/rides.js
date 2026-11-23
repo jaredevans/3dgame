@@ -106,7 +106,12 @@ function boat() {
       { id: 'dolphins', s0: BOAT_DOLPHINS.s0, s1: BOAT_DOLPHINS.s1, actor: 'dolphins', shot: { kind: 'heli', lateral: 9, height: 1.5, fov: 55 } },
       { id: 'whale', s0: BOAT_WHALE.s0, s1: BOAT_WHALE.s1, actor: 'whale', shot: { kind: 'high-wide', at: BOAT_WHALE.at + 25, lateral: -45, height: 5, fov: 45, look: BOAT_WHALE.at } },
     ],
-    showpieces: [{ id: 'cliffs', s0: 560, s1: 800, shot: { kind: 'heli', lateral: 35, height: 5 } }],
+    // (owner, 2026-11-23) the hydroplanes racing past on the shore side about ride-s 560 (actors/hydro-plan.js
+    // HYDRO.pass.ride), the camera tracking alongside them (their actor's `follow`), before the cliffs
+    showpieces: [
+      { id: 'hydroplanes', s0: 520, s1: 680, shot: { kind: 'heli', lateral: 35, height: 5, look: 'focus', hold: 10 } },
+      { id: 'cliffs', s0: 560, s1: 800, shot: { kind: 'heli', lateral: 35, height: 5 } },
+    ],
   };
 }
 

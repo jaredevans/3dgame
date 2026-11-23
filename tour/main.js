@@ -595,7 +595,7 @@ async function boot() {
   // what the director's view is told each frame (cameras.js): this run's showpieces (a shot, no actor), the events with a
   // shot that began this frame (an actor's: a showpiece's window opening is no event), and where the front is on the
   // leg's own route (leg-s: shots' `at` and `lateral` are the leg's), with its tunnels
-  const viewCtx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started: [], tunnels: [] };
+  const viewCtx = { dt: 0, legS: 0, dir: 'out', v: 0, route: null, length: 0, showpieces: [], started: [], tunnels: [], focus: null, follow: null };
   function startEvents() {
     const defs = eventsFor(run.leg, run.dir);
     track = makeEventTrack(defs);
@@ -615,7 +615,26 @@ async function boot() {
     }
     viewCtx.legS = evLegS ?? journey.where(state, run, drive.s).s;
     viewCtx.dir = run.dir; viewCtx.v = drive.v; viewCtx.route = routes[run.leg]; viewCtx.length = train.length;
+    // (a point an active event's actor offers the director to watch, and a place for the camera itself, as a ride's set
+    // pieces do: the hydroplanes, followed alongside)
+    viewCtx.focus = viewCtx.follow = null;
+    if (evOn) offered(run.leg, evOn.active, viewCtx);
     return viewCtx;
+  }
+  // what the leg's active events' actors offer the director (focus, follow), where the shot's own haven't
+  function offered(leg, active, ctx) {
+    const actors = legActors(leg);
+    if (actors) for (const id of active.keys()) {
+      const a = actors.get(id);
+      if (!ctx.focus && a?.focus) ctx.focus = a.focus;
+      if (!ctx.follow && a?.follow) ctx.follow = a.follow;
+    }
+  }
+  // riding, the ride's own (its set pieces'), and then its leg's always ones' (the hydroplanes, coming past the speedboat)
+  function rideViewContext(dt) {
+    const ctx = runner.viewContext(dt);
+    if (rideLeg.on) offered(state.leg, rideLeg.on.active, ctx);
+    return ctx;
   }
   // what an actor is told each frame (on: its event's { t, u } while it's active, else null; here: you're driving a run
   // on its leg)
@@ -1429,7 +1448,7 @@ async function boot() {
     if (controls) controls.update();
     else if (state.mode === 'foot' && tp.active) player.update(dt, STILL_KEYS, walkWorld());   // standing still while you fizz
     else if (state.mode === 'foot') player.update(dt, auto.on ? auto.keys : footInput(), walkWorld());
-    else if (state.mode === 'ride') views.update(dt, runner.train, runner.viewContext(dt));
+    else if (state.mode === 'ride') views.update(dt, runner.train, rideViewContext(dt));
     else views.update(dt, train.model, viewContext(dt));
     // riding, the far place's two trains put at their platforms once you're a third of the way along and neither is in
     // view where it stands or where it's going (this frame's camera, as the director has cut: rides.js placeFarTrains);

@@ -231,7 +231,7 @@ export function makeDirector({ rand = Math.random } = {}) {
         if (!ready(e, input)) continue;
         dequeue(i);
         const s = specFor(e.shot.kind, e.id, e.shot, input);
-        s.hold = Math.max(HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN), HOLD_MIN);
+        s.hold = e.shot.hold ?? Math.max(HOLD_MIN + rand() * (HOLD_MAX - HOLD_MIN), HOLD_MIN);   // (an event may set its own)
         return cutTo(s, input, null, e);
       }
     }

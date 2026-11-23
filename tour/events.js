@@ -21,6 +21,13 @@ export const EVENTS = {
     // (the gulls fly with the train all their window: their shot's at 600, clear of the dolphins', whose pod draws
     // level about 1100 and was left out behind a gulls' shot there: owner, 2026-11-22)
     ev('gulls', 400, 1850, { shot: { kind: 'heli', at: 600, lateral: 60 } }),
+    // (owner, 2026-11-23) two hydroplanes racing laps of a course along the coast under the cliffs (hydroplanes.js),
+    // timed so the leader comes past the train at 500 (hydro-plan.js HYDRO.pass): the camera tracking alongside the
+    // leader, low on its seaward side, looking in across the two of them racing, their rooster tails, to the shore and
+    // the line (the actor's `follow`; out at sea beyond the course, looking back at the train, if it offers none). Cut
+    // in as its window opens (at 400, 100 m short of the pass) and held 6 s, before the gulls' (so the freight's and
+    // the dolphins' keep their places)
+    ev('hydroplanes', 380, 1780, { always: true, dirs: ['out'], shot: { kind: 'heli', at: 550, lateral: 300, height: 8, fov: 50, hold: 6, look: 'focus' } }),
     ev('freight', 600, 1150, { shot: { kind: 'trackside', at: 875, lateral: -8 } }),
     // (the heli out at sea beyond the pod, which swims 95-145 m off the shore: looking back at the train on the
     // cliffs, the dolphins leap between. Its height is from the rails, 18 m up: 20 is 38 m over the water, high enough
@@ -43,7 +50,8 @@ export const EVENTS = {
       react: { kind: 'crossing', at: { out: 1610, back: 1610 } },
       shot: { kind: 'high-wide', at: 1612.5, lateral: -34, height: 4.5, fov: 50, look: 1610 },
     }),
-    showpiece('cliffs', 900, 1300, { kind: 'wide', at: 1100, lateral: 120 }),
+    // (out at 160, owner 2026-11-23: at 120 it stood on the hydroplanes' course)
+    showpiece('cliffs', 900, 1300, { kind: 'wide', at: 1100, lateral: 160 }),
   ],
   'ocean-mountain': [
     ev('deer', 150, 420, { shot: { kind: 'heli', at: 285, lateral: -50 } }),
