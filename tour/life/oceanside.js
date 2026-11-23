@@ -23,9 +23,9 @@ import { crewFigure } from '../rides/crew.js';
 // `scale` of its size, its body the shore crab's size (owner, 2026-11-22: measured across their claw shoulders and their
 // legs' roots, 0.06 m and 0.08 m; at full size the hermit is 1 m tall in its shell, its body 3.5 times the crab's)
 const CRABS = { x: -2.8, z: 10.8, facing: 0.6, hermit: 'blue-leg-hermit-crab-ce7b41', scale: 0.29 };
-// the starfish round the crabs' fight (owner, 2026-11-22): on the flat sand 0.9 m from its middle, spread round it,
+// two starfish by the crabs' fight (owner, 2026-11-22), either side of it on the flat sand 0.9 m from its middle,
 // clear of the props there (the fishing boat, the flag pole, the lifeguard tower) and of the crabs: kit x, z, turn
-const STARFISH = { id: 'starfish-772749', spots: [[-1.94, 11.07, 0.4], [-2.74, 11.7, 2.0], [-3.66, 11.06, 3.6], [-3.12, 9.96, 5.1], [-2.34, 10.03, 1.1]] };
+const STARFISH = { id: 'starfish-772749', spots: [[-1.94, 11.07, 0.4], [-3.66, 11.06, 3.6]] };
 // the fishing, s: a round of `round`; the float bobs till the bite, the grouper is hauled up over `haul`, hangs on the
 // line, is swung in and dropped in the bucket; the float lies `cast` m out past the dock's end
 const FISH = { round: 16, bite: 7, haul: 2.5, hang: 3.2, drop: 1.2, cast: 6.5, hangBelow: 0.9 };
