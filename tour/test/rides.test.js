@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
   OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
   BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand, LOW_FLIGHT, lowFlight,
-  FAR_TRAINS_FROM, placeFarTrains } from '../rides.js';
+  FAR_TRAINS_FROM, placeFarTrains, AIRLINER, airlinerToss } from '../rides.js';
 import { makeRideTrack } from '../ride-run.js';
 import { legSections, FEATURES } from '../world-data.js';
 import { onWalkway } from '../walk-world.js';
@@ -74,7 +74,7 @@ test('five rides, one per leg, onward', () => {
     // escort (the starfighter's other events are the director's shots of its buzz and its strike, with no actor)
     // (and the boat's dolphins racing it and its whale breaching beside it: owner, 2026-11-23)
     const acted = r.events.filter((e) => e.actor);
-    assert.deepEqual(acted.map((e) => e.actor), { boat: ['octopus', 'dolphins', 'whale'], balloon: ['crows'], coach: ['gang'], jet: ['ufo'], car: ['escort'] }[r.id]);
+    assert.deepEqual(acted.map((e) => e.actor), { boat: ['octopus', 'dolphins', 'whale'], balloon: ['crows', 'airliner'], coach: ['gang'], jet: ['ufo'], car: ['escort'] }[r.id]);
     for (const e of r.events) if (!e.actor) assert.ok(e.shot, `${e.id}: neither an actor nor a shot`);
     assert.ok(r.showpieces.length >= 1);
   }
@@ -1298,4 +1298,20 @@ test('the arrows: a volley lands just ahead of each rider as it begins to pull u
     placeRider(r, land + 600, i, b);
     assert.equal(b.visible, false, `rider ${i} out of sight`);
   }
+});
+
+// owner, 2026-11-23: an airliner buzzes the balloon at the top of its flight, its wake tossing it for a few seconds
+test('the airliner: over the balloon at the top of its flight, and its wake tossing it for a few seconds after, then still', () => {
+  const r = ride('balloon'), ev = r.events.find((e) => e.id === 'airliner'), p = {};
+  assert.ok(ev && ev.actor === 'airliner' && ev.shot);
+  let top = -Infinity, at = 0;
+  for (let s = 0; s <= r.path.length; s += 2) { r.path.at(s, p); if (p.y > top) { top = p.y; at = s; } }
+  assert.ok(Math.abs(AIRLINER.at - at) <= 10, `it crosses at ${AIRLINER.at}, the top is at ${at}`);
+  const v = r.profile.v, o = {};
+  assert.equal(airlinerToss(AIRLINER.at - 5, v, o).roll, 0);
+  let most = 0;
+  for (let t = 0; t < AIRLINER.toss.secs; t += 0.05) { airlinerToss(AIRLINER.at + t * v, v, o); most = Math.max(most, Math.abs(o.roll)); }
+  assert.ok(most > AIRLINER.toss.roll * 0.5, `rocked ${most}`);
+  airlinerToss(AIRLINER.at + (AIRLINER.toss.secs + 0.1) * v, v, o);
+  assert.ok(o.roll === 0 && o.sway === 0 && o.yaw === 0 && o.pitch === 0);
 });

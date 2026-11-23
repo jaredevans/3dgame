@@ -11,7 +11,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { crewFigure, conductorFigure } from './crew.js';
-import { BALLOON, envelopeRadius, burnAt } from '../rides.js';
+import { BALLOON, envelopeRadius, burnAt, airlinerToss } from '../rides.js';
+import { buildAirliner } from './airliner.js';
 import { buildCrows } from './crows.js';
 
 const E = BALLOON.envelope;
@@ -249,8 +250,11 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   // its crows: left out, the ride going on, if they can't be had
   const actors = new Map();
   try { actors.set('crows', await buildCrows({ ride, slicer, still, loadAnimal })); } catch (err) { if (err?.dropped) throw err; warn('crows', err); }
+  // the airliner that buzzes it at the top of its flight (airliner.js): left out, warned, if it can't be had
+  try { actors.set('airliner', await buildAirliner({ ride, slicer, crown: E.crown })); } catch (err) { if (err?.dropped) throw err; warn('airliner', err); }
 
   let t = 0, riding = false, rideT = 0, heading = null, night = -1, spin = 0;
+  const TOSS = {};
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   return {
     vehicle: {
@@ -285,7 +289,12 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
         // swung round to the path's way slowly, not spun on the spot as the path turns under a near-upright climb
         const d = wrap(holder.rotation.y - heading), most = TURN * dt;
         heading = wrap(heading + Math.max(-most, Math.min(most, d * (1 - Math.exp(-dt * 1.2)))));
-        holder.rotation.y = heading;
+        // tossed in the airliner's wake for a few seconds after it's gone over (rides.js airlinerToss): rocked, swung
+        // round and pushed aside, on top of where the runner put it this frame
+        airlinerToss(f.rideS, f.rideV, TOSS);
+        holder.rotation.set(TOSS.pitch, heading + TOSS.yaw, TOSS.roll, 'YXZ');
+        holder.position.x += Math.cos(heading) * TOSS.sway;
+        holder.position.z -= Math.sin(heading) * TOSS.sway;
       }
       const k = Math.min(1, Math.max(0, f.night));
       // the flames: by day a bright tongue while they burn, brighter after dark; the envelope lit from inside at night

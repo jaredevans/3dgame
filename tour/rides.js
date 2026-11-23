@@ -142,7 +142,13 @@ function balloon() {
   return {
     pts: [board, lift, forest, hill, falls, down, settle, land], step: { ...step, yaw: townward('mountain', 'arrival')(step.yaw) },
     ease: [16, 18], rest: REST, burn: burnAt,
-    events: [{ id: 'crows', s0: CROWS.s0, s1: CROWS.s1, actor: 'crows' }],
+    events: [
+      { id: 'crows', s0: CROWS.s0, s1: CROWS.s1, actor: 'crows' },
+      // (owner, 2026-11-23) an airliner on its way in to land buzzing it at the top of its flight (rides/airliner.js),
+      // its wake tossing the balloon (airlinerToss); from out to its side at its height, the airliner crossing above
+      { id: 'airliner', s0: AIRLINER.at - AIRLINER.before, s1: AIRLINER.at + AIRLINER.after, actor: 'airliner',
+        shot: { kind: 'high-wide', at: AIRLINER.at + 40, lateral: 70, height: 8, fov: 52, look: AIRLINER.at } },
+    ],
     showpieces: [
       { id: 'canopy', s0: 430, s1: 700, shot: { kind: 'heli', lateral: 55, height: 10, fov: 58 } },
       { id: 'falls', s0: 690, s1: 860, shot: { kind: 'wide', at: 560, lateral: 0, fov: 62 } },
@@ -351,6 +357,27 @@ export function placeEscort(ride, s, slot, out) {
 // out to the boat's left), and `down`: how far through its breach it is as the boat draws level (it comes down then)
 export const BOAT_DOLPHINS = { s0: 200, s1: 800, pod: [[-2, 4.2], [3, 5.6], [-7, 7.0], [1, -4.4], [-4, -5.8], [5, -7.2]], weave: 0.6 };
 export const BOAT_WHALE = { s0: 1250, s1: 1520, at: 1380, out: 13, down: 0.8 };
+
+// the airliner buzzing the balloon (rides/airliner.js; owner, 2026-11-23): it crosses the balloon's path at ride-s `at`
+// (the top of its flight, 219 m up), `over` m over its envelope's crown, square across its way at `speed` m/s on its
+// way down to land (`glide`: m down per m on), seen from `before` m of the balloon's travel before to `after` after;
+// its wake tosses the balloon for `toss.secs` s after it's over: rocking, swaying and twisting, dying away
+export const AIRLINER = {
+  id: 'narrow-body-airliner-619183', at: 812, over: 18, speed: 75, glide: 0.06, before: 120, after: 100,
+  toss: { secs: 4.5, roll: 0.3, pitch: 0.18, sway: 2.6, yaw: 0.25 },
+};
+// the balloon's toss at ride-s s (its speed v m/s) -> out, filled ({ roll, pitch, yaw: radians, sway: m to its left })
+export function airlinerToss(s, v, out = {}) {
+  const T = AIRLINER.toss, t = (s - AIRLINER.at) / Math.max(v, 0.1);
+  if (t <= 0 || t >= T.secs) { out.roll = 0; out.pitch = 0; out.yaw = 0; out.sway = 0; return out; }
+  // (struck hard at once, over its first eighth, then dying away)
+  const u = t / T.secs, e = (u < 0.12 ? u / 0.12 : 1) * (1 - u) * (1 - u);
+  out.roll = T.roll * e * Math.sin(t * 9.1);
+  out.pitch = T.pitch * e * Math.sin(t * 7.3 + 1);
+  out.yaw = T.yaw * e * Math.sin(t * 4.2 + 2);
+  out.sway = T.sway * e * Math.sin(t * 5.3);
+  return out;
+}
 
 export const OCTOPUS = {
   s0: 830, s1: 1170,   // its window in ride-s, about the ride's middle (the path is ~1990 m): ~14 s at cruise
