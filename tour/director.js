@@ -109,7 +109,8 @@ export function makeDirector({ rand = Math.random } = {}) {
       if (lateral === undefined) lateral = side() * (4.5 + rand() * 3);
     }
     if (lateral === undefined) lateral = d.side ? side() * d.lateral : d.lateral;
-    return { kind, id, at, lateral, height: given?.height ?? d.height, fov: given?.fov ?? d.fov, hold: 0 };
+    // tilt: degrees the camera looks further down than at the train (the whales' shot: the sea below it in frame)
+    return { kind, id, at, lateral, height: given?.height ?? d.height, fov: given?.fov ?? d.fov, tilt: given?.tilt ?? 0, hold: 0 };
   };
 
   // seconds of a window left ahead of the front at this speed (Infinity standing still)

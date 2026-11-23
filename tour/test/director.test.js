@@ -302,7 +302,7 @@ test('the arrival shot is picked over another showpiece sharing its window', () 
 });
 
 // ---- the arrival shot and the events near a line's end ----
-import { eventsFor, makeEventTrack, EVENTS } from '../events.js';
+import { eventsFor, makeEventTrack, EVENTS, aheadOf } from '../events.js';
 import { legRoute, platformWindow } from '../world-data.js';
 
 // a run driven through the real events of a leg, fed to the director as main.js feeds it: its showpieces (a shot, no
@@ -465,4 +465,38 @@ test('steepOver: how far a camera stands too high to see the line within reach a
   assert.ok(steepOver({ x: 0, y: 22, z: 100 }, route, 300, 0, aim).over > 19);
   // further than STEEP.near, however steep, it's no close look
   assert.equal(steepOver({ x: 0, y: 200, z: 100 }, route, 0, 300, aim).over, 0);
+});
+
+// owner, 2026-11-22: the director's view of the train to Oceanside left the dolphins out. They pace the train, drawing
+// level about their window's middle (1100: actors/coast.js), so their shot (from out at sea, looking back at the train
+// with the pod between) must start before the train draws level with them, not after another shot at the same place
+function cruise(leg, dir, v, { from, to, length = 100 }) {
+  const defs = eventsFor(leg, dir), track = makeEventTrack(defs), byId = new Map(defs.map((e) => [e.id, e]));
+  const showpieces = defs.filter((e) => e.shot && !e.actor), d = makeDirector({ rand: () => 1 });   // (the longest holds)
+  const cuts = [], dt = 0.1, sign = dir === 'out' ? 1 : -1;
+  for (let s = from; sign * (to - s) > 0; s += sign * v * dt) {
+    const ev = track.step({ legS: s, dt });
+    const started = ev.started.map((id) => byId.get(id)).filter((e) => e.shot && e.actor);
+    const r = d.step({ dt, legS: s, dir, v, showpieces, started, length });
+    if (r.cut) cuts.push({ id: r.shot.id, kind: r.shot.kind, s, tilt: r.shot.tilt });
+  }
+  return cuts;
+}
+test('city-ocean: the dolphins\' shot starts before the train draws level with the pod, either way, and the other events keep theirs', () => {
+  const L = legRoute('city-ocean').length;
+  for (const v of [18, 24, 30]) {
+    for (const dir of ['out', 'back']) {
+      const cuts = dir === 'out' ? cruise('city-ocean', dir, v, { from: 300, to: 1900 }) : cruise('city-ocean', dir, v, { from: L - 60, to: 300 });
+      const trace = `${dir} at ${v} m/s: ${JSON.stringify(cuts.map((c) => [c.id, Math.round(c.s)]))}`;
+      const dolphins = cuts.find((c) => c.id === 'dolphins');
+      assert.ok(dolphins, trace);
+      assert.ok(aheadOf(dolphins.s, 1100, dir) > 0, trace);
+      for (const id of ['gulls', 'freight']) assert.ok(cuts.some((c) => c.id === id), `${id}: ${trace}`);
+      // the whales' shot (owner, 2026-11-22) comes before the train reaches their spot at 1330, so their breach is in it
+      const whales = cuts.find((c) => c.id === 'whales');
+      assert.ok(whales && aheadOf(whales.s, 1330, dir) > 0, `whales: ${trace}`);
+      assert.equal(whales.tilt, 16);
+      if (dir === 'out') assert.ok(cuts.some((c) => c.id === 'crossing'), `crossing: ${trace}`);
+    }
+  }
 });

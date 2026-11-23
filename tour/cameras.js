@@ -255,6 +255,7 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     }
     camera.position.copy(shotCam.pos);
     camera.lookAt(seen);
+    if (shot.tilt) camera.rotateX(-shot.tilt * Math.PI / 180);   // (looking further down: the sea below the train)
   }
 
   const q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ'), v = new THREE.Vector3(), mid = new THREE.Vector3();

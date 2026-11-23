@@ -18,12 +18,21 @@ const showpiece = (id, s0, s1, shot, extra = {}) => ({ id, s0, s1, shot, ...extr
 export const EVENTS = {
   'city-ocean': [
     ev('lighthouse', 0, 1927, { always: true }),
-    ev('gulls', 400, 1850, { shot: { kind: 'heli', at: 1100, lateral: 60 } }),
+    // (the gulls fly with the train all their window: their shot's at 600, clear of the dolphins', whose pod draws
+    // level about 1100 and was left out behind a gulls' shot there: owner, 2026-11-22)
+    ev('gulls', 400, 1850, { shot: { kind: 'heli', at: 600, lateral: 60 } }),
     ev('freight', 600, 1150, { shot: { kind: 'trackside', at: 875, lateral: -8 } }),
-    // (the heli low out at sea beyond the pod, which swims 95-145 m off the shore: looking back at the train on the
-    // cliffs, the dolphins leap between. Its height is from the rails, 18 m up: -8 is 10 m over the water)
-    ev('dolphins', 900, 1300, { shot: { kind: 'heli', at: 1100, lateral: 260, height: -8 } }),
+    // (the heli out at sea beyond the pod, which swims 95-145 m off the shore: looking back at the train on the
+    // cliffs, the dolphins leap between. Its height is from the rails, 18 m up: 20 is 38 m over the water, high enough
+    // to see the train over the cliff's edge. At 10 m over the water the cliff hid the train, and the shot was drawn in
+    // over the land with the pod behind it: owner, 2026-11-22)
+    ev('dolphins', 900, 1300, { shot: { kind: 'heli', at: 1100, lateral: 260, height: 20 } }),
     ev('boats', 0, 1927, { always: true }),
+    // (owner, 2026-11-22) a pod of humpbacks 270-320 m out, blowing, diving flukes up and two breaching as the train
+    // comes up to their spot, and stingrays leaping and somersaulting 35 m short of the shot's camera: from out at sea
+    // beyond them all (380 m out from the line), 12 m over the rails and tilted 16 degrees down, the train on the cliffs at the top of the frame, the whales
+    // and the rays below it (whales.js). Their spot is clear of the dolphins' (their pod draws level about 1100)
+    ev('whales', 1150, 1500, { spot: { at: 1330 }, shot: { kind: 'high-wide', at: 1330, lateral: 380, height: 12, fov: 54, tilt: 16 } }),
     // (at: the one stretch near the Oceanside end where both lines lie within 1.5 m of the natural ground for 15 m
     // either side; the window runs 400 m before it, for the gates closing ahead, and on to 1800 for the cars crossing
     // after, short of Oceanside's platform)
