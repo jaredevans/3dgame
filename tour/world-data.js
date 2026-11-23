@@ -288,6 +288,9 @@ export const BIOMES = [
   { kind: 'snow', x: 2670, z: 1140, r: 170, line: -50 },
   // and the Mountain's own hillside, snowy all round its village (whose island ground is snow) and its two stations
   { kind: 'snow', x: 2500, z: 680, r: 120, line: -50 },
+  // and the low ground between the two, where the Canyon Express runs south from the Mountain to the pass (its first
+  // 150-375 m), snowy too: it was a patch of green between them (owner, 2026-11-22)
+  { kind: 'snow', x: 2605, z: 915, r: 170, line: -50 },
   { kind: 'desert', x: 3000, z: 1900, r: 900 },
   { kind: 'desert', x: 2000, z: 1950, r: 700 },
   { kind: 'desert', x: 1000, z: 1800, r: 700 },
