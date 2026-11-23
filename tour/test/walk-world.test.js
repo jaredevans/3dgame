@@ -84,6 +84,15 @@ test('a place with only one station built yet', () => {
 
 // ---- a place's walkways (the City's path to the speedboat's jetty) ----
 
+test('a walkway may have its own deck height (Oceanside\'s dock, 2.4 m over the sea), and one is in PLACES, not drawn', () => {
+  const def = { centre: { x: 0, z: 0 }, walkways: [{ points: [{ x: 5, z: 0 }, { x: 40, z: 0 }], width: 3, deck: 2.4 }] };
+  const w = makeWalkWorld({ place: { ...place, def }, termini: [terminus], terrain, seaLevel: 0 });
+  assert.equal(w.heightAt(35, 0), 2.4);
+  assert.equal(w.heightAt(20, 0), 3, 'the land, where it is higher');
+  const dock = PLACES.ocean.walkways.find((x) => x.deck);
+  assert.ok(dock && dock.draw === false && dock.deck === 2.4);
+});
+
 test('a walkway is in bounds along its strip, over the sea too (on its deck), and not 5 m off it', () => {
   // out from the town's land (|x| < 10) to x = 40, over the sea beyond x = 30
   const def = { centre: { x: 0, z: 0 }, walkways: [{ points: [{ x: 5, z: 0 }, { x: 40, z: 0 }], width: 3 }] };

@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { KITS } from '../config.js';
 import { part, cdnPart } from '../parts.js';
-import { SEA_LEVEL } from '../world-data.js';
+import { SEA_LEVEL, OCEANSIDE_DOCK as DOCK } from '../world-data.js';
 import { loadAnimal } from '../actors/animals.js';
 import { leapAt, loopAt } from '../actors/paths.js';
 import { makeWhale } from '../actors/whale-model.js';
@@ -19,8 +19,6 @@ import { crewFigure } from '../rides/crew.js';
 
 // the starfish round the crab (the kit's layout has it at -4.2, 14 among its rock pools): kit x, z, turn
 const STARFISH = { id: 'starfish-772749', spots: [[-6.6, 12.4, 0.4], [-2.1, 13.0, 2.0], [-5.7, 15.4, 3.6], [-1.3, 15.1, 5.1], [-7.5, 14.3, 1.1]] };
-// the dock: pier pieces (4 m square) out from the sand at kit x -50, z 20, into the sea; the fisherman at its end
-const DOCK = { x: -50, z0: 20, n: 5, size: 4 };
 // the fishing, s: a round of `round`; the float bobs till the bite, the grouper is hauled up over `haul`, hangs on the
 // line, is swung in and dropped in the bucket; the float lies `cast` m out past the dock's end
 const FISH = { round: 16, bite: 7, haul: 2.5, hang: 3.2, drop: 1.2, cast: 6.5, hangBelow: 0.9 };

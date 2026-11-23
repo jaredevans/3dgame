@@ -23,8 +23,9 @@ export function onWalkway(w, x, z) {
   }
   return false;
 }
-// a walkway's level where the land is `ground` high
-export const walkwayLevel = (ground, seaLevel) => Math.max(ground, seaLevel + WALKWAY_DECK);
+// a walkway's level where the land is `ground` high: its deck `deck` m over the sea (a jetty's WALKWAY_DECK; Oceanside's
+// dock, its own)
+export const walkwayLevel = (ground, seaLevel, deck = WALKWAY_DECK) => Math.max(ground, seaLevel + deck);
 
 // A ride's vehicle as the walker meets it: { foot: { min: { x, z }, max: { x, z } } (its footprint in its holder's frame,
 // +z forward: the vehicle's own body where it stands on the ground, not a balloon's envelope overhead), holder: { position:
@@ -60,9 +61,15 @@ function approachesFor(walks, inTown) {
 export function makeWalkWorld({ place, termini, terrain, seaLevel, vehicles = [] }) {
   const walks = termini.filter(Boolean).map((t) => t.walk);
   const platformY = (x, z) => { for (const w of walks) { const y = w.platformY(x, z); if (y !== null && y !== undefined) return y; } return null; };
-  const ways = place.def?.walkways ?? [], onWay = (x, z) => ways.some((w) => onWalkway(w, x, z));
-  const heightAt = (x, z) => platformY(x, z) ?? (place.onLand(x, z) ? place.groundAt(x, z)
-    : onWay(x, z) ? walkwayLevel(terrain.heightAt(x, z), seaLevel) : terrain.heightAt(x, z));
+  const ways = place.def?.walkways ?? [], wayAt = (x, z) => { for (const w of ways) if (onWalkway(w, x, z)) return w; return null; };
+  const onWay = (x, z) => wayAt(x, z) !== null;
+  const heightAt = (x, z) => {
+    const p = platformY(x, z);
+    if (p !== null) return p;
+    if (place.onLand(x, z)) return place.groundAt(x, z);
+    const w = wayAt(x, z);
+    return w ? walkwayLevel(terrain.heightAt(x, z), seaLevel, w.deck) : terrain.heightAt(x, z);
+  };
   const inTown = place.inTown ?? place.onLand, reaches = approachesFor(walks, inTown);
   return {
     blocked: (x, z, r) => {

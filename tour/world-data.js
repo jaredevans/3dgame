@@ -59,6 +59,13 @@ export const PLACES = {
       ...[-30, -50].map((x) => ({ key: 'promenade-bench', x, z: -12 })),
       { key: 'litter-bin', x: -42, z: -12.5 },
     ],
+    // getting about on foot (owner, 2026-11-22: it was hard): the beach and seafront east of the town are open ground
+    // (in the kit's frame, out of the sea; 26 m and more from either line, and meeting the jetty), its low props are no
+    // hindrance, and its boardwalk's and dune walkover's decks are walked on (places.js)
+    roam: { x: [-70, 30], z: [-12, 45] },
+    passable: ['marram-grass-tuft', 'herring-gull', 'bunting-run', 'deck-chair', 'sun-lounger', 'driftwood-log', 'mooring-bollard',
+      'windbreak', 'tide-post', 'tamarisk-bush', 'swimmer'],
+    decks: ['boardwalk-deck-run', 'dune-walkover'],
     // arrivals from the City along the south edge; the climb to the Mountain leaves from the east edge, heading south
     // from the shore past the end of the City line's buffers
     stations: [
@@ -119,6 +126,16 @@ export const PLACES = {
       { leg: 'future-city', end: 'start', role: 'departure', platformLength: 120 },
     ] },
 };
+
+// Oceanside's dock (life/oceanside.js builds it, owner 2026-11-22): n pier pieces `size` m square out from the sand at
+// the kit's x, z0 into the sea, its deck `deck` m over the sea; walked on along a walkway `width` wide down its middle,
+// not drawn (the pier is its deck), to just short of the fisherman at its end
+export const OCEANSIDE_DOCK = { x: -50, z0: 20, n: 5, size: 4, deck: 2.4, width: 2.6 };
+{
+  const o = PLACES.ocean, c = Math.cos(o.rot), s = Math.sin(o.rot), D = OCEANSIDE_DOCK;
+  const at = (lx, lz) => ({ x: o.centre.x + lx * c + lz * s, z: o.centre.z - lx * s + lz * c });
+  o.walkways.push({ points: [at(D.x, D.z0 - D.size / 2), at(D.x, D.z0 + (D.n - 1) * D.size + 0.4)], width: D.width, deck: D.deck, draw: false });
+}
 
 export const LEGS = {
   'city-ocean': {
