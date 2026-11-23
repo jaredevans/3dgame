@@ -64,6 +64,10 @@ export const EVENTS = {
     showpiece('viaduct', 646, 896, { kind: 'below', at: 771 }),
   ],
   'mountain-west': [
+    // (owner, 2026-11-22) a handcar coming the other way on the other line, two men pumping it (handcar.js), meeting
+    // the train about 290-350 (the train still gathering speed from the Mountain); its shot low beside that line past
+    // where they meet, the handcar coming by close, the train coming up behind it
+    ev('handcar', 130, 450, { shot: { kind: 'trackside', at: 360, lateral: 7 } }),
     ev('snow', 250, 750, { shot: { kind: 'high-wide', at: 500, lateral: 80 } }),
     ev('rockfall', 450, 650, { shot: { kind: 'chase', at: 550 } }),
     // the trestle spans a slot canyon whose walls stand ~65 m over the rails within 25–40 m of the line, so a camera beside
