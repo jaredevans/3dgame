@@ -46,24 +46,27 @@ export const GANG = {
 const RIDERS = [
   // (they pull up together, within a few metres of each other, as the archers' volleys land in front of them all at
   // once: owner, 2026-11-22)
-  { go: 240, along: -9, wait: 20, lane: 8.5, file: 1.0, stop: 498, phase: 0.0, surge: 6 },
-  { go: 250, along: -15, wait: 22, lane: 12.5, file: -1.0, stop: 494, phase: 1.3, surge: 5 },
-  { go: 230, along: -21, wait: 17, lane: 9.5, file: 1.0, stop: 496, phase: 2.6, surge: 6 },
-  { go: 262, along: -27, wait: 27, lane: 13.5, file: -1.0, stop: 490, phase: 3.9, surge: 0 },
-  { go: 245, along: -33, wait: 21, lane: 9.0, file: 0.0, stop: 486, phase: 5.2, surge: 0 },
+  // (owner, 2026-11-23: the chase longer, more of its shooting before the archers: pulled up at ~560-572, in file on
+  // the climb, rather than ~490; they can't lie in wait any sooner, the railway too near the road before ~240)
+  { go: 240, along: -9, wait: 20, lane: 8.5, file: 1.0, stop: 572, phase: 0.0, surge: 6 },
+  { go: 250, along: -15, wait: 22, lane: 12.5, file: -1.0, stop: 568, phase: 1.3, surge: 5 },
+  { go: 230, along: -21, wait: 17, lane: 9.5, file: 1.0, stop: 570, phase: 2.6, surge: 6 },
+  { go: 262, along: -27, wait: 27, lane: 13.5, file: -1.0, stop: 564, phase: 3.9, surge: 0 },
+  { go: 245, along: -33, wait: 21, lane: 9.0, file: 0.0, stop: 560, phase: 5.2, surge: 0 },
 ];
 const SURGE = [330, 390, 450];   // ride-s: the surge rises from the first, holds from the second, falls back by the third
 // the director's two over the chase: the chase from low ahead beside the road (on its right, the gang's lanes on its
 // left) as the gang breaks from its ambush, and a heli abreast out past the gang's lanes as they ride level with it
 export const GANG_SHOTS = [
   { id: 'gang-low', s0: 255, s1: 345, shot: { kind: 'trackside', at: 350, lateral: -6, height: 1.2, fov: 45 } },
-  // (held 2.5 s, so it's over before the arrows' shot comes in, ~400)
-  { id: 'gang-heli', s0: 360, s1: 400, shot: { kind: 'heli', lateral: 30, height: 7, fov: 52, hold: 2.5 } },
+  // (held 7 s, the chase's shooting, so it's over as the arrows' shot comes in, ~475)
+  { id: 'gang-heli', s0: 360, s1: 470, shot: { kind: 'heli', lateral: 30, height: 7, fov: 52, hold: 7 } },
   // and the arrows (owner, 2026-11-22): gliding in from high over the hillside off the road's right to just below the
-  // band of archers (about ride-s 507-517, 70 m out), between them and the road, a close look up at them facing it
-  // before they loose (gang.js: its focus, the band until then; above them the hillside filled the frame); then following each volley in flight down onto the road in front of its rider, all
-  // five (loosed from ride-s 449, landing by 586)
-  { id: 'arrows', s0: 400, s1: 520, shot: { kind: 'high-wide', at: 498, lateral: -60, height: 1.6, fov: 55, look: 'focus', hold: 11, from: { at: 470, lateral: -115, height: 24 }, push: 2.6 } },
+  // band of archers (about ride-s 605-613, 70 m out), between them and the road, a close look up at them facing it
+  // as it arrives, just before they loose (gang.js: its focus, the band until then; owner, 2026-11-23: it lingered on
+  // them); then on them as they loose and riding behind the last volley down onto the road in front of the riders
+  // (loosed from ride-s 529, landing by 591)
+  { id: 'arrows', s0: 470, s1: 600, shot: { kind: 'high-wide', at: 600, lateral: -60, height: 1.6, fov: 55, look: 'focus', hold: 9, from: { at: 560, lateral: -115, height: 24 }, push: 2.6 } },
 ];
 
 const smooth = (u) => { u = Math.min(1, Math.max(0, u)); return u * u * (3 - 2 * u); };
@@ -215,7 +218,7 @@ export const GANG_RIDERS = RIDERS.length;
 // 2026-11-22). Each volley is loosed ARROWS.flight s before
 // it lands (in the coach's ride-s: the same picture whatever the frame rate) and lands as the rider begins to pull up,
 // ARROWS.lead m ahead of the rider (ARROWS.spread m along and across), stuck in the ground thereafter. Worked out once.
-export const ARROWS = { per: 3, every: 0.7, band: { a: 512, out: -70, gap: 2.6 }, flight: 1.6, early: 4, lead: [5, 9], near: 1.8, coach: 4.2, spread: 2.6, apex: 16, clear: 2.5 };
+export const ARROWS = { per: 3, every: 0.7, band: { a: 586, out: -70, gap: 2.6 }, flight: 1.6, early: 4, lead: [5, 9], near: 1.8, coach: 4.2, spread: 2.6, apex: 16, clear: 2.5 };
 const ARROW_PLANS = new WeakMap();
 // -> { arrows: [{ rider, sLoose, sLand, from: { x, z }, to: { x, z } }] in order of sLoose }
 export function arrowPlan(ride) {
