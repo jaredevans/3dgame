@@ -66,7 +66,7 @@ export function noseUp(s, L) {
 // off its nose). Its bolts spent, it pulls out ahead to STRIKE.slot, where the craft's missile finds it (STRIKE.hit,
 // where it's gone and its blast begins). `radius`: the saucer's
 export const UFO = {
-  s0: 9000, s1: 14000, arrive: 700,
+  s0: 9300, s1: 14000, arrive: 700,   // (in just after the craft's first turn round the rocket: owner, 2026-11-23)
   from: { along: -380, side: -160, up: 330 },
   slot: { along: 56, side: -52, up: 16 }, weave: { along: 50, side: 7, up: 5 }, period: 2500, phase: 1.7,
   radius: 8,
@@ -180,7 +180,7 @@ export function ringAt(t, out = {}) {
 // nearest NEAR metres from the craft (craftDistance), or of anywhere about it if none in its patch comes within
 // `TOLERANCE` of that. Worked out once, on a straight course, the first time they're asked for (the UFO's build, at a
 // standstill: some tens of ms); the tests measure them on its real one. -> [{ s, from, dir, miss, near }]
-export const BOLT = { first: 9750, every: 265, count: 10, speed: 520, reach: 260, length: 24 };
+export const BOLT = { first: 10050, every: 230, count: 10, speed: 520, reach: 260, length: 24 };
 const NEAR = 4.5, TOLERANCE = 0.6;
 const AIM = [
   { along: [4, 11], up: [-1.5, 2.5] }, { along: [-1, 3], up: [2, 6.5] }, { along: [-11, -4], up: [-1.5, 3] }, { along: [2, 9], up: [3, 7.5] },

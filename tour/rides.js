@@ -180,6 +180,9 @@ function coach() {
 }
 
 export const JET = { radius: 1800, cruise: 80, rest: 1.0, pass: 90, pastPad: 500 };
+// its two turns round the rocket: their radius about the pad (m), how much it climbs over them, the step between their
+// points (degrees), and how far on round it goes after them before heading for home (degrees)
+export const LOOPS = { r: 290, climb: 30, step: 30, exit: 169 };
 // The starfighter (west-future; ride id 'jet'): Polyfork's agile starfighter (7 m, its X-foils 6.4 m across), from a
 // pad beside the Wild West's departure platform, out low across the desert (80 m over the highest land within 300 m),
 // buzzing the rocket as it climbs off its pad (Task 6's launch, where it stands, 5.5 km off the line), wheeling round
@@ -214,13 +217,14 @@ function jet() {
     runIn.push({ x, z, y: over(x, z, 300, JET.cruise) });
   }
   const cruiseY = over(E.x, E.z, 300, JET.cruise), up = (k) => cruiseY + (buzzY - cruiseY) * k;
-  const buzz = [line(3200, cruiseY), line(2100, up(0.45)), line(1100, up(0.85)), line(450, buzzY), line(0, buzzY),
-    line(-JET.pastPad, buzzY - 25)];
-  // round the far side of the pad (bearings 185 to 285 degrees, through 270: north) back down to its cruise
-  const circle = [];
-  for (let deg = 185; deg <= 285; deg += 20) {
-    const a = deg * Math.PI / 180, x = pad.x + R * Math.cos(a), z = pad.z + R * Math.sin(a);
-    circle.push({ x, z, y: Math.max(over(x, z, 300, JET.cruise), deg < 215 ? buzzY - 80 : 0) });
+  const buzz = [line(3200, cruiseY), line(2100, up(0.45)), line(1100, up(0.85)), line(450, buzzY), line(0, buzzY)];
+  // twice round the rocket as it climbs (owner, 2026-11-23), on a circle LOOPS.r about its pad, from abreast of it
+  // (bearing 90 degrees, heading on its way) through two whole turns, climbing LOOPS.climb as it goes, then on round
+  // to LOOPS.out and away, back down to its cruise
+  const circle = [], L = LOOPS;
+  for (let deg = 90 + L.step; deg <= 90 + 720 + L.exit; deg += L.step) {
+    const a = deg * Math.PI / 180, k = Math.min(1, (deg - 90) / 720), x = pad.x + L.r * Math.cos(a), z = pad.z + L.r * Math.sin(a);
+    circle.push({ x, z, y: buzzY + L.climb * k });
   }
   // the landing: down a 3.5-degree glide to a hover 5 m over the apron 20 m short of where it sets down, then down
   const OUT = -45, level = ground(to(60, OUT).x, to(60, OUT).z) + REST;
@@ -250,7 +254,9 @@ function jet() {
 // would have the blast behind the camera or the craft long gone by it)
 export const JET_SHOTS = [
   { id: 'rocket-launch', s0: 4200, s1: 6000, shot: { kind: 'chase' } },
-  { id: 'rocket-circle', s0: 7850, s1: 9000, shot: { kind: 'wide', lateral: 200, fov: 55 } },
+  // (twice round the rocket: owner, 2026-11-23. Abreast of it on the outside of its turn, its left, the rocket beyond
+  // it on its right, held through most of its first turn; the UFO's event cuts in at its second)
+  { id: 'rocket-circle', s0: 7650, s1: 9300, shot: { kind: 'heli', lateral: 45, height: 4, fov: 55, hold: 8 } },
 ];
 
 // The flying car (future-city): up from a pad beside the Futuristic place's departure platform, 55 m over the highest

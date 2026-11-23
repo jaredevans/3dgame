@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
   OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
   BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand, LOW_FLIGHT, lowFlight,
-  FAR_TRAINS_FROM, placeFarTrains, AIRLINER, airlinerToss } from '../rides.js';
+  FAR_TRAINS_FROM, placeFarTrains, AIRLINER, airlinerToss, LOOPS } from '../rides.js';
 import { makeRideTrack } from '../ride-run.js';
 import { legSections, FEATURES } from '../world-data.js';
 import { onWalkway } from '../walk-world.js';
@@ -210,7 +210,8 @@ test('the starfighter flies round the rocket pad: its path comes within 2.2 km o
   assert.ok(r.profile.v * 3.6 >= 750 && r.profile.v * 3.6 <= 800, `${(r.profile.v * 3.6).toFixed(0)} km/h`);
   along(r.path, 10, (p, s) => {
     if (s < 2500 || s > r.path.length - 2500) return;
-    const up = p.y - ground(p.x, p.z), buzz = s > BUZZ.s - 2500 && s < BUZZ.s + 2000;
+    // (and twice round the rocket at its height after the buzz: owner, 2026-11-23, 4.6 km of loops)
+    const up = p.y - ground(p.x, p.z), buzz = s > BUZZ.s - 2500 && s < BUZZ.s + 2 * 2 * Math.PI * LOOPS.r + 1500;
     assert.ok(up >= 60 && up <= (buzz ? 260 : 150), `the starfighter ${up.toFixed(0)} m up at ${s}`);
   });
 });
@@ -1081,8 +1082,22 @@ test('the UFO paces the starfighter after it has wheeled round the rocket, never
   assert.ok(ev && ev.actor === 'ufo' && ev.s0 === UFO.s0 && ev.s1 === UFO.s1);
   assert.equal(ev.shot.kind, 'heli');
   assert.ok(ev.shot.lateral > 0, 'the heli on the starfighter\'s left, the saucer beyond it on its right');
-  const at0 = r.path.at(UFO.s0), b0 = (Math.atan2(at0.z - pad.z, at0.x - pad.x) * 180 / Math.PI + 360) % 360;
-  assert.ok(UFO.s0 > BUZZ.s + 1500 && b0 > 180, `the UFO comes at bearing ${b0.toFixed(0)}`);
+  // once the craft has been once all the way round the rocket after its buzz (it goes twice round: owner, 2026-11-23)
+  let turned = 0, last = null;
+  for (let s = BUZZ.s; s <= UFO.s0; s += 20) {
+    const q = r.path.at(s), b = Math.atan2(q.z - pad.z, q.x - pad.x);
+    if (last !== null) turned += Math.atan2(Math.sin(b - last), Math.cos(b - last));
+    last = b;
+  }
+  assert.ok(UFO.s0 > BUZZ.s + 1500 && Math.abs(turned) >= 2 * Math.PI - 0.3, `the UFO comes ${(turned * 180 / Math.PI).toFixed(0)} degrees round`);
+  // and the craft goes round twice in all
+  let all = 0; last = null;
+  for (let s = BUZZ.s; s <= BUZZ.s + 6000; s += 20) {
+    const q = r.path.at(s), b = Math.atan2(q.z - pad.z, q.x - pad.x);
+    if (last !== null) all += Math.atan2(Math.sin(b - last), Math.cos(b - last));
+    last = b;
+  }
+  assert.ok(Math.abs(all) >= 4 * Math.PI - 0.3, `round the rocket ${(all * 180 / Math.PI).toFixed(0)} degrees`);
   let st = { s: 0, t: 0 };
   while (st.s < STRIKE.hit) { st = rideStep(st, 1 / 60, r); if (st.s >= UFO.s0) assert.ok(Math.abs(st.v - r.profile.v) < 1e-6, 'the UFO comes while it cruises'); }
   for (let s = UFO.s0 - 50; s <= STRIKE.hit + 50; s += 1) {
@@ -1185,15 +1200,15 @@ test('the starfighter\'s showpieces: the lift-off from behind as it runs in; its
   const buzz = r.events.find((e) => e.id === 'rocket-pass');
   assert.ok(buzz && !buzz.actor && buzz.shot.kind === 'wide' && buzz.shot.at === BUZZ.s && buzz.shot.lateral > 0, 'the buzz from the side away from the rocket');
   assert.ok(buzz.s0 < BUZZ.s && buzz.s1 > BUZZ.s);
+  // twice round the rocket (owner, 2026-11-23): abreast of it on the outside of its turn, the rocket beyond it
   const wide = r.showpieces.find((p) => p.id === 'rocket-circle');
-  assert.equal(wide.shot.kind, 'wide');
-  assert.ok(wide.shot.lateral >= 200, 'out past it, the pad beyond it');
+  assert.equal(wide.shot.kind, 'heli');
   for (let s = wide.s0; s <= wide.s1; s += 50) {
     const p = r.path.at(s), d = Math.hypot(p.x - pad.x, p.z - pad.z), cam = r.path.offsetAt(s, wide.shot.lateral);
-    assert.ok(d <= 2200, `${d.toFixed(0)} m from the pad in its window at ${s}`);
-    assert.ok(Math.hypot(cam.x - pad.x, cam.z - pad.z) > d + 40, 'the camera is not on its side away from the pad');
+    assert.ok(d <= LOOPS.r + 150, `${d.toFixed(0)} m from the pad in its window at ${s}`);
+    assert.ok(Math.hypot(cam.x - pad.x, cam.z - pad.z) > d + 20, 'the camera is not on the outside of its turn');
   }
-  assert.ok(wide.s1 - wide.s0 >= 5 * r.profile.v && wide.s1 <= UFO.s0 && wide.s0 > BUZZ.s + 500);
+  assert.ok(wide.s1 - wide.s0 >= 5 * r.profile.v && wide.s1 <= UFO.s0 && wide.s0 >= BUZZ.s);
 });
 
 test('the land while riding: a slow ride\'s as a train\'s; the jet\'s asked for ahead of it, coarse all round first, mid below it, its landing within the mid some seconds before it gets there', () => {
