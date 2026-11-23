@@ -24,7 +24,7 @@ import { EVENTS, eventsFor, makeEventTrack } from './events.js';
 import { makeReactions, mustBrake } from './react.js';
 import { makeSlicer, scenery } from './slicer.js';
 import { autoThrottle, autoMark, tourKey, makeHornCue } from './autopilot.js';
-import { findPath, makeFollower } from './autopath.js';
+import { findPath, straightWay, makeFollower } from './autopath.js';
 import { tunnelDepth } from './structures.js';
 import { makeDimmer } from './dimmer.js';
 import { makeHdEnvironment, updateHdLight, prepareHdAnimals } from './hd.js';
@@ -1089,6 +1089,14 @@ async function boot() {
   // ... or to `goal` ({ x, z }); more: findPath's options over these (a ride's reach)
   function autoPlanTo(goal, more = {}) {
     const from = { x: player.state.x, z: player.state.z }, token = ++auto.token, t0 = performance.now(), started = auto.t;
+    // straight there if nothing's in the way: no search (it took seconds, sliced over frames, for a way that ran
+    // straight: owner, 2026-11-23)
+    const straight = straightWay(walkWorld(), from, goal, more.reach ? { reach: more.reach } : {});
+    if (straight) {
+      autoLog('plan', { place: state.place, found: true, straight: true, metres: Math.round(Math.hypot(goal.x - from.x, goal.z - from.z)) });
+      auto.follower.set(straight.points);
+      return;
+    }
     const job = findPath(walkWorld(), from, { x: goal.x, z: goal.z }, { ...(auto.failures ? { margin: 80, cell: 0.25, clear: 0, soft: 0.2 } : {}), ...more });
     auto.planning = { job };
     autoSlicer.run(job).then((path) => {

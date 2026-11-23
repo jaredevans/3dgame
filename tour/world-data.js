@@ -87,6 +87,10 @@ export const PLACES = {
   mountain: { name: 'Mountain', kit: KITS.mountain, centre: { x: 2500, z: 680 }, y: 32.5, rot: 130 * Math.PI / 180, ground: 22,
     size: [112, 112], offset: [-4.5, -1.5], landMin: -21,
     build: {},
+    // getting about on foot (owner, 2026-11-23): the hillside round the village is open ground within roam.r m (6 m and
+    // more off the lines), so you walk straight to the stagecoach in the station yard (114 m out) and away from where
+    // the balloon sets down (78 m out); places.js
+    roam: { r: 140, lineClear: 6 },
     // the climb from Oceanside arrives along the north side; the Canyon Express leaves down the east side
     stations: [
       { leg: 'ocean-mountain', end: 'end', role: 'arrival', platformLength: 120 },

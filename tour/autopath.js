@@ -23,6 +23,18 @@ export const PATH = {
   maxCells: 4e6,
 };
 
+// the straight way from `from` to within `reach` of `to`, if the walker's body is clear of everything and in bounds all
+// along it (checked every `step` m): -> { points: [from, its end] } or null (something's in the way: search for one)
+export function straightWay(world, from, to, { reach = PATH.reach, step = 0.25, clear = PATH.clear } = {}) {
+  const dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz), go = Math.max(0, len - reach), r = BODY + clear;
+  if (len < 1e-6) return { points: [{ x: from.x, z: from.z }] };
+  for (let d = 0; d <= go + 1e-9; d += step) {
+    const x = from.x + (dx * d) / len, z = from.z + (dz * d) / len;
+    if (!world.inBounds(x, z) || world.blocked(x, z, r)) return null;
+  }
+  return { points: [{ x: from.x, z: from.z }, { x: from.x + (dx * go) / len, z: from.z + (dz * go) / len }] };
+}
+
 // from { x, z } (where he stands), to { x, z } -> a generator that returns { points: [{ x, z }] (from first, the last
 // within PATH.reach of to), cells: [{ x, z }] (the squares' centres it went through), searched } or null (no way within
 // the margin)

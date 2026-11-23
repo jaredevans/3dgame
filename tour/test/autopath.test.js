@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findPath, makeFollower, PATH } from '../autopath.js';
+import { findPath, makeFollower, PATH, straightWay } from '../autopath.js';
 import { stepWalker, BODY, RUN } from '../walk.js';
 import { footControls } from '../foot-view.js';
 
@@ -150,4 +150,16 @@ test('the search is a job a frame can slice: it yields as it goes', () => {
   while (!(r = job.next()).done) yields++;
   assert.ok(yields > 3, `${yields} yields`);
   assert.ok(r.value.points.length >= 2);
+});
+
+// owner, 2026-11-23: a long pause after getting off the balloon, the search taking seconds for a way that ran straight
+test('straightWay: the straight line when it is clear (no search), to within reach; null when anything is in the way', () => {
+  const open = boxes([]), w = straightWay(open, { x: -20, z: 0 }, { x: 20, z: 0 }, { reach: 5 });
+  assert.ok(w && w.points.length === 2);
+  assert.ok(Math.abs(w.points[1].x - 15) < 1e-9, 'it stops within reach, short of the goal (a ride\'s vehicle is solid)');
+  assertWalkable(open, w.points);
+  assert.equal(straightWay(boxes([{ x0: -1, x1: 1, z0: -1, z1: 1 }]), { x: -20, z: 0 }, { x: 20, z: 0 }), null);
+  assert.equal(straightWay(boxes([], 10), { x: -5, z: 0 }, { x: 20, z: 0 }), null, 'out of bounds on the way');
+  // the goal itself inside something solid, but reachable within reach: the straight way stops short of it
+  assert.ok(straightWay(boxes([{ x0: 18, x1: 22, z0: -2, z1: 2 }]), { x: -20, z: 0 }, { x: 20, z: 0 }, { reach: 5 }));
 });
