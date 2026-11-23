@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { RIDE_LEGS, RIDE_DT, ESCORT, formationOffsets, placeEscort, rideFor, rideStep, rideLegS, COACH_GRADE, COACH_COL, JET,
   OCTOPUS, OCTOPUS_ARMS, OCTOPUS_BODY, OCTOPUS_GIRTH, octopusPose, armJoints, swerveAt, placeOctopus,
   BALLOON, envelopeRadius, BURNS, burnAt, CROWS, crowOffset, placeCrow, rideLegEvents, JET_SHOTS, RIDE_LAND, rideLand, LOW_FLIGHT, lowFlight,
-  FAR_TRAINS_FROM, placeFarTrains, AIRLINER, airlinerToss, LOOPS } from '../rides.js';
+  FAR_TRAINS_FROM, placeFarTrains, AIRLINER, airlinerToss, airlinerAt, LOOPS } from '../rides.js';
 import { makeRideTrack } from '../ride-run.js';
 import { legSections, FEATURES } from '../world-data.js';
 import { onWalkway } from '../walk-world.js';
@@ -1317,6 +1317,38 @@ test('the arrows: a volley lands just ahead of each rider as it begins to pull u
     placeRider(r, land + 600, i, b);
     assert.equal(b.visible, false, `rider ${i} out of sight`);
   }
+});
+
+// owner, 2026-11-23: the airliner flies straight at the balloon, then banks away close in to miss it
+test('the airliner comes straight at the balloon, wings level, then banks hard close in and misses it by 25-60 m', () => {
+  const r = ride('balloon'), v = r.profile.v, o = {}, B = {}, E = BALLOON.envelope;
+  const balloonAt = (t) => { r.path.at(AIRLINER.at + v * t, B); return { x: B.x, y: B.y + E.belly, z: B.z }; };
+  // on its way in: on a collision course (its heading pointing where it'll meet the balloon), wings level
+  const meet = balloonAt(0);
+  for (let t = -6; t < -AIRLINER.dodge.at; t += 0.25) {
+    airlinerAt(r, t, o);
+    assert.equal(o.roll, 0);
+    const want = Math.atan2(meet.x - o.x, meet.z - o.z), off = Math.atan2(Math.sin(want - o.yaw), Math.cos(want - o.yaw));
+    assert.ok(Math.abs(off) < 0.01, `heading ${off} off the balloon at ${t} s`);
+    const d = Math.hypot(meet.x - o.x, meet.z - o.z), drop = (o.y - meet.y) / d;
+    assert.ok(Math.abs(drop - AIRLINER.glide) < 0.01, 'coming down at it on its glide');
+  }
+  // it breaks close in (under 200 m off), steeply banked, and passes clear of the envelope (and its wingtips: 18 m)
+  airlinerAt(r, -AIRLINER.dodge.at, o);
+  const b0 = balloonAt(-AIRLINER.dodge.at);
+  assert.ok(Math.hypot(o.x - b0.x, o.z - b0.z) < 200);
+  let near = Infinity, bank = 0;
+  for (let t = -AIRLINER.dodge.at; t < 6; t += 0.02) {
+    airlinerAt(r, t, o);
+    const p = balloonAt(t), d = Math.hypot(o.x - p.x, o.y - p.y, o.z - p.z);
+    if (d < near) { near = d; bank = o.roll; }
+  }
+  assert.ok(near > 25 && near < 60, `passing ${near.toFixed(0)} m from the envelope's middle`);
+  assert.ok(near - 18 > E.radius + 5, 'its wingtips clear of the envelope');
+  assert.ok(bank > 1, `banked ${(bank * 180 / Math.PI).toFixed(0)} degrees as it goes by`);
+  // and rolls out, wings level again, a few seconds on
+  airlinerAt(r, 4, o);
+  assert.equal(o.roll, 0);
 });
 
 // owner, 2026-11-23: an airliner buzzes the balloon at the top of its flight, its wake tossing it for a few seconds

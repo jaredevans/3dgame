@@ -251,7 +251,7 @@ export async function buildBalloon({ ride, slicer, still, kit, terrain, loadAnim
   const actors = new Map();
   try { actors.set('crows', await buildCrows({ ride, slicer, still, loadAnimal })); } catch (err) { if (err?.dropped) throw err; warn('crows', err); }
   // the airliner that buzzes it at the top of its flight (airliner.js): left out, warned, if it can't be had
-  try { actors.set('airliner', await buildAirliner({ ride, slicer, crown: E.crown })); } catch (err) { if (err?.dropped) throw err; warn('airliner', err); }
+  try { actors.set('airliner', await buildAirliner({ ride, slicer })); } catch (err) { if (err?.dropped) throw err; warn('airliner', err); }
 
   let t = 0, riding = false, rideT = 0, heading = null, night = -1, spin = 0;
   const TOSS = {};

@@ -369,14 +369,58 @@ export function placeEscort(ride, s, slot, out) {
 export const BOAT_DOLPHINS = { s0: 200, s1: 800, pod: [[-2, 4.2], [3, 5.6], [-7, 7.0], [1, -4.4], [-4, -5.8], [5, -7.2]], weave: 0.6 };
 export const BOAT_WHALE = { s0: 1250, s1: 1520, at: 1380, out: 13, down: 0.8 };
 
-// the airliner buzzing the balloon (rides/airliner.js; owner, 2026-11-23): it crosses the balloon's path at ride-s `at`
-// (the top of its flight, 219 m up), `over` m over its envelope's crown, square across its way at `speed` m/s on its
-// way down to land (`glide`: m down per m on), seen from `before` m of the balloon's travel before to `after` after;
-// its wake tosses the balloon for `toss.secs` s after it's over: rocking, swaying and twisting, dying away
+// the airliner buzzing the balloon (rides/airliner.js; owner, 2026-11-23): on its way in to land, it flies straight at
+// the balloon at the top of its flight (ride-s `at`, 219 m up), square across its way at `speed` m/s on a collision
+// course, aimed at its envelope's belly as the balloon gets there, coming down gently (`glide`: m down per m on); then,
+// `dodge.at` s short of it, it rolls hard into a `dodge.bank` bank (owner, 2026-11-23: it banks away when it's close)
+// and turns away behind the balloon, climbing, and rolls out once by. Seen from `before` m of the balloon's travel
+// before to `after` after; its wake tosses the balloon for `toss.secs` s after it's over: rocking, swaying and
+// twisting, dying away
 export const AIRLINER = {
-  id: 'narrow-body-airliner-619183', at: 812, over: 18, speed: 75, glide: 0.06, before: 120, after: 100,
+  id: 'narrow-body-airliner-619183', at: 812, speed: 75, glide: 0.06, before: 120, after: 100,
+  // s short of the meeting it breaks; s rolling in, the bank (radians), s held, s rolling out; m/s it climbs at its bank
+  dodge: { at: 2.2, roll: 0.6, bank: 1.2, hold: 2.6, out: 1.4, climb: 2 },
   toss: { secs: 4.5, roll: 0.3, pitch: 0.18, sway: 2.6, yaw: 0.25 },
 };
+// the airliner's flight t s from the meeting (the balloon at `at`), in its own frame: `a` m on along its approach from
+// the meeting point, `b` m out to its left (the way it turns: behind the balloon), `y` m up from the meeting point's
+// height, `turn` radians it's turned left off its approach, `roll` radians banked to its left, `pitch` radians nose
+// down -> out, filled
+export function airlinerFlight(t, out = {}) {
+  const A = AIRLINER, D = A.dodge, v = A.speed, t0 = -D.at, sink = A.glide * v;
+  out.turn = 0; out.roll = 0; out.b = 0;
+  if (t <= t0) { out.a = v * t; out.y = -sink * t; out.pitch = Math.atan(A.glide); return out; }
+  const bankAt = (u) => {
+    const r = u - t0, ease = (x) => x * x * (3 - 2 * x);
+    if (r < D.roll) return D.bank * ease(r / D.roll);
+    if (r < D.roll + D.hold) return D.bank;
+    if (r < D.roll + D.hold + D.out) return D.bank * (1 - ease((r - D.roll - D.hold) / D.out));
+    return 0;
+  };
+  let a = v * t0, b = 0, y = -sink * t0, psi = 0, vy = -sink, u = t0;
+  const step = 1 / 60;
+  while (u < t) {
+    const h = Math.min(step, t - u), r = bankAt(u + h / 2), k = r / D.bank;
+    psi += 9.8 * Math.tan(r) / v * h;
+    vy = -sink + (D.climb + sink) * k;
+    a += v * Math.cos(psi) * h; b += v * Math.sin(psi) * h; y += vy * h;
+    u += h;
+  }
+  out.a = a; out.b = b; out.y = y; out.turn = psi; out.roll = bankAt(t); out.pitch = -Math.atan(vy / v);
+  return out;
+}
+// where the airliner is t s from the meeting, along the balloon ride `ride` -> out { x, y, z, yaw, pitch, roll }
+// (yaw: its heading, the frame's; pitch: nose down; roll: banked to its left)
+export function airlinerAt(ride, t, out = {}) {
+  const P = ride.path.at(AIRLINER.at), yaw = P.yaw + Math.PI / 2, F = airlinerFlight(t, out);
+  const ux = Math.sin(yaw), uz = Math.cos(yaw), nx = Math.cos(yaw), nz = -Math.sin(yaw);
+  const { a, b, y } = F;
+  out.x = P.x + ux * a + nx * b;
+  out.z = P.z + uz * a + nz * b;
+  out.y = P.y + BALLOON.envelope.belly + y;
+  out.yaw = yaw + F.turn;
+  return out;
+}
 // the balloon's toss at ride-s s (its speed v m/s) -> out, filled ({ roll, pitch, yaw: radians, sway: m to its left })
 export function airlinerToss(s, v, out = {}) {
   const T = AIRLINER.toss, t = (s - AIRLINER.at) / Math.max(v, 0.1);
