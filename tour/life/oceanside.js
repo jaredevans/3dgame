@@ -18,9 +18,11 @@ import { makeSpray } from '../rides/spray.js';
 import { crewFigure } from '../rides/crew.js';
 
 // the crabs' fight (owner, 2026-11-22): the kit's own shore crab (its layout has it at -4.2, 14 among its rock pools)
-// and Polyfork's blue-leg hermit crab, facing each other across a point just up the beach from the pools; the hermit at
-// `scale` of its size (1 m tall in its shell, four times the shore crab's 0.25 m), a little bigger than the crab
-const CRABS = { x: -4.4, z: 15.5, facing: 0.6, hermit: 'blue-leg-hermit-crab-ce7b41', scale: 0.4 };
+// and Polyfork's blue-leg hermit crab, facing each other across a point on the flat sand 3 m up the beach from the
+// pools (where the crab stood, the beach falls to the sea at 40%: standing level there, they sank into it); the hermit at
+// `scale` of its size, its body the shore crab's size (owner, 2026-11-22: measured across their claw shoulders and their
+// legs' roots, 0.06 m and 0.08 m; at full size the hermit is 1 m tall in its shell, its body 3.5 times the crab's)
+const CRABS = { x: -2.8, z: 10.8, facing: 0.6, hermit: 'blue-leg-hermit-crab-ce7b41', scale: 0.29 };
 // the starfish round the crab: kit x, z, turn
 const STARFISH = { id: 'starfish-772749', spots: [[-6.6, 12.4, 0.4], [-2.1, 13.0, 2.0], [-5.7, 15.4, 3.6], [-1.3, 15.1, 5.1], [-7.5, 14.3, 1.1]] };
 // the fishing, s: a round of `round`; the float bobs till the bite, the grouper is hauled up over `haul`, hangs on the
@@ -106,6 +108,9 @@ async function buildCrabFight(place) {
   };
   let t = 0, lastA = null, lastB = null;
   const ground = (x, z) => kp.groundAt(x, z) ?? crab.position.y;
+  // each stood on the sand by its lowest point (its feet), not its origin
+  const footOf = (o) => { o.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(o), w = o.getWorldPosition(new THREE.Vector3()); return Math.max(0, w.y - b.min.y); };
+  const liftA = footOf(crab), liftB = footOf(hermit.object);
   return (dt) => {
     t += dt;
     crabFightAt(t, F);
@@ -113,13 +118,13 @@ async function buildCrabFight(place) {
     const ax = CRABS.x - ux * (h - F.a), az = CRABS.z - uz * (h - F.a), bx = CRABS.x + ux * (h - F.b), bz = CRABS.z + uz * (h - F.b);
     // the shore crab, its legs scuttling as it moves
     const movedA = lastA === null ? 0 : Math.hypot(ax - lastA[0], az - lastA[1]) / Math.max(dt, 1e-3);
-    crab.position.set(ax, ground(ax, az), az);
+    crab.position.set(ax, ground(ax, az) + liftA, az);
     crab.rotation.set(0, yaw, 0);
     A.legs.forEach((l, k) => { l.rotation.y = Math.min(1, movedA * 4) * 0.35 * Math.sin(t * 22 + k * 1.7); });
     claws(A, F.raise, F.snapA);
     // the hermit crab, walking while it moves, its claws over its own clip
     const movedB = lastB === null ? 0 : Math.hypot(bx - lastB[0], bz - lastB[1]) / Math.max(dt, 1e-3);
-    hermit.object.position.set(bx, ground(bx, bz), bz);
+    hermit.object.position.set(bx, ground(bx, bz) + liftB, bz);
     hermit.object.rotation.set(0, yaw + Math.PI, 0);
     hermit.play(movedB > 0.05 ? 'Walk' : 'Idle', { timeScale: 1.6 });
     hermit.update(dt);
