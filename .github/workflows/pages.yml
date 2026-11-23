@@ -1,6 +1,6 @@
 # Publishes the site to GitHub Pages on every push to main. The tour's Polyfork kits aren't in this repo (Polyfork's
 # licence doesn't allow passing their modules on as files), so the published tour builds them from the owner's Polyfork
-# account CDN: this job writes the gitignored tour/local.js from the repository secret POLYFORK_CDN (the account's
+# account CDN: its build job writes the gitignored tour/local.js from the repository secret POLYFORK_CDN (the account's
 # cdn_base link), with kits: 'cdn' (config.js KIT_CDN), and fetches Polyfork's materials engine into the published site.
 # Neither goes into the repo. (Settings -> Pages -> Source must be "GitHub Actions".)
 name: Publish to GitHub Pages
@@ -19,12 +19,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+# (two jobs, as GitHub's own Pages workflow has them: the site built and uploaded, then deployed in a job of its own;
+# deployed in the same job, the upload wasn't always found yet, 2026-11-23)
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,5 +49,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
