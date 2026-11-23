@@ -13,11 +13,15 @@ import { SEA_LEVEL, OCEANSIDE_DOCK as DOCK } from '../world-data.js';
 import { loadAnimal } from '../actors/animals.js';
 import { leapAt, loopAt } from '../actors/paths.js';
 import { makeWhale } from '../actors/whale-model.js';
-import { breachAt, breachSecs, swimAt, flipAt } from '../actors/sea-moves.js';
+import { breachAt, breachSecs, swimAt, flipAt, crabFightAt, CRAB } from '../actors/sea-moves.js';
 import { makeSpray } from '../rides/spray.js';
 import { crewFigure } from '../rides/crew.js';
 
-// the starfish round the crab (the kit's layout has it at -4.2, 14 among its rock pools): kit x, z, turn
+// the crabs' fight (owner, 2026-11-22): the kit's own shore crab (its layout has it at -4.2, 14 among its rock pools)
+// and Polyfork's blue-leg hermit crab, facing each other across a point just up the beach from the pools; the hermit at
+// `scale` of its size (1 m tall in its shell, four times the shore crab's 0.25 m), a little bigger than the crab
+const CRABS = { x: -4.4, z: 15.5, facing: 0.6, hermit: 'blue-leg-hermit-crab-ce7b41', scale: 0.4 };
+// the starfish round the crab: kit x, z, turn
 const STARFISH = { id: 'starfish-772749', spots: [[-6.6, 12.4, 0.4], [-2.1, 13.0, 2.0], [-5.7, 15.4, 3.6], [-1.3, 15.1, 5.1], [-7.5, 14.3, 1.1]] };
 // the fishing, s: a round of `round`; the float bobs till the bite, the grouper is hauled up over `haul`, hangs on the
 // line, is swung in and dropped in the bucket; the float lies `cast` m out past the dock's end
@@ -53,6 +57,10 @@ export async function buildOceansideLife({ place, terrain, still, warn = (what, 
     }
   } catch (err) { if (err?.dropped) throw err; warn('starfish', err); }
 
+  // ---- the crabs' fight ----
+  await still();
+  try { const fight = await buildCrabFight(place); if (fight) updates.push(fight); } catch (err) { if (err?.dropped) throw err; warn('crabs\' fight', err); }
+
   // ---- the dock, the fisherman and his grouper ----
   await still();
   try { updates.push(await buildDock({ group, place, terrain, kit, rot, W, warn })); } catch (err) { if (err?.dropped) throw err; warn('dock and fisherman', err); }
@@ -70,6 +78,53 @@ export async function buildOceansideLife({ place, terrain, still, warn = (what, 
   return {
     group,
     update(dt, time) { for (const u of updates) u(dt, time); },
+  };
+}
+
+// the shore crab and the hermit crab fighting (sea-moves.js crabFightAt), both in the kit's own frame (the hermit
+// added beside the crab), each on the kit's ground -> its update, or null if the kit has no crab
+async function buildCrabFight(place) {
+  const kp = place.kitPlace, crab = kp.of?.('shore-crab')?.[0];
+  if (!crab) return null;
+  const kind = await loadAnimal(CRABS.hermit);
+  const hermit = kind.make();
+  hermit.object.name = 'hermit crab';
+  hermit.object.scale.setScalar(CRABS.scale);
+  hermit.play('Idle', { fade: 0 });
+  crab.parent.add(hermit.object);
+  const bones = (o) => ({
+    shoulders: ['Left', 'Right'].map((s) => o.getObjectByName(`${s}ClawShoulder`)).filter(Boolean),
+    elbows: ['Left', 'Right'].map((s) => o.getObjectByName(`${s}ClawElbow`)).filter(Boolean),
+    fingers: ['Left', 'Right'].map((s) => o.getObjectByName(`${s}ClawFinger`)).filter(Boolean),
+    legs: ['Left', 'Right'].flatMap((s) => [1, 2, 3, 4].map((k) => o.getObjectByName(`${s}Leg${k}Hip`))).filter(Boolean),
+  });
+  const A = bones(crab), B = bones(hermit.object), F = {};
+  const claws = (b, raise, snap) => {
+    for (const x of b.shoulders) x.rotation.x = -0.9 * raise;
+    for (const x of b.elbows) x.rotation.x = -0.35 * raise;
+    for (const x of b.fingers) x.rotation.x = 0.7 * snap;
+  };
+  let t = 0, lastA = null, lastB = null;
+  const ground = (x, z) => kp.groundAt(x, z) ?? crab.position.y;
+  return (dt) => {
+    t += dt;
+    crabFightAt(t, F);
+    const yaw = CRABS.facing + F.turn, ux = Math.sin(yaw), uz = Math.cos(yaw), h = CRAB.gap / 2;
+    const ax = CRABS.x - ux * (h - F.a), az = CRABS.z - uz * (h - F.a), bx = CRABS.x + ux * (h - F.b), bz = CRABS.z + uz * (h - F.b);
+    // the shore crab, its legs scuttling as it moves
+    const movedA = lastA === null ? 0 : Math.hypot(ax - lastA[0], az - lastA[1]) / Math.max(dt, 1e-3);
+    crab.position.set(ax, ground(ax, az), az);
+    crab.rotation.set(0, yaw, 0);
+    A.legs.forEach((l, k) => { l.rotation.y = Math.min(1, movedA * 4) * 0.35 * Math.sin(t * 22 + k * 1.7); });
+    claws(A, F.raise, F.snapA);
+    // the hermit crab, walking while it moves, its claws over its own clip
+    const movedB = lastB === null ? 0 : Math.hypot(bx - lastB[0], bz - lastB[1]) / Math.max(dt, 1e-3);
+    hermit.object.position.set(bx, ground(bx, bz), bz);
+    hermit.object.rotation.set(0, yaw + Math.PI, 0);
+    hermit.play(movedB > 0.05 ? 'Walk' : 'Idle', { timeScale: 1.6 });
+    hermit.update(dt);
+    claws(B, F.raise, F.snapB);
+    lastA = [ax, az]; lastB = [bx, bz];
   };
 }
 

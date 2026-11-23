@@ -72,3 +72,27 @@ export function flipAt(t, i, n, out = {}) {
   out.pitch = (FLIP.rise - FLIP.turn * u) * DEG;
   return out;
 }
+
+// the crabs' fight on Oceanside's beach (owner, 2026-11-22): the shore crab and the hermit crab facing each other
+// CRAB.gap m apart across a point, a round of CRAB.round s: they circle it side-stepping (as crabs go), claws up;
+// the shore crab lunges, pincers snapping, the hermit rearing back; they part; the hermit lunges, the crab skittering
+// back; they part, and circle the other way.
+export const CRAB = { round: 7, gap: 0.45, circle: 0.6, lunge: 0.14, back: 0.06 };
+const bump = (t, a, b) => (t <= a || t >= b ? 0 : Math.sin(Math.PI * (t - a) / (b - a)));
+// t s -> out, filled ({ turn: radians round the point, a: how far the shore crab has come in (m), b: the hermit's,
+// snapA, snapB: 0..1 how open each one's pincers are, raise: 0..1 how high the claws are up })
+export function crabFightAt(t, out = {}) {
+  const C = CRAB, u = ((t % C.round) + C.round) % C.round, lap = Math.floor(t / C.round);
+  // circling over 0-2 s one way, 5-7 s the other, the turn kept where it got to between
+  const dir = lap % 2 ? -1 : 1, circled = (x0, x1) => smooth(x0, x1, u);
+  out.turn = C.circle * (lap % 2 ? 1 : 0) + dir * C.circle * (circled(0, 2) - circled(5, 7)) * 0.5;
+  // the lunges: in, and the other giving ground
+  const lungeA = bump(u, 2, 2.7), lungeB = bump(u, 3.6, 4.3);
+  out.a = C.lunge * lungeA - C.back * lungeB;
+  out.b = C.lunge * lungeB - C.back * lungeA;
+  // pincers snapping fast in a lunge, flexing slowly between; claws up throughout, highest in a lunge
+  out.snapA = lungeA > 0 ? 0.5 + 0.5 * Math.sin(u * 38) : 0.25 + 0.25 * Math.sin(u * 3);
+  out.snapB = lungeB > 0 ? 0.5 + 0.5 * Math.sin(u * 38) : 0.25 + 0.25 * Math.sin(u * 3 + 1);
+  out.raise = 0.6 + 0.4 * Math.max(lungeA, lungeB);
+  return out;
+}

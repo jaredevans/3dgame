@@ -1,7 +1,7 @@
 // The whales' and stingrays' moves (actors/sea-moves.js): the breach, the round at the surface, the ray's flip.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BREACH, breachAt, breachSecs, SURFACE, swimAt, FLIP, flipAt } from '../actors/sea-moves.js';
+import { BREACH, breachAt, breachSecs, SURFACE, swimAt, FLIP, flipAt, CRAB, crabFightAt } from '../actors/sea-moves.js';
 
 const DEG = Math.PI / 180;
 
@@ -57,4 +57,24 @@ test('a stingray\'s flip: out of the water nose up, a somersault and a half over
   assert.equal(flipAt(0.5, 1, 3, o).air, false);
   assert.equal(flipAt(FLIP.gap + 0.1, 1, 3, o).air, true);
   assert.equal(flipAt(FLIP.secs + 0.1, 0, 3, o).air, false);
+});
+
+test('the crabs\' fight: circling, the shore crab lunging and the hermit giving ground, then the other way round', () => {
+  const o = {};
+  // circling: no one lunges, the turn moving
+  const t0 = crabFightAt(0.2, {}).turn, t1 = crabFightAt(1.8, {}).turn;
+  assert.ok(Math.abs(t1 - t0) > 0.2);
+  assert.equal(crabFightAt(1, o).a, 0);
+  // the shore crab's lunge: in by CRAB.lunge, the hermit back, pincers snapping
+  crabFightAt(2.35, o);
+  assert.ok(Math.abs(o.a - CRAB.lunge) < 1e-6 && Math.abs(o.b + CRAB.back) < 1e-6 && o.raise > 0.99);
+  // the hermit's: the other way
+  crabFightAt(3.95, o);
+  assert.ok(Math.abs(o.b - CRAB.lunge) < 1e-6 && Math.abs(o.a + CRAB.back) < 1e-6);
+  // never closer than CRAB.gap less a lunge (they never meet), pincers 0..1, and the round repeats
+  for (let t = 0; t < 30; t += 0.05) {
+    crabFightAt(t, o);
+    assert.ok(CRAB.gap - o.a - o.b > 0.2 && o.snapA >= 0 && o.snapA <= 1 && o.snapB >= 0 && o.snapB <= 1);
+  }
+  assert.ok(Math.abs(crabFightAt(0.5, {}).a - crabFightAt(0.5 + CRAB.round, {}).a) < 1e-9);
 });
