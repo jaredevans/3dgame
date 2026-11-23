@@ -880,7 +880,8 @@ test('the gang: five riders break from beside the road after the coach, up behin
   assert.ok(fastest <= 21, `a rider at ${fastest.toFixed(1)} m/s`);
   assert.ok(jump <= 0.5, `a rider jumped ${jump.toFixed(2)} m in a frame`);
   assert.ok(alongside > 60 * 3, `riders alongside the coach for ${(alongside / 60).toFixed(1)} rider-seconds`);
-  assert.ok(inFile > 60 * 5, `riders in file behind it for ${(inFile / 60).toFixed(1)} rider-seconds`);
+  // (no file over the col now: they pull up together under the archers' arrows before the climb, owner 2026-11-22)
+  assert.ok(inFile >= 0);
   // the chase over ride-s ~200-650 (ruling R12): from their ambush to the last pulling up
   assert.ok(firstMove >= 200 && lastStop <= 680, `the chase runs ${firstMove.toFixed(0)}-${lastStop.toFixed(0)}`);
   assert.ok(rails >= CLEAR_LINE + 10, `a rider ${rails.toFixed(1)} m from a line`);
@@ -888,7 +889,7 @@ test('the gang: five riders break from beside the road after the coach, up behin
 
 test('the gang fires and always misses: each puff of dust lands 6 m and more from the coach for all its life, clear of every rider, its line of fire clear of the coach', () => {
   const r = ride('coach'), { shots } = gangPlan(r), o = {}, q = {};
-  assert.ok(shots.length >= 20, `${shots.length} shots`);
+  assert.ok(shots.length >= 14, `${shots.length} shots`);   // (a shorter chase: the arrows stop it at ~490)
   assert.ok(new Set(shots.map((sh) => sh.rider)).size >= 3, 'three riders or more fire');
   assert.ok(shots.some((sh) => sh.ping) && shots.some((sh) => !sh.ping));
   assert.ok(gangPlan(r) === gangPlan(r), 'worked out once');
@@ -920,7 +921,7 @@ test('the gang fires and always misses: each puff of dust lands 6 m and more fro
   }
 });
 
-test('the gang falls back one by one and is gone (out of sight, over 400 m back) before the last 300 m of the ride', () => {
+test('the gang falls back and is gone (out of sight, over 400 m back) before the last 300 m of the ride', () => {
   const r = ride('coach'), o = {}, hidden = new Array(GANG.count).fill(null), stopped = [];
   assert.ok(GANG.s1 <= r.path.length - 300);
   walkRide(r, (s) => {
@@ -937,9 +938,9 @@ test('the gang falls back one by one and is gone (out of sight, over 400 m back)
       if (s >= GANG.s1) assert.ok(!o.visible, `rider ${i} still there at ${s.toFixed(0)}`);
     }
   });
-  // one by one: each pulls up at its own moment, some seconds apart
+  // together, under the archers' volleys (owner, 2026-11-22): all within 30 m of the coach's travel of each other
   const order = stopped.slice().sort((a, b) => a - b);
-  for (let k = 1; k < order.length; k++) assert.ok(order[k] - order[k - 1] >= 20, 'two riders pulled up together');
+  assert.ok(order[order.length - 1] - order[0] <= 30, `pulled up over ${(order[order.length - 1] - order[0]).toFixed(0)} m`);
   assert.ok(hidden.every((h) => h !== null && h <= GANG.s1));
 });
 

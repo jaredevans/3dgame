@@ -44,11 +44,13 @@ export const GANG = {
 // riding lane, its lane on the road in file, when it pulls up (coach ride-s), its weave's phase, and its surge (how far
 // forward it comes, alongside, over ride-s 330-450)
 const RIDERS = [
-  { go: 240, along: -9, wait: 20, lane: 8.5, file: 1.0, stop: 590, phase: 0.0, surge: 6 },
-  { go: 250, along: -15, wait: 22, lane: 12.5, file: -1.0, stop: 545, phase: 1.3, surge: 5 },
-  { go: 230, along: -21, wait: 17, lane: 9.5, file: 1.0, stop: 570, phase: 2.6, surge: 6 },
-  { go: 262, along: -27, wait: 27, lane: 13.5, file: -1.0, stop: 515, phase: 3.9, surge: 0 },
-  { go: 245, along: -33, wait: 21, lane: 9.0, file: 0.0, stop: 480, phase: 5.2, surge: 0 },
+  // (they pull up together, within a few metres of each other, as the archers' volleys land in front of them all at
+  // once: owner, 2026-11-22)
+  { go: 240, along: -9, wait: 20, lane: 8.5, file: 1.0, stop: 498, phase: 0.0, surge: 6 },
+  { go: 250, along: -15, wait: 22, lane: 12.5, file: -1.0, stop: 494, phase: 1.3, surge: 5 },
+  { go: 230, along: -21, wait: 17, lane: 9.5, file: 1.0, stop: 496, phase: 2.6, surge: 6 },
+  { go: 262, along: -27, wait: 27, lane: 13.5, file: -1.0, stop: 490, phase: 3.9, surge: 0 },
+  { go: 245, along: -33, wait: 21, lane: 9.0, file: 0.0, stop: 486, phase: 5.2, surge: 0 },
 ];
 const SURGE = [330, 390, 450];   // ride-s: the surge rises from the first, holds from the second, falls back by the third
 // the director's two over the chase: the chase from low ahead beside the road (on its right, the gang's lanes on its
@@ -72,9 +74,12 @@ const surgeAt = (s) => smooth((s - SURGE[0]) / (SURGE[1] - SURGE[0])) * (1 - smo
 // rider i's own line-s when the coach is at ride-s s
 // and once it has pulled up and turned away (scared off by the arrows: owner, 2026-11-22), back down the road the way
 // it came at RETREAT.rate of the coach's pace, eased in over RETREAT.ramp metres of the coach's travel
-export const RETREAT = { after: 40, ramp: 30, rate: 0.9 };
+// (the rearmost first, each RETREAT.file m of the coach's travel per metre it stood further up the road after the one
+// behind it, so none rides through another)
+export const RETREAT = { after: 40, ramp: 30, rate: 0.9, file: 2.5 };
+const REARMOST = Math.min(...RIDERS.map((R) => R.along));
 function riderA(i, s) {
-  const R = RIDERS[i], aW = R.go + GANG.go / 2 + R.along, back = R.stop + GANG.stop + RETREAT.after;
+  const R = RIDERS[i], aW = R.go + GANG.go / 2 + R.along, back = R.stop + GANG.stop + RETREAT.after + RETREAT.file * (R.along - REARMOST);
   return aW + GANG.go * ramped((s - R.go) / GANG.go) - GANG.stop * ramped((s - R.stop) / GANG.stop) + R.surge * surgeAt(s)
     - RETREAT.rate * RETREAT.ramp * ramped((s - back) / RETREAT.ramp);
 }
@@ -205,8 +210,9 @@ export const GANG_RIDERS = RIDERS.length;
 // Why the gang give up the chase: as each rider comes up the climb, a volley of ARROWS.per arrows from one of a band
 // of five Native archers on the hillside off the road's right (ARROWS.band: standing ARROWS.band.gap apart along the
 // road, ARROWS.band.out m out, about line-s ARROWS.band.a; the first to loose at one end) lands in the road just in
-// front of it, and it pulls up, its horse rearing, turns away and rides off back down the road. Each archer looses
-// three quick shots, ARROWS.every s apart (owner, 2026-11-22). Each volley is loosed ARROWS.flight s before
+// front of it, and it pulls up, its horse rearing, turns away and rides off back down the road. The band looses
+// together, three quick volleys ARROWS.every s apart, so they all pull up within moments of each other (owner,
+// 2026-11-22). Each volley is loosed ARROWS.flight s before
 // it lands (in the coach's ride-s: the same picture whatever the frame rate) and lands as the rider begins to pull up,
 // ARROWS.lead m ahead of the rider (ARROWS.spread m along and across), stuck in the ground thereafter. Worked out once.
 export const ARROWS = { per: 3, every: 0.7, band: { a: 512, out: -70, gap: 2.6 }, flight: 1.6, early: 4, lead: [5, 9], near: 1.8, coach: 4.2, spread: 2.6, apex: 16, clear: 2.5 };

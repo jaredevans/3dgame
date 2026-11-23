@@ -248,7 +248,7 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     const sign = ctx.dir === 'out' ? 1 : -1;
     const snap = cut || shotCam.fresh || shot !== shotCam.shot;
     if (snap) {
-      shotCam.shot = shot; shotCam.fresh = false; shotCam.age = 0; shotCam.spin = -shotCam.spin; shotCam.recheck = 0;
+      shotCam.shot = shot; shotCam.fresh = false; shotCam.age = 0; shotCam.spin = -shotCam.spin; shotCam.recheck = 0; shotCam.followed = false;
       if (camera.fov !== shot.fov) { camera.fov = shot.fov; camera.updateProjectionMatrix(); }
       if (FIXED.has(shot.kind)) {
         // a fixed shot that glides in (shot.from: where it starts, eased to its own stand over shot.push s)
@@ -258,8 +258,19 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
       }
     } else { shotCam.age += dt; shotCam.recheck -= dt; }
     const k = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease), w = quick(ctx.v);
+    // a shot that looks at a set piece's focus, while it offers a place for the camera itself: there, eased, looking at
+    // what it offers (riding behind the last volley of arrows: owner, 2026-11-22)
+    if (shot.look === 'focus' && ctx.follow) {
+      const kq = snap ? 1 : 1 - Math.exp(-dt * SHOT.ease * 2);
+      shotCam.pos.lerp(ctx.follow.pos, kq);
+      shotCam.target.lerp(ctx.follow.at, kq);
+      shotCam.followed = true;
+      camera.position.copy(shotCam.pos);
+      camera.lookAt(shotCam.target);
+      return;
+    }
     if (FIXED.has(shot.kind)) {
-      if (shot.from) {
+      if (shot.from && !shotCam.followed) {
         const u = Math.min(1, shotCam.age / (shot.push || 1)), e = u * u * (3 - 2 * u);
         shotCam.pos.lerpVectors(shotCam.from, shotCam.to, e);
       }

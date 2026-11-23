@@ -81,7 +81,11 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
   const plan = gangPlan(ride);   // (worked out here, at the build's standstill, not mid-ride)
   // the arrows that drive them off (coach-plan.js arrowPlan; Polyfork's arrow, 0.8 m, its point at +z), hidden till
   // loosed, stuck where they land till the ride's event is over
-  const volley = arrowPlan(ride).arrows, arrows = [];
+  const volley = arrowPlan(ride).arrows, arrows = [], lastLoose = Math.max(...volley.map((a) => a.sLoose));
+  const lastLand = Math.max(...volley.filter((a) => a.sLoose === lastLoose).map((a) => a.sLand));
+  const FOLLOW = { back: 7, up: 1.2, ahead: 12 };
+  const lastMid = new THREE.Vector3(), lastDir = new THREE.Vector3(), followPos = new THREE.Vector3(), followAt = new THREE.Vector3();
+  const follow = { pos: followPos, at: followAt };
   for (const a of volley) {
     const m = await cdnPart('arrow-eb66a4', {});
     m.name = 'arrow';
@@ -100,12 +104,13 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
   const hide = () => {
     for (const r of riders) { r.horse.object.visible = false; if (r.flash) r.flash.visible = false; r.flashFor = 0; }
     for (const x of arrows) { x.m.visible = false; x.hissed = false; x.landed = false; x.m.userData.stuck = false; }
-    next = 0; actor.focus = null; lastDown.set(0, 0, 0);
+    next = 0; actor.focus = null; actor.follow = null; lastDown.set(0, 0, 0);
   };
   const loud = (cam, x, z) => (cam ? Math.min(1, LOUD / Math.max(LOUD, Math.hypot(cam.position.x - x, cam.position.z - z))) : 1);
   const actor = {
     group,
     focus: null,   // (the director's arrows shot: the volley in flight, or where the last came down; ride-run.js)
+    follow: null,  // (and where its camera rides, behind the last volley, and what it looks at)
     update(f) {
       archers?.update(f);
       if (!f.on) { hide(); dust.update(f.dt); return; }
@@ -145,8 +150,8 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
       // the arrows: in flight along their arcs, pointing along them; stuck where they came down, a puff and a thud. The
       // director's arrows shot follows the volley in flight (the middle of those in the air), and where the last one
       // came down meanwhile
-      let flying = 0;
-      focusAt.set(0, 0, 0);
+      let flying = 0, lastFlying = 0;
+      focusAt.set(0, 0, 0); lastMid.set(0, 0, 0); lastDir.set(0, 0, 0);
       for (const x of arrows) {
         arrowAt(x.a, s, x.y0, x.y1, A);
         x.m.visible = A.flying || A.landed;
@@ -158,6 +163,7 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
           sound('thud', loud(f.camera, x.a.to.x, x.a.to.z));
         }
         if (A.flying) { focusAt.x += A.x; focusAt.y += A.y; focusAt.z += A.z; flying++; }
+        if (A.flying && x.a.sLoose === lastLoose) { lastMid.x += A.x; lastMid.y += A.y; lastMid.z += A.z; lastDir.x += A.dx; lastDir.y += A.dy; lastDir.z += A.dz; lastFlying++; }
         else if (A.landed && !x.m.userData.stuck) lastDown.set(A.x, A.y, A.z);
         if (A.landed && x.m.userData.stuck) continue;
         dir.set(A.dx, A.dy, A.dz).normalize();
@@ -169,6 +175,17 @@ export async function buildGang({ ride, slicer, still, kit, terrain, loadAnimal,
       if (flying) { focusAt.multiplyScalar(1 / flying); actor.focus = focusAt; }
       else if (lastDown.lengthSq()) actor.focus = lastDown;
       else actor.focus = archers?.lead ?? null;   // (before the first volley: the archers who'll loose it)
+      // on the archers as they loose, every shot (owner, 2026-11-22), then the last volley in flight and where it lands
+      if (archers?.lead && s < lastLoose) actor.focus = archers.lead;
+      // and the camera itself riding just behind the last volley as it flies (FOLLOW.back m behind and FOLLOW.up over
+      // the middle of it, looking FOLLOW.ahead m on along its way), held where it ends up as they land, looking at them
+      if (lastFlying) {
+        lastMid.multiplyScalar(1 / lastFlying);
+        lastDir.normalize();
+        followPos.copy(lastMid).addScaledVector(lastDir, -FOLLOW.back).y += FOLLOW.up;
+        followAt.copy(lastMid).addScaledVector(lastDir, FOLLOW.ahead);
+        actor.follow = follow;
+      } else if (actor.follow && lastDown.lengthSq() && s >= lastLand) followAt.copy(lastDown);
       dust.update(dt);
     },
     dispose() { dust.dispose(); },
