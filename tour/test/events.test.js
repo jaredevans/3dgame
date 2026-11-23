@@ -52,7 +52,8 @@ test('every event that is not always carries a shot, and so does the signal', ()
     }
   }
   const signal = EVENTS['ocean-mountain'].find((e) => e.id === 'signal');
-  assert.deepEqual(signal.shot, { kind: 'trackside', at: 425, lateral: 8 });
+  // (owner, 2026-11-22: short of it, on its side, looking at it, so its red and then its green face the camera)
+  assert.deepEqual(signal.shot, { kind: 'high-wide', at: 385, lateral: 15, height: 3.5, fov: 58, look: 394, tilt: -4 });
 });
 test('aheadOf mirrors on a back run', () => {
   assert.equal(aheadOf(300, 400, 'out'), 100);

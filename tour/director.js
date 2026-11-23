@@ -52,7 +52,7 @@ const DEFAULTS = {
 };
 
 // the tunnel (of `tunnels`) leg-s `s` lies in, or null
-function tunnelAt(tunnels, s) {
+export function tunnelAt(tunnels, s) {
   if (!tunnels) return null;
   for (let i = 0; i < tunnels.length; i++) if (s > tunnels[i].s0 && s < tunnels[i].s1) return tunnels[i];
   return null;

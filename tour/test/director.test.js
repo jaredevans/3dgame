@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDirector, steepOver, STEEP } from '../director.js';
+import { makeDirector, steepOver, STEEP, tunnelAt } from '../director.js';
 
 const seq = (xs) => { let i = 0; return () => xs[i++ % xs.length]; };
 const base = { dt: 0.1, legS: 500, dir: 'out', v: 20, showpieces: [], started: [], length: 100 };
@@ -501,4 +501,19 @@ test('city-ocean: the dolphins\' shot starts before the train draws level with t
       if (dir === 'out') assert.equal(cuts.find((c) => c.id === 'crossing').look, 1610);
     }
   }
+});
+
+test('tunnelAt: the tunnel a leg-s lies in, or null (the director rides the nose while the front is in one)', () => {
+  const tunnels = [{ s0: 434, s1: 642 }];
+  assert.equal(tunnelAt(tunnels, 500), tunnels[0]);
+  assert.equal(tunnelAt(tunnels, 434), null);   // (at its mouth: not yet in it)
+  assert.equal(tunnelAt(tunnels, 700), null);
+  assert.equal(tunnelAt([], 500), null);
+  assert.equal(tunnelAt(undefined, 500), null);
+});
+
+test('ocean-mountain: the signal\'s shot stands short of it, on its side, looking at it, so its lamps face the camera', () => {
+  const e = EVENTS['ocean-mountain'].find((x) => x.id === 'signal'), at = e.react.at.out;
+  assert.ok(e.shot.at < at && e.shot.look > e.shot.at && e.shot.look < at, JSON.stringify(e.shot));
+  assert.ok(e.shot.lateral > 0, 'on the signal\'s side (the left of the line coming up to it)');
 });

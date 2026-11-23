@@ -52,8 +52,11 @@ export const EVENTS = {
     ev('signal', 200, 760, {
       dirs: ['out'], always: true,
       react: { kind: 'signal', at: { out: 400 } },
-      // (by the line just past the signal, on its side: the train comes up to it and stops at its red)
-      shot: { kind: 'trackside', at: 425, lateral: 8 },
+      // (15 m out from the line, on the signal's side past the other line and 3.5 m up, 15 m short of it, looking
+      // between the signal and where the train's front stops: the train comes up and stops at its red, and it turns
+      // green, both in frame. It stands past where the train's middle stops (its front 12 m short of the signal), so the
+      // shot holds through the wait. Owner, 2026-11-22: from past it, following the train, its lamps were turned away)
+      shot: { kind: 'high-wide', at: 385, lateral: 15, height: 3.5, fov: 58, look: 394, tilt: -4 },
     }),
     ev('eagle', 640, 1000, { shot: { kind: 'heli', at: 820, lateral: 70 } }),
     showpiece('portal', 434, 700, { kind: 'portal', at: 642 }, { dirs: ['out'] }),

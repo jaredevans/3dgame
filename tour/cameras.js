@@ -2,7 +2,7 @@
 // clear view down the line ahead), the drone (orbiting the train) and the director (director.js plans the shots and
 // their cuts; framed here). V cycles them; 1 cab, 2 drone, 3 director, 4 nose.
 import * as THREE from 'three';
-import { makeDirector, steepOver, STEEP } from './director.js';
+import { makeDirector, steepOver, STEEP, tunnelAt } from './director.js';
 import { clearUnder } from './structures.js';
 
 const MODES = ['cab', 'nose', 'drone', 'director'];
@@ -235,6 +235,14 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
   }
   function directorView(dt, train, ctx) {
     const { shot, cut } = director.step(ctx);
+    // the train's front in a tunnel: the view from its nose till it's out (owner, 2026-11-22), the planner going on
+    // meanwhile; out of it, the shot is put on afresh, its lens too
+    if (tunnelAt(ctx.tunnels, ctx.legS)) {
+      if (!shotCam.fresh) { camera.fov = FOV; camera.near = 0.1; camera.updateProjectionMatrix(); }
+      shotCam.fresh = true;
+      noseView(dt, train);
+      return;
+    }
     const sign = ctx.dir === 'out' ? 1 : -1;
     const snap = cut || shotCam.fresh || shot !== shotCam.shot;
     if (snap) {
@@ -279,6 +287,11 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
     camera.quaternion.copy(q).multiply(new THREE.Quaternion().setFromEuler(e));
   }
   // ctx (the director's): { dt, legS, dir, v, route (the leg's, in leg-s), length, showpieces, started }
+  function noseView(dt, train) {
+    settleLook(dt, -0.04);
+    const lead = train.cars[0];
+    ride(lead.holder, v.set(0, lead.box.max.y + NOSE.up, lead.box.max.z - NOSE.back), look.pitch + 0.04 + NOSE.pitch);
+  }
   function update(dt, train, ctx) {
     if (mode === 'director' && ctx) { directorView(dt, train, ctx); return; }
     if (mode === 'cab' && cab) {
@@ -286,12 +299,7 @@ export function makeCameras(camera, dom, { heightAt, seaLevel = 0 }) {
       ride(cab.holder, cab.seat, look.pitch);
       return;
     }
-    if (mode === 'nose') {
-      settleLook(dt, -0.04);
-      const lead = train.cars[0];
-      ride(lead.holder, v.set(0, lead.box.max.y + NOSE.up, lead.box.max.z - NOSE.back), look.pitch + 0.04 + NOSE.pitch);
-      return;
-    }
+    if (mode === 'nose') { noseView(dt, train); return; }
     // drone: orbit the middle of the train, following it smoothly (nearer something small: a ride's vehicle sets
     // droneScale, its share of the train's distance)
     const cars = train.cars, k = train.droneScale ?? 1;

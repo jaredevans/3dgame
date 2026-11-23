@@ -62,6 +62,8 @@ test('main.js: on a ride V cycles the seat, chase and director only, and 4 gives
   assert.match(cams, /unsteep\(shot, ctx, sign, at, lateral \* f\);/);
   assert.match(cams, /function unsteep\(shot, ctx, sign, at, lateral\) \{\n\s*if \(ctx\.overhead\) return;/);
   assert.match(cams, /const on = Math\.min\(route\.length, Math\.max\(0, s\)\), past = s - on;/);
+  // in a tunnel the director's view rides the train's nose, its planner going on, and puts its shot on afresh after
+  assert.match(cams, /const \{ shot, cut \} = director\.step\(ctx\);\n[\s\S]{0,200}if \(tunnelAt\(ctx\.tunnels, ctx\.legS\)\) \{[\s\S]{0,160}shotCam\.fresh = true;\n\s*noseView\(dt, train\);/);
 });
 
 // auto mode (Z by train, X by ride) presses what a player would: its throttle steps join yours, its brake is
