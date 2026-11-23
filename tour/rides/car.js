@@ -10,6 +10,7 @@ import { kitNight } from '../actors/metro.js';
 import { lightZones } from '../actors/coast.js';
 import { buildEscort } from './escort.js';
 import { conductorFigure, sitOn } from './crew.js';
+import { dotTexture } from './spray.js';
 
 const POD = { key: 'commuter-hover-pod', params: { colorway: 'arcology-white', glazing: 'canopy', roofHatch: false } };
 // the pod, measured (2 x 2.12 x 4.52 m, +z forward, its floor 0.5 m up, its windows from 0.98 to 1.92 m): cut at its
@@ -26,6 +27,9 @@ const SEAT = { y: 1.52, z: -0.35 };   // your eyes, on the bench (its cushion 0.
 const CUSHION = { top: 0.95, z: -0.48 };   // where you (the conductor) sit on it: its top, your hips over it
 const PAD = { r: 3.4, ring: 0.18, up: 0.04 };
 const NIGHT_STRIP = '#8ff5e8';
+// its red flashing lights (owner, 2026-11-23): a beacon on its cabin's roof, and one at each corner of its hull, in the
+// pod's frame; the left pair and the right flash in turn, the beacon with each, FLASH.rate times a second
+const FLASH = { rate: 1.6, on: 0.35, beacon: [0, TOP.y + 0.06, -0.45], corners: [[0.92, 0.72, 2.1], [-0.92, 0.72, 2.1], [0.92, 0.72, -2.15], [-0.92, 0.72, -2.15]] };
 
 // a ring of the cabin's plan, its corners cut, at height y: eight points round from the front left
 function ring({ y, w, front, back, cut }) {
@@ -159,6 +163,21 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
   holder.add(glazed);
   holder.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(holder);   // (at the origin, unturned: in the holder's own frame)
+  // its red flashing lights: a red lens each, and a glow over it as it flashes
+  const lens = new THREE.MeshStandardMaterial({ color: '#5a0a0a', emissive: new THREE.Color('#ff1a1a'), emissiveIntensity: 0, roughness: 0.4 });
+  const glowMat = new THREE.SpriteMaterial({ map: dotTexture(), color: '#ff2a2a', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false });
+  const flashers = [FLASH.beacon, ...FLASH.corners].map(([x, y, z], i) => {
+    const g = new THREE.Group();
+    g.name = i ? 'red light' : 'red beacon';
+    g.position.set(x, y - ride.rest, z);
+    const bulb = new THREE.Mesh(i ? new THREE.SphereGeometry(0.07, 8, 6) : new THREE.CylinderGeometry(0.09, 0.11, 0.14, 10), lens.clone());
+    const halo = new THREE.Sprite(glowMat.clone());
+    halo.scale.setScalar(i ? 0.9 : 1.4);
+    g.add(bulb, halo);
+    holder.add(g);
+    return { bulb, halo, side: i === 0 ? 0 : (x > 0 ? 1 : -1) };
+  });
+  let flashT = 0;
   // you, the conductor, on the bench in the middle (seen from outside: ride-run.js)
   await slicer.frame();
   await still();
@@ -187,6 +206,14 @@ export async function buildCar({ ride, slicer, still, kit, terrain, warn }) {
     update(f) {
       const k = Math.min(1, Math.max(0, f.night));
       if (k !== night) { night = k; for (const m of glow) m.emissiveIntensity = k; }
+      // the red lights: left and right in turn, the beacon with each, brighter after dark
+      flashT += f.dt ?? 0;
+      const ph = (flashT * FLASH.rate) % 1, left = ph < FLASH.on, right = ph >= 0.5 && ph < 0.5 + FLASH.on;
+      for (const l of flashers) {
+        const on = l.side === 0 ? left || right : l.side > 0 ? left : right;
+        l.bulb.material.emissiveIntensity = on ? 2.5 : 0.15;
+        l.halo.material.opacity = on ? 0.55 + 0.4 * k : 0;
+      }
     },
     dispose() {},
   };

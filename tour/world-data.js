@@ -31,7 +31,8 @@ export const RING = {
 // stations' approaches (station-walk.js), so going on always means walking through the town.
 export const PLACES = {
   city: { name: 'Downtown City', kit: KITS.city, centre: { x: 128, z: -74 }, y: 8, rot: 0, ground: 8, size: [150, 118],
-    build: { city: { seed: 11, blocks: [2, 2], boundary: false } },
+    // (its hot dog carts and their vendors kept out of the kit's merged meshes, to be moved off the street: life/city.js)
+    build: { city: { seed: 11, blocks: [2, 2], boundary: false }, keep: ['prop-hotdog-cart', 'char-vendor'] },
     // departures along the south edge, arrivals from the Futuristic place along the north edge
     stations: [
       { leg: 'city-ocean', end: 'start', role: 'departure', platformLength: 120 },

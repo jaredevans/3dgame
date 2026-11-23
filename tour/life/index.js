@@ -5,5 +5,6 @@
 import { buildOceansideLife } from './oceanside.js';
 import { buildWestLife } from './west.js';
 import { buildFutureLife } from './future.js';
+import { buildCityLife } from './city.js';
 
-export const PLACE_LIFE = { ocean: buildOceansideLife, west: buildWestLife, future: buildFutureLife };
+export const PLACE_LIFE = { ocean: buildOceansideLife, west: buildWestLife, future: buildFutureLife, city: buildCityLife };
