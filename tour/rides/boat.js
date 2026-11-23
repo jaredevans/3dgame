@@ -12,6 +12,7 @@ import { SEA_LEVEL } from '../world-data.js';
 import { swerveAt } from '../rides.js';
 import { buildOctopus } from './octopus.js';
 import { makeSpray } from './spray.js';
+import { buildBoatDolphins, buildBoatWhale } from './boat-sea.js';
 
 const BOAT = { id: 'caique-fishing-boat-262c24', params: { colorway: 'aegean-blue', deckhouse: 'cuddy', mast: 'none', sail: 'none', whitewash: 0.2 } };
 const FLOAT = -0.05;   // the model's origin this far under the surface at rest: its boot-top on the waterline
@@ -91,6 +92,10 @@ export async function buildBoat({ ride, slicer, still, cdnPart, loadAnimal, kit,
   // its set piece: left out, the ride going on without it (and without the swerve), if the octopus can't be had
   const actors = new Map();
   try { actors.set('octopus', await buildOctopus({ ride, slicer, still, loadAnimal })); } catch (err) { if (err?.dropped) throw err; warn('octopus', err); }
+  // the dolphins racing it and the whale breaching beside it (boat-sea.js): left out, the ride going on, if not had
+  await still();
+  try { actors.set('dolphins', await buildBoatDolphins({ ride, slicer, loadAnimal })); } catch (err) { if (err?.dropped) throw err; warn('dolphins', err); }
+  try { actors.set('whale', await buildBoatWhale({ ride, slicer })); } catch (err) { if (err?.dropped) throw err; warn('whale', err); }
   const octopus = actors.has('octopus');
 
   const sw = { lateral: 0, yaw: 0, bank: 0 }, p = new THREE.Vector3();

@@ -99,7 +99,13 @@ function boat() {
   // the cliffs' highest stretch (16 m, some 700-950 m along the path) from out at sea, the cliffs behind the boat
   return {
     pts, step: { ...step, yaw: townward('ocean', 'departure')(step.yaw) }, ease: [8, 10], rest: 0,
-    events: [{ id: 'octopus', s0: OCTOPUS.s0, s1: OCTOPUS.s1, actor: 'octopus', shot: { kind: 'high-wide', at: 975, lateral: -60, height: 3, fov: 42 } }],
+    events: [
+      { id: 'octopus', s0: OCTOPUS.s0, s1: OCTOPUS.s1, actor: 'octopus', shot: { kind: 'high-wide', at: 975, lateral: -60, height: 3, fov: 42 } },
+      // (owner, 2026-11-23: rides/boat-sea.js) dolphins racing it either side, seen from low just ahead, alongside;
+      // and a whale breaching beside it, from across the water on its far side, looking at where it comes down
+      { id: 'dolphins', s0: BOAT_DOLPHINS.s0, s1: BOAT_DOLPHINS.s1, actor: 'dolphins', shot: { kind: 'heli', lateral: 9, height: 1.5, fov: 55 } },
+      { id: 'whale', s0: BOAT_WHALE.s0, s1: BOAT_WHALE.s1, actor: 'whale', shot: { kind: 'high-wide', at: BOAT_WHALE.at + 25, lateral: -45, height: 5, fov: 45, look: BOAT_WHALE.at } },
+    ],
     showpieces: [{ id: 'cliffs', s0: 560, s1: 800, shot: { kind: 'heli', lateral: 35, height: 5 } }],
   };
 }
@@ -340,6 +346,12 @@ export function placeEscort(ride, s, slot, out) {
 // into the sea where the boat was, and falls behind and sinks back. All of it in the boat's frame along its path, keyed
 // to ride-s (so the same s always gives the same picture, whatever the frame rate), and pure: the page poses the
 // octopus's bones from octopusPose and the test measures how near any of it comes to the hull from the same numbers.
+// the speedboat's dolphins (rides/boat-sea.js): their window in ride-s, and each one's place off the boat (m ahead of
+// its middle, m out to its left, +), racing it either side; and its whale: its window, where it breaches (ride-s, m
+// out to the boat's left), and `down`: how far through its breach it is as the boat draws level (it comes down then)
+export const BOAT_DOLPHINS = { s0: 200, s1: 800, pod: [[-2, 4.2], [3, 5.6], [-7, 7.0], [1, -4.4], [-4, -5.8], [5, -7.2]], weave: 0.6 };
+export const BOAT_WHALE = { s0: 1250, s1: 1520, at: 1380, out: 13, down: 0.8 };
+
 export const OCTOPUS = {
   s0: 830, s1: 1170,   // its window in ride-s, about the ride's middle (the path is ~1990 m): ~14 s at cruise
   scale: 5,            // the model is 3.45 m across with its arms splayed

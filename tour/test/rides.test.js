@@ -72,9 +72,9 @@ test('five rides, one per leg, onward', () => {
     assert.equal(rideFor(r.leg), r, 'memoised');
     // each its set piece: the boat's octopus, the balloon's crows, the coach's gang, the starfighter's UFO, the car's
     // escort (the starfighter's other events are the director's shots of its buzz and its strike, with no actor)
+    // (and the boat's dolphins racing it and its whale breaching beside it: owner, 2026-11-23)
     const acted = r.events.filter((e) => e.actor);
-    assert.equal(acted.length, 1);
-    assert.equal(acted[0].actor, { boat: 'octopus', balloon: 'crows', coach: 'gang', jet: 'ufo', car: 'escort' }[r.id]);
+    assert.deepEqual(acted.map((e) => e.actor), { boat: ['octopus', 'dolphins', 'whale'], balloon: ['crows'], coach: ['gang'], jet: ['ufo'], car: ['escort'] }[r.id]);
     for (const e of r.events) if (!e.actor) assert.ok(e.shot, `${e.id}: neither an actor nor a shot`);
     assert.ok(r.showpieces.length >= 1);
   }
@@ -571,9 +571,12 @@ test('the octopus rises out of the sea beside the boat, arches its front arms ov
 
 test('the boat\'s set pieces: the octopus (with its shot, low over the water) about the middle, the cliffs\' showpiece', () => {
   const r = ride('boat'), L = r.path.length;
-  const [ev] = r.events;
-  assert.equal(r.events.length, 1);
-  assert.equal(ev.id, 'octopus'); assert.equal(ev.actor, 'octopus');
+  const ev = r.events.find((e) => e.id === 'octopus');
+  assert.deepEqual(r.events.map((e) => e.id), ['octopus', 'dolphins', 'whale']);
+  assert.equal(ev.actor, 'octopus');
+  // the dolphins before it, the whale after, neither over its window
+  const by = Object.fromEntries(r.events.map((e) => [e.id, e]));
+  assert.ok(by.dolphins.s1 <= ev.s0 && by.whale.s0 >= ev.s1 && by.whale.s1 < L);
   assert.ok(ev.s0 > L * 0.35 && ev.s1 < L * 0.65, 'the octopus is not about the ride\'s middle');
   assert.ok(ev.shot.kind === 'high-wide' && ev.shot.height <= 5 && ev.shot.at > ev.s0 && ev.shot.at < ev.s1);
   // the shot stands over the sea, on the shore side (the octopus is on the other)
