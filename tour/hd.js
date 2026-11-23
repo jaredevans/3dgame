@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { PART_BASES } from './config.js';
-import { firstOf, partBases } from './parts.js';
+import { firstOf, partBases, urlPart, cdnPart } from './parts.js';
 import { hdOn, hdCarUrl, envLevel, animalDress, isAccountCdn, withTimeout, jsonWithin, maskAccount, HD_ANIMALS } from './hd-switch.js';
 
 export const HD = hdOn(globalThis.location?.search ?? '', PART_BASES);
@@ -41,6 +41,17 @@ export function warnFlat(what, err) {
   const why = maskAccount(err?.message ?? err);
   console.warn(`HD ${what} could not be loaded (${why}): using the flat model`);
 }
+// a Polyfork asset by its id: its HD edition from the account CDN when HD is on (lit for its materials), else, or if that
+// fails or doesn't come in time (said once), its flat model from the part bases (the Wild West's tumbleweeds: owner,
+// 2026-11-22)
+export async function hdAsset(id, params = {}) {
+  const base = partBases()[0];
+  if (HD && !down && !failed.has(id) && isAccountCdn(base)) {
+    try { return hdLight(await hdCar(id, () => urlPart(`${base}${id}-hd.mjs`, id, params))); } catch (err) { hdFailed(id, err); }
+  }
+  return cdnPart(id, params);
+}
+
 // a car's HD edition failed: built flat, now and from now on; one that timed out takes every HD train car with it (the
 // account CDN isn't answering: the next car would only wait as long again)
 export function hdFailed(key, err) {

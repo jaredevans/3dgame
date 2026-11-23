@@ -59,13 +59,16 @@ export const PLACES = {
       ...[-30, -50].map((x) => ({ key: 'promenade-bench', x, z: -12 })),
       { key: 'litter-bin', x: -42, z: -12.5 },
     ],
-    // getting about on foot (owner, 2026-11-22: it was hard): the beach and seafront east of the town are open ground
-    // (in the kit's frame, out of the sea; 26 m and more from either line, and meeting the jetty), its low props are no
-    // hindrance, and its boardwalk's and dune walkover's decks are walked on (places.js)
-    roam: { x: [-70, 30], z: [-12, 45] },
+    // getting about on foot (owner, 2026-11-22: it was hard, then still hemmed in): all the land within roam.r m of the
+    // town is open ground (out of the sea, and roam.lineClear m and more off any railway line), only its buildings,
+    // kiosks, boats and towers are solid (its fences, railings, posts, lamps, bins, benches, signs and people are walked
+    // past), and the tops of its boardwalk, dune walkover, sea wall and pier end are walked on (places.js)
+    roam: { r: 110, lineClear: 6 },
     passable: ['marram-grass-tuft', 'herring-gull', 'bunting-run', 'deck-chair', 'sun-lounger', 'driftwood-log', 'mooring-bollard',
-      'windbreak', 'tide-post', 'tamarisk-bush', 'swimmer'],
-    decks: ['boardwalk-deck-run', 'dune-walkover'],
+      'windbreak', 'tide-post', 'tamarisk-bush', 'swimmer', 'dune-fence-run', 'boardwalk-railing-run', 'lifebuoy-post',
+      'lobster-pot-stack', 'wayfinding-sign-post', 'litter-bin', 'lamp-post', 'flag-pole', 'shower-post', 'rescue-paddle-board',
+      'holidaymaker', 'lifeguard', 'fisherman', 'promenade-bench', 'parasol'],
+    decks: ['boardwalk-deck-run', 'dune-walkover', 'sea-wall-run', 'pier-head-platform'],
     // arrivals from the City along the south edge; the climb to the Mountain leaves from the east edge, heading south
     // from the shore past the end of the City line's buffers
     stations: [
@@ -100,7 +103,8 @@ export const PLACES = {
   // platform tops.
   west: { name: 'Wild West', kit: KITS.west, centre: { x: 2940, z: 1950 }, y: 16.3, rot: 0, ground: 15,
     size: [94, 102], offset: [-2, 0.5], landMin: -4.5,
-    build: {},
+    // (its tumbleweeds kept out of the kit's merged meshes, to be swapped for Polyfork's HD one: life/west.js)
+    build: { keep: ['tumbleweed'] },
     // the Canyon Express comes down the east side; the bullet train leaves along the south side, heading west
     stations: [
       { leg: 'mountain-west', end: 'end', role: 'arrival', platformLength: 120 },

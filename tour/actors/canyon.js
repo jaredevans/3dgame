@@ -18,6 +18,10 @@ import { loadAnimal, clipFor } from './animals.js';
 import { HORSE } from './clips.js';
 import { herdPath, paceStep, openStretch, CANYON_COACH, standOnGround } from './paths.js';
 import { crewFigure, seatOnHorse } from '../rides/crew.js';
+import { hdAsset } from '../hd.js';
+
+// Polyfork's tumbleweed (0.5-1.1 m across by its `diameter`), the Wild West's own (life/west.js) and the canyon's
+export const TUMBLEWEED = 'tumbleweed-077954';
 
 // 1 over u 0..a, falling to 0 over b..1 (a and b the ends of the fades in and out)
 const fade = (u, a, b) => Math.max(0, Math.min(1, u / a, (1 - u) / (1 - b)));
@@ -400,7 +404,8 @@ async function buildTumbleweeds({ leg, route, def, terrain, slicer, kit }) {
   for (let i = 0; i < WEEDS.count; i++) {
     await slicer.frame();
     let obj;
-    try { obj = await kit('west', 'tumbleweed', { size: 0.3 + 0.5 * (i / (WEEDS.count - 1)), colorway: i % 2 ? 'dry-plain' : 'sun-bleached' }); } catch (err) {
+    // (Polyfork's tumbleweed in its HD edition when HD is on: owner, 2026-11-22)
+    try { obj = await hdAsset(TUMBLEWEED, { diameter: 0.5 + 0.6 * (i / (WEEDS.count - 1)), arrangement: 1 + (i % 8), colorway: i % 2 ? 'desert-straw' : 'sun-bleached' }); } catch (err) {
       warnOut('tumbleweed', def, leg, err);
       continue;
     }

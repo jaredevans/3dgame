@@ -3,5 +3,6 @@
 //   PLACE_LIFE[id]({ place, terrain, still }) -> Promise<{ group, update(dt, time) }>
 // One that can't be built is warned about and left out; the place goes on without it.
 import { buildOceansideLife } from './oceanside.js';
+import { buildWestLife } from './west.js';
 
-export const PLACE_LIFE = { ocean: buildOceansideLife };
+export const PLACE_LIFE = { ocean: buildOceansideLife, west: buildWestLife };

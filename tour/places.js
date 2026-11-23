@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { kitModule, kitModuleHref, urlModule, urlModuleHref, part } from './parts.js';
 import { kitUrl, KIT_BASE, KIT_CDN } from './config.js';
-import { PLACES, EXTRA_REACH } from './world-data.js';
+import { PLACES, LEGS, EXTRA_REACH, legRoute } from './world-data.js';
 import { landSampler, LAND_MIN } from './land.js';
 import { groundIndex } from './kit-ground.js';
 import { buildWalkway } from './walkways.js';
@@ -70,6 +70,31 @@ async function fetchCdnPlace(def, onProgress) {
     ...(def.build?.city ? [get(kitModule(def.kit, 'city.mjs'))] : []),
     ...[...ground, ...[...ids].map((pid) => `${pid}.mjs`)].map((file) => get(urlModule(`${KIT_CDN}${file}`))),
   ]);
+}
+
+// a place's open ground (def.roam { r, lineClear }): within r m of its centre, and lineClear m and more off every
+// railway line's middle (its two tracks), worked out once on a ROAM_CELL m grid -> open(x, z) in the world
+const ROAM_CELL = 2;
+function roamMask(def, R) {
+  const c = def.centre, reach = R.r + R.lineClear + 10, pts = [], p = {};
+  for (const leg of Object.keys(LEGS)) {
+    const route = legRoute(leg);
+    for (let s = 0; s <= route.length; s += 1.5) { route.at(s, p); if (Math.hypot(p.x - c.x, p.z - c.z) <= reach) pts.push(p.x, p.z); }
+  }
+  const n = Math.ceil((2 * R.r) / ROAM_CELL), x0 = c.x - R.r, z0 = c.z - R.r, open = new Uint8Array(n * n), clear2 = R.lineClear * R.lineClear;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const x = x0 + (i + 0.5) * ROAM_CELL, z = z0 + (j + 0.5) * ROAM_CELL;
+      if (Math.hypot(x - c.x, z - c.z) > R.r) continue;
+      let ok = true;
+      for (let k = 0; k < pts.length && ok; k += 2) { const dx = pts[k] - x, dz = pts[k + 1] - z; if (dx * dx + dz * dz < clear2) ok = false; }
+      open[j * n + i] = ok ? 1 : 0;
+    }
+  }
+  return (x, z) => {
+    const i = Math.floor((x - x0) / ROAM_CELL), j = Math.floor((z - z0) / ROAM_CELL);
+    return i >= 0 && j >= 0 && i < n && j < n && open[j * n + i] === 1;
+  };
 }
 
 // what a walker runs into at the place, in the kit's frame: as the kit's own blocked() (its parts' convex outlines, those
@@ -192,8 +217,13 @@ export async function buildPlace(id, { onProgress = null } = {}) {
   }
   // in the town: on its land, or on the ground round one of its extra parts (Oceanside's seafront), or in its open
   // ground (def.roam: Oceanside's beach and seafront, in the kit's frame)
-  const R = def.roam;
-  const inRoam = (x, z) => { if (!R) return false; const [lx, lz] = toLocal(x, z); return lx >= R.x[0] && lx <= R.x[1] && lz >= R.z[0] && lz <= R.z[1]; };
+  const R = def.roam, roamGrid = R?.r ? roamMask(def, R) : null;
+  const inRoam = (x, z) => {
+    if (!R) return false;
+    if (roamGrid) return roamGrid(x, z);
+    const [lx, lz] = toLocal(x, z);
+    return lx >= R.x[0] && lx <= R.x[1] && lz >= R.z[0] && lz <= R.z[1];
+  };
   const inTown = (x, z) => onLand(x, z) || inRoam(x, z) || extraSpots.some(([ex, ez]) => Math.hypot(x - ex, z - ez) <= EXTRA_REACH);
   return {
     id, def, group, kitPlace, patch, land, toLocal, toWorld, extras,
@@ -215,7 +245,8 @@ export async function buildPlace(id, { onProgress = null } = {}) {
         extras.push(obj);
         obj.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(obj);
-        if (box.max.x - box.min.x > 0.6 || box.max.z - box.min.z > 0.6) extraBoxes.push({ key: e.key, box });
+        const passes = (def.passable ?? []).includes(e.key);   // (a lamp post, a bench: walked past, as the kit's own)
+        if (!passes && (box.max.x - box.min.x > 0.6 || box.max.z - box.min.z > 0.6)) extraBoxes.push({ key: e.key, box });
       }
       // its walkways (the City's path to the speedboat's jetty, Oceanside's jetty), on the land as it is now its patch is in
       for (const [i, w] of (def.walkways ?? []).entries()) {
