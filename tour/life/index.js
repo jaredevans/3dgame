@@ -4,5 +4,6 @@
 // One that can't be built is warned about and left out; the place goes on without it.
 import { buildOceansideLife } from './oceanside.js';
 import { buildWestLife } from './west.js';
+import { buildFutureLife } from './future.js';
 
-export const PLACE_LIFE = { ocean: buildOceansideLife, west: buildWestLife };
+export const PLACE_LIFE = { ocean: buildOceansideLife, west: buildWestLife, future: buildFutureLife };

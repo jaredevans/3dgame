@@ -127,7 +127,7 @@ export const PLACES = {
   future: { name: 'Futuristic', kit: KITS.future, centre: { x: -1065, z: 1200 }, y: 10, rot: 165 * Math.PI / 180, ground: 10,
     size: [140, 156], offset: [-2, 2], landMin: -4.5,
     station: 'future',   // its stations in its own style (station-style.js): the Chrome Arcology's
-    build: {},
+    build: { keep: ['holo-billboard-frame'] },   // (its screens: a geisha's face, life/future.js)
     // the bullet train arrives along the south side; the Metro Glide leaves from the north-west side, heading north-north-east
     stations: [
       { leg: 'west-future', end: 'end', role: 'arrival', platformLength: 120 },
